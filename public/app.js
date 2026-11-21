@@ -5176,18 +5176,27 @@ function renderFactionBar() {
 
   if (tug) {
     const [a, b] = sides; // b's deaths on the left, a's on the right
-    // a team in the middle: every death of its players as one segment (the tooltip says who caused them),
-    // between its kills of a and its kills of b
-    const allDeaths = (x) => {
+    // a team in the middle: every death of its players as one segment, between its kills of a and its
+    // kills of b. Those can be slivers beside the rest (one kill among hundreds of deaths), so all
+    // three share one tooltip that lists everything the team did and had done to it.
+    const midRows = (x) => {
       const d = t[x.id];
-      const rows = [{ value: d.deaths.toLocaleString(), label: `${x.short} ${plural(d.deaths, 'death')}`, color: teamVar(x.id) }];
+      const rows = [];
+      for (const k of sides) if (t[k.id].by[x.id]) rows.push({ value: t[k.id].by[x.id].toLocaleString(), label: `${k.short} players killed by ${x.short}`, color: teamVar(x.id) });
+      if (d.deaths) rows.push({ value: d.deaths.toLocaleString(), label: `${x.short} ${plural(d.deaths, 'death')}`, color: teamVar(x.id) });
       for (const k of shown) if (k !== x && d.by[k.id]) rows.push({ value: d.by[k.id].toLocaleString(), label: `killed by ${k.short}`, color: teamVar(k.id) });
       if (d.own) rows.push({ value: d.own.toLocaleString(), label: 'killed by their own team' });
       if (d.other) rows.push({ value: d.other.toLocaleString(), label: 'other: mobs, falls, lava…' });
-      return seg(`fb-all fb-${x.id}`, d.deaths, rows);
+      return rows;
+    };
+    const midSegs = (x) => {
+      const rows = midRows(x);
+      const segs = [killed(a, x), seg(`fb-all fb-${x.id}`, t[x.id].deaths, rows), killed(b, x)].filter(Boolean);
+      for (const sg of segs) sg.tipRows = rows;
+      return segs;
     };
     const left = [other(b), own(b), ...sides.filter((k) => k !== b).map((k) => killed(b, k))].filter(Boolean);
-    const mid = mids.flatMap((x) => [killed(a, x), allDeaths(x), killed(b, x)]).filter(Boolean);
+    const mid = mids.flatMap(midSegs);
     const right = [killed(a, b), own(a), other(a)].filter(Boolean);
     const segs = ends([...left, ...mid, ...right]);
     // the dividers sit either side of the middle (one, where the left side's deaths end, when nothing's

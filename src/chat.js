@@ -82,6 +82,24 @@ function cleanRich(d) {
   return out.length ? JSON.stringify(out) : null;
 }
 
+// The game words a death from a translation key, and some (a kill with a named item by a damage type
+// that has no ".item" wording, such as death.attack.generic.item) have no English text on the server,
+// so the bare key is all that arrives. Those are worded here the way the game words the others, from
+// what the mod says about the death: "<victim> was killed [by <who>] [using [<weapon>]]".
+const RAW_KEY_RE = /^death\.[A-Za-z0-9_.]{1,80}$/;
+function wordDeath(victim, d) {
+  const str = (v, max) => (typeof v === 'string' ? clean(v, max) : '');
+  let by = str(d?.killer, 20);
+  if (by.toLowerCase() === victim.toLowerCase()) by = ''; // their own weapon
+  const mob = by ? '' : str(d?.mob, 64).replace(/^.*[:.]/, '').replace(/_/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  const weapon = str(d?.weapon, 60);
+  const rich = [{ t: victim, p: victim }, { t: by || mob || weapon ? ' was killed' : ' died' }];
+  if (by) rich.push({ t: ' by ' }, { t: by, p: by });
+  else if (mob) rich.push({ t: ` by ${mob}` });
+  if (weapon) rich.push({ t: ' using ' }, { t: `[${weapon}]`, w: 1 });
+  return { text: rich.map((p) => p.t).join(''), rich };
+}
+
 // POST /api/ingest/chat from the server mod: { events: [{ id, ts, kind, uuid?, name?, display?, rich?, text, via? }] }.
 // via is 'web' for a message sent from the dashboard (see link.js), 'admin' for one an admin sent there.
 // A death message can carry death: { cause, killer?, killer_uuid?, mob?, weapon? } (see combat.js).
@@ -122,9 +140,12 @@ export async function ingestChat(request, env) {
     const text = clean(e.text, MAX_TEXT);
     if (!text) continue;
     const name = e.name ? clean(e.name, 40) || null : null;
-    const rich = cleanRich(e.rich);
-    rows.push([e.id, e.ts, e.kind, e.uuid ? e.uuid.toLowerCase() : null, name, text, cleanDisplay(e.display), rich, e.via === 'web' || e.via === 'admin' ? e.via : null]);
-    if (e.kind === 'death' && name) deaths.push([e.id, { name, text, rich: rich ? JSON.parse(rich) : null, death: e.death }]);
+    let rich = cleanRich(e.rich);
+    // a death the server had no wording for arrives as its bare key ("death.attack.generic.item")
+    const worded = e.kind === 'death' && name && RAW_KEY_RE.test(text) ? wordDeath(name, e.death) : null;
+    if (worded) rich = JSON.stringify(worded.rich);
+    rows.push([e.id, e.ts, e.kind, e.uuid ? e.uuid.toLowerCase() : null, name, worded ? worded.text : text, cleanDisplay(e.display), rich, e.via === 'web' || e.via === 'admin' ? e.via : null]);
+    if (e.kind === 'death' && name) deaths.push([e.id, { name, text: worded ? worded.text : text, rich: rich ? JSON.parse(rich) : null, death: e.death }]);
   }
 
   if (rows.length) {
