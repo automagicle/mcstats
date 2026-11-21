@@ -5268,7 +5268,8 @@ function renderCombatChart() {
   const total = combat.chartMode === 'total';
   $('#cb-mode-each').textContent = v.hourly ? 'Per hour' : 'Per day';
   for (const b of $('#cb-chart-mode').children) b.setAttribute('aria-pressed', String(b.dataset.v === combat.chartMode));
-  $('#cb-chart-label').textContent = total ? 'adding up since the start of the range' : v.hourly ? 'each hour' : 'each day';
+  $('#cb-chart-label').textContent = total ? 'adding up, kill by kill · pinch to zoom, scroll sideways to move, pinch over the left scale to stretch the height'
+    : v.hourly ? 'each hour' : 'each day';
   $('#cb-legend').replaceChildren(...series.map((s) => el('span', {},
     el('i', { class: `cb-key${total ? ' line' : ''}${s.key === 'other' ? ' other' : ''}`, style: `--c:${s.color}` }), s.label)));
   if (!v.rows.length) {
@@ -5276,10 +5277,198 @@ function renderCombatChart() {
     root.replaceChildren(el('div', { class: 'empty-chart', text: combat.rows.length ? 'No kills or deaths in this range.' : 'No kills or deaths yet this season.' }));
     return;
   }
+  if (total) {
+    // the running total has a point for every kill and death, and its own zoom (kept while the range stays)
+    const from = v.buckets[0].start, to = v.buckets.at(-1).end;
+    const events = combatSeries().map((sr) => ({ ...sr, times: [] }));
+    for (const d of v.rows) if (d.ts >= from && d.ts < to) events.find((sr) => sr.is(d)).times.push(d.ts);
+    for (const sr of events) sr.times.sort((a, b) => a - b);
+    const key = `${from}|${to}`;
+    if (combat.zoom?.key !== key) combat.zoom = { key, x0: from, x1: to, ymax: null };
+    const tspec = { series: events, from, to, start: chartStart() };
+    combat.totalSpec = tspec;
+    redraws.set(root, () => drawCombatTotal(root, tspec));
+    drawCombatTotal(root, tspec);
+    return;
+  }
   const spec = { buckets: v.buckets, hourly: v.hourly, series, total, start: chartStart() };
   redraws.set(root, () => drawCombatChart(root, spec));
   drawCombatChart(root, spec);
 }
+
+// The running total: one stepped line per series that rises at the moment of each kill or death.
+// combat.zoom is what's in view: x0..x1 (unix seconds, inside the range) and ymax (null = fitted to
+// what's in view). The scale on the left is redrawn in place, so it never moves with the lines.
+function drawCombatTotal(root, spec) {
+  root.replaceChildren();
+  const { series, from, to } = spec;
+  const z = combat.zoom;
+  const W = Math.max(280, root.clientWidth);
+  const H = root.clientHeight || 200;
+  const m = { l: 34, r: 10, t: 10, b: 24 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const { x0, x1 } = z;
+  const end = Math.min(to, nowSec()); // the lines stop at now
+  // how many of a series' moments are at or before t
+  const countAt = (times, t) => {
+    let lo = 0, hi = times.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (times[mid] <= t) lo = mid + 1; else hi = mid; }
+    return lo;
+  };
+  const round = (vmax) => { const st = Math.max(1, niceStep(vmax / 4)); return Math.max(st * 2, Math.ceil(vmax / st) * st); };
+  const full = round(Math.max(1, ...series.map((sr) => sr.times.length)));
+  const fitted = round(Math.max(1, ...series.map((sr) => countAt(sr.times, x1))));
+  const ymax = z.ymax ?? fitted;
+  const ystep = Math.max(1, niceStep(ymax / 4));
+  const x = (t) => m.l + ((t - x0) / (x1 - x0)) * pw;
+  const y = (val) => m.t + ph - (val / ymax) * ph;
+  root.totalGeom = { l: m.l, pw, full, ymax };
+
+  const svg = sv('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Kills and deaths adding up over time' });
+  for (let val = 0; val <= ymax + 1e-9; val += ystep) {
+    if (val > 0) svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(val), y2: y(val), class: 'gridline' }));
+    const tx = sv('text', { x: m.l - 6, y: y(val) + 4, 'text-anchor': 'end', class: 'axis-text' });
+    tx.textContent = String(val);
+    svg.append(tx);
+  }
+  const clipId = `${root.id}-total-clip`;
+  const clip = sv('clipPath', { id: clipId });
+  clip.append(sv('rect', { x: m.l, y: m.t - 2, width: pw, height: ph + 3 }));
+  const plot = sv('g', { 'clip-path': `url(#${clipId})` });
+  svg.append(clip, plot);
+  if (spec.start && spec.start > x0) noDataBlock(svg, plot, `${root.id}-hatch`, m.l, Math.min(m.l + pw, x(spec.start)), m.t, ph);
+
+  // time labels: the widest-spaced round hours (or days) that still leave each about 80px
+  const span = x1 - x0;
+  const steps = [1, 2, 3, 6, 12, 24, 48, 168, 336, 720];
+  const hours = steps.find((h) => (h * 3600 / span) * pw >= 80) ?? steps.at(-1);
+  for (let h = Math.ceil(x0 / 3600) * 3600; h < x1; h += 3600) {
+    const info = hourInfo(h);
+    if (hours >= 24 ? info.hour !== 0 || Math.round(h / 86400) % (hours / 24) : info.hour % hours) continue;
+    const tx = sv('text', { x: x(h), y: H - 6, 'text-anchor': 'middle', class: 'axis-text' });
+    tx.textContent = hours >= 24 || info.hour === 0 ? fmt(h, { month: 'short', day: 'numeric' }) : hourName(info.hour, true);
+    svg.append(tx);
+  }
+  svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'baseline' }));
+
+  // "other" underneath, the teams on top; each line holds level until its next kill or death
+  const dots = [];
+  for (const k of series.map((_, idx) => idx).reverse()) {
+    const sr = series[k];
+    let n = countAt(sr.times, x0);
+    let d = `M${x(Math.max(x0, from))},${y(n)}`;
+    for (; n < sr.times.length && sr.times[n] <= x1; n++) d += `H${x(sr.times[n])}V${y(n + 1)}`;
+    d += `H${x(Math.min(x1, end))}`;
+    plot.append(sv('path', { d, class: `cb-line${sr.key === 'other' ? ' other' : ''}`, style: `stroke:${sr.color}` }));
+    dots[k] = sv('circle', { r: 3.5, class: 'cb-dot', style: `fill:${sr.color}`, visibility: 'hidden' });
+  }
+  const cross = sv('line', { y1: m.t, y2: m.t + ph, class: 'crosshair', visibility: 'hidden' });
+  plot.append(cross, ...dots);
+
+  const clear = () => {
+    cross.setAttribute('visibility', 'hidden');
+    for (const dot of dots) dot.setAttribute('visibility', 'hidden');
+    hideTip();
+  };
+  const move = (e) => {
+    const px = e.clientX - svg.getBoundingClientRect().left;
+    if (px < m.l || px > m.l + pw) return clear();
+    const t = Math.min(end, x0 + ((px - m.l) / pw) * span);
+    cross.setAttribute('x1', x(t));
+    cross.setAttribute('x2', x(t));
+    cross.setAttribute('visibility', 'visible');
+    series.forEach((sr, k) => {
+      dots[k].setAttribute('cx', x(t));
+      dots[k].setAttribute('cy', y(countAt(sr.times, t)));
+      dots[k].setAttribute('visibility', 'visible');
+    });
+    showTip(e.clientX, e.clientY, [
+      { label: `By ${fmt(t, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` },
+      ...series.map((sr) => ({ value: String(countAt(sr.times, t)), label: sr.label, color: sr.color })),
+    ]);
+  };
+  svg.addEventListener('pointermove', move);
+  svg.addEventListener('pointerdown', move);
+  svg.addEventListener('pointerleave', clear);
+  root.append(svg);
+  if (x0 > from || x1 < to || z.ymax != null) {
+    const reset = el('button', { type: 'button', class: 'btn cb-reset', text: 'Reset zoom' });
+    reset.addEventListener('click', () => { Object.assign(z, { x0: from, x1: to, ymax: null }); drawCombatTotal(root, spec); });
+    root.append(reset);
+  }
+}
+
+// Zooming and moving the running total: a pinch (Ctrl+wheel on a trackpad or mouse, gesture events in
+// Safari, two fingers on a touch screen) zooms the time around the pointer; over the scale on the left,
+// or with Shift held, it stretches the height instead (from zero, so the lower lines grow). Scrolling
+// sideways moves along. Two fingers on a touch screen do both at once: spread sideways for time,
+// up and down for height.
+(() => {
+  const root = $('#cb-chart');
+  const on = () => combat.chartMode === 'total' && combat.zoom && combat.totalSpec && root.totalGeom && root.querySelector('svg');
+  let frame = 0;
+  const redraw = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; if (on()) drawCombatTotal(root, combat.totalSpec); }); };
+  const MIN = 10 * 60;
+  const zoomX = (factor, clientX) => {
+    const z = combat.zoom, { from, to } = combat.totalSpec, g = root.totalGeom;
+    const f = Math.min(1, Math.max(0, (clientX - root.getBoundingClientRect().left - g.l) / g.pw));
+    const span = Math.min(to - from, Math.max(MIN, (z.x1 - z.x0) * factor));
+    let a = z.x0 + f * (z.x1 - z.x0) - f * span;
+    a = Math.min(to - span, Math.max(from, a));
+    z.x0 = a;
+    z.x1 = a + span;
+    redraw();
+  };
+  const zoomY = (factor) => {
+    const z = combat.zoom, g = root.totalGeom;
+    const next = Math.max(4, (z.ymax ?? g.ymax) * factor);
+    z.ymax = next >= g.full ? null : next; // all the way out: fitted again
+    g.ymax = z.ymax ?? g.ymax;
+    redraw();
+  };
+  const pan = (px) => {
+    const z = combat.zoom, { from, to } = combat.totalSpec, g = root.totalGeom;
+    const span = z.x1 - z.x0;
+    const a = Math.min(to - span, Math.max(from, z.x0 + (px / g.pw) * span));
+    z.x0 = a;
+    z.x1 = a + span;
+    redraw();
+  };
+  const overScale = (e) => e.clientX - root.getBoundingClientRect().left < root.totalGeom.l;
+  root.addEventListener('wheel', (e) => {
+    if (!on()) return;
+    const sideways = !e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    if (!e.ctrlKey && !sideways) return; // an ordinary scroll of the page
+    e.preventDefault();
+    hideTip();
+    if (sideways) return pan(e.deltaX);
+    const factor = Math.exp(Math.max(-50, Math.min(50, e.deltaY)) * 0.01);
+    if (e.shiftKey || overScale(e)) zoomY(factor); else zoomX(factor, e.clientX);
+  }, { passive: false });
+  let last = 1;
+  root.addEventListener('gesturestart', (e) => { if (on()) { e.preventDefault(); last = 1; } });
+  root.addEventListener('gesturechange', (e) => {
+    if (!on()) return;
+    e.preventDefault();
+    const factor = last / e.scale;
+    last = e.scale;
+    if (e.shiftKey || overScale(e)) zoomY(factor); else zoomX(factor, e.clientX);
+  });
+  let touch = null;
+  const spread = (t) => ({ dx: Math.abs(t[0].clientX - t[1].clientX), dy: Math.abs(t[0].clientY - t[1].clientY), cx: (t[0].clientX + t[1].clientX) / 2 });
+  root.addEventListener('touchstart', (e) => { touch = e.touches.length === 2 && on() ? spread(e.touches) : null; }, { passive: true });
+  root.addEventListener('touchmove', (e) => {
+    if (!touch || e.touches.length !== 2 || !on()) return;
+    e.preventDefault();
+    const now = spread(e.touches);
+    // each direction counts once the fingers are far enough apart that way to mean it
+    if (touch.dx > 40 && now.dx > 40) zoomX(touch.dx / now.dx, now.cx);
+    if (touch.dy > 40 && now.dy > 40) zoomY(touch.dy / now.dy);
+    pan(touch.cx - now.cx);
+    touch = now;
+  }, { passive: false });
+  root.addEventListener('touchend', () => { touch = null; });
+})();
 
 // Stacked bars per hour or day, or (total) one rising line per series.
 function drawCombatChart(root, spec) {

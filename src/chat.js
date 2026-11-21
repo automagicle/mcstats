@@ -85,19 +85,89 @@ function cleanRich(d) {
 // The game words a death from a translation key, and some (a kill with a named item by a damage type
 // that has no ".item" wording, such as death.attack.generic.item) have no English text on the server,
 // so the bare key is all that arrives. Those are worded here the way the game words the others, from
-// what the mod says about the death: "<victim> was killed [by <who>] [using [<weapon>]]".
-const RAW_KEY_RE = /^death\.[A-Za-z0-9_.]{1,80}$/;
-function wordDeath(victim, d) {
+// what is known about the death: "<victim> was killed [by <who>] [using [<weapon>]]". Players get the
+// team tag and colors the game gave them in their latest death message, and the weapon its color
+// and tooltip from the gear the mod last reported for whoever held it.
+//   d: { killer?, mob?, weapon? }  ->  { text, rich: [pieces] }
+export const RAW_DEATH_RE = /^death\.[A-Za-z0-9_.]{1,80}$/;
+export async function wordDeath(db, victim, d) {
   const str = (v, max) => (typeof v === 'string' ? clean(v, max) : '');
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
   let by = str(d?.killer, 20);
-  if (by.toLowerCase() === victim.toLowerCase()) by = ''; // their own weapon
+  if (!PLAYER_RE.test(by) || same(by, victim)) by = ''; // (their own weapon)
   const mob = by ? '' : str(d?.mob, 64).replace(/^.*[:.]/, '').replace(/_/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
   const weapon = str(d?.weapon, 60);
-  const rich = [{ t: victim, p: victim }, { t: by || mob || weapon ? ' was killed' : ' died' }];
-  if (by) rich.push({ t: ' by ' }, { t: by, p: by });
+
+  // how the game last styled a player: "[RED] " and the name, in the team's color
+  const styled = async (name) => {
+    const row = await db.prepare(
+      `SELECT rich FROM chat WHERE kind = 'death' AND instr(rich, ?1) > 0 AND instr(rich, '"c":') > 0 ORDER BY id DESC LIMIT 1`
+    ).bind(`"p":${JSON.stringify(name)}`).first().catch(() => null);
+    let pieces = [];
+    try { pieces = JSON.parse(row?.rich || '[]'); } catch { /* plain, below */ }
+    const from = pieces.findIndex((p) => p.p === name);
+    const run = [];
+    for (let i = from; i >= 0 && i < pieces.length && pieces[i].p === name; i++) run.push({ t: pieces[i].t, ...(pieces[i].c ? { c: pieces[i].c } : {}), p: name });
+    return run.length ? run : [{ t: name, p: name }];
+  };
+  // the item of that name in someone's last gear report, with its tooltip (its first line is the name, colored)
+  const held = async (names) => {
+    for (const n of names) {
+      const row = await db.prepare('SELECT data FROM gear WHERE name = ? COLLATE NOCASE').bind(n).first().catch(() => null);
+      if (!row) continue;
+      try {
+        const g = JSON.parse(row.data);
+        const it = [g.mainhand, g.offhand, ...(g.items || [])].find((x) => x && x.name === weapon);
+        if (it) return it;
+      } catch { /* the next holder */ }
+    }
+    return null;
+  };
+
+  const rich = [...await styled(victim), { t: by || mob || weapon ? ' was killed' : ' died' }];
+  if (by) rich.push({ t: ' by ' }, ...await styled(by));
   else if (mob) rich.push({ t: ` by ${mob}` });
-  if (weapon) rich.push({ t: ' using ' }, { t: `[${weapon}]`, w: 1 });
+  if (weapon) {
+    rich.push({ t: ' using ' });
+    const it = await held([by, victim].filter(Boolean));
+    // as an earlier death message showed that weapon (its colors and tooltip), unless the gear report has its tooltip
+    const seen = it?.tip ? null : await db.prepare(
+      `SELECT rich FROM chat WHERE kind = 'death' AND instr(rich, ?1) > 0 AND instr(rich, '"w":1') > 0 ORDER BY id DESC LIMIT 1`
+    ).bind(`"t":${JSON.stringify(weapon)}`).first().catch(() => null);
+    let run = [];
+    try { run = JSON.parse(seen?.rich || '[]').filter((p) => p.w); } catch { /* colored by rarity, below */ }
+    if (run.length && run.some((p) => p.c)) rich.push(...run);
+    else {
+      // else the color the game gives the item's rarity (a mace is epic, a trident rare; enchanting raises it)
+      const base = it?.id === 'mace' ? 2 : it?.id === 'trident' ? 1 : 0;
+      const c = it?.tip?.[0]?.find((p) => p.c)?.c ?? (it ? ['#ffffff', '#55ffff', '#ff55ff'][Math.min(2, base + (it.glint ? 1 : 0))] : null);
+      const piece = (t, more) => ({ t, ...(c ? { c } : {}), w: 1, ...more });
+      const tip = it?.tip ?? (c ? [[{ t: weapon, c, i: 1 }]] : null);
+      rich.push(piece('[', tip ? { i: tip } : {}), piece(weapon), piece(']'));
+    }
+  }
   return { text: rich.map((p) => p.t).join(''), rich };
+}
+
+// Words again the deaths that arrived as a bare key, or were worded before the colors were looked up
+// (plain names, no item marked). Returns how many lines changed. (The admin action deaths.reword.)
+export async function rewordDeaths(db) {
+  const { results } = await db.prepare(
+    `SELECT c.id, c.name, c.text, c.rich, d.killer, d.mob, d.weapon FROM chat c LEFT JOIN deaths d ON d.id = c.id
+     WHERE c.kind = 'death' AND c.name IS NOT NULL
+       AND ((c.text GLOB 'death.*' AND instr(c.text, ' ') = 0)
+         OR (c.rich LIKE '[{"t":%' AND instr(c.rich, '" was killed') > 0 AND instr(c.rich, '"c":') = 0 AND instr(c.rich, '"p":') > 0))
+     LIMIT 200`
+  ).all();
+  let changed = 0;
+  for (const r of results) {
+    const w = await wordDeath(db, r.name, r);
+    const rich = JSON.stringify(w.rich);
+    if (w.text === r.text && rich === r.rich) continue;
+    await db.prepare('UPDATE chat SET text = ?, rich = ? WHERE id = ?').bind(w.text, rich, r.id).run();
+    changed++;
+  }
+  return changed;
 }
 
 // POST /api/ingest/chat from the server mod: { events: [{ id, ts, kind, uuid?, name?, display?, rich?, text, via? }] }.
@@ -142,7 +212,7 @@ export async function ingestChat(request, env) {
     const name = e.name ? clean(e.name, 40) || null : null;
     let rich = cleanRich(e.rich);
     // a death the server had no wording for arrives as its bare key ("death.attack.generic.item")
-    const worded = e.kind === 'death' && name && RAW_KEY_RE.test(text) ? wordDeath(name, e.death) : null;
+    const worded = e.kind === 'death' && name && RAW_DEATH_RE.test(text) ? await wordDeath(env.DB, name, e.death) : null;
     if (worded) rich = JSON.stringify(worded.rich);
     rows.push([e.id, e.ts, e.kind, e.uuid ? e.uuid.toLowerCase() : null, name, worded ? worded.text : text, cleanDisplay(e.display), rich, e.via === 'web' || e.via === 'admin' ? e.via : null]);
     if (e.kind === 'death' && name) deaths.push([e.id, { name, text: worded ? worded.text : text, rich: rich ? JSON.parse(rich) : null, death: e.death }]);

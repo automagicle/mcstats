@@ -13,6 +13,7 @@ import { tellPresence } from './presence.js';
 import { linkProbe, linkStatus } from './link.js';
 import { teamRows } from './teams.js';
 import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
+import { rewordDeaths } from './chat.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -269,6 +270,10 @@ const ACTIONS = {
     if (!id) return bad('bad id');
     await db.prepare('DELETE FROM chat_rules WHERE id = ?').bind(id).run();
     return json({ ok: true, changed: await applyRules(db), chat_rules: await rulesState(db) });
+  },
+  // death lines that arrived without wording, or were worded plainly, written again (src/chat.js wordDeath)
+  async 'deaths.reword'(db) {
+    return json({ ok: true, changed: await rewordDeaths(db) });
   },
   // a death left out of (or back in) the Combat page; it stays in the chat log either way
   async 'death.uncount'(db, b) {

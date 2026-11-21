@@ -1908,3 +1908,7 @@ a.pcb-who:hover { text-decoration: underline; }
 .toast { --pc: var(--ink); box-shadow: var(--pixel), var(--lift); }
 .toast-error { --pc: var(--critical); }
 .cg-dot { border-radius: 50%; }
+
+/* the running total's "Reset zoom", over the top right of its plot */
+#cb-chart { position: relative; }
+.cb-reset { position: absolute; top: 4px; right: 12px; padding: 3px 9px; font-size: 12px; }
