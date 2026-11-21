@@ -12,6 +12,7 @@ import { clearCache } from './cache.js';
 import { tellPresence } from './presence.js';
 import { linkProbe, linkStatus } from './link.js';
 import { teamRows } from './teams.js';
+import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -57,6 +58,7 @@ export async function adminState(env, season) {
     uncounted: uncounted.results,
     deleted: deleted.results,
     link: await linkStatus(env), // the server mod's web chat connection (src/link.js)
+    chat_rules: await rulesState(db), // which chat log lines are left out (src/chatrules.js)
   });
 }
 
@@ -235,6 +237,38 @@ const ACTIONS = {
     if (saved.death) stmts.push(insert('deaths', { ...JSON.parse(saved.death), id: chatRow.id ?? res.meta.last_row_id }));
     stmts.push(db.prepare('DELETE FROM deleted_chat WHERE event_id = ?').bind(b.event_id));
     await db.batch(stmts);
+  },
+  // Chat log rules (src/chatrules.js): each change is applied to the whole log at once.
+  //   rule.add     { rule: { action, kind, match, text, from_ms, to_ms } }
+  //   rule.update  { id, rule? (the same, to replace it), enabled? }
+  //   rule.delete  { id }
+  // Each answers { changed } (lines whose hidden state changed) and the rules as they are now.
+  async 'rule.add'(db, b) {
+    const r = cleanRule(b.rule);
+    if (typeof r === 'string') return bad(r);
+    const { n } = await db.prepare('SELECT COUNT(*) AS n FROM chat_rules').first();
+    if (n >= MAX_RULES) return bad(`at most ${MAX_RULES} rules`);
+    await db.prepare('INSERT INTO chat_rules (action, kind, match, text, from_ms, to_ms, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)')
+      .bind(r.action, r.kind, r.match, r.text, r.from_ms, r.to_ms, Date.now()).run();
+    return json({ ok: true, changed: await applyRules(db), chat_rules: await rulesState(db) });
+  },
+  async 'rule.update'(db, b) {
+    const id = chatId(b.id);
+    if (!id) return bad('bad id');
+    if (b.rule !== undefined) {
+      const r = cleanRule(b.rule);
+      if (typeof r === 'string') return bad(r);
+      await db.prepare('UPDATE chat_rules SET action = ?, kind = ?, match = ?, text = ?, from_ms = ?, to_ms = ? WHERE id = ?')
+        .bind(r.action, r.kind, r.match, r.text, r.from_ms, r.to_ms, id).run();
+    }
+    if (b.enabled !== undefined) await db.prepare('UPDATE chat_rules SET enabled = ? WHERE id = ?').bind(b.enabled ? 1 : 0, id).run();
+    return json({ ok: true, changed: await applyRules(db), chat_rules: await rulesState(db) });
+  },
+  async 'rule.delete'(db, b) {
+    const id = chatId(b.id);
+    if (!id) return bad('bad id');
+    await db.prepare('DELETE FROM chat_rules WHERE id = ?').bind(id).run();
+    return json({ ok: true, changed: await applyRules(db), chat_rules: await rulesState(db) });
   },
   // a death left out of (or back in) the Combat page; it stays in the chat log either way
   async 'death.uncount'(db, b) {

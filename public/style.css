@@ -1778,6 +1778,17 @@ a.pcb-who:hover { text-decoration: underline; }
 .ctx-menu button.danger { color: var(--critical); }
 .ctx-attr { display: flex; flex-direction: column; gap: 6px; padding: 6px; width: 210px; }
 .ctx-label { font-size: 12px; color: var(--muted); }
+.ctx-rule { width: 270px; }
+.ctx-rule select { font: inherit; font-size: 13px; padding: 5px 6px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); }
+/* admin: chat log rules */
+.adm-note { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); max-width: 78ch; }
+.adm-rule-tag { flex: none; min-width: 44px; padding: 1px 6px; font-size: 11.5px; font-weight: 700; text-align: center; }
+.adm-rule-tag.hide { color: var(--critical); background: color-mix(in srgb, var(--critical) 16%, transparent); }
+.adm-rule-tag.show { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); }
+.adm-rule-off .adm-main, .adm-rule-off .adm-rule-tag { opacity: 0.5; }
+.adm-rule-form { margin-top: 8px; }
+.adm-rule-form select.adm-input, .adm-rule-form input[type="datetime-local"] { flex: 0 1 auto; width: auto; }
+.adm-rule-form input[hidden] { display: none; }
 .ctx-attr input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); }
 .ctx-current { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .ctx-menu .ctx-current button { padding: 3px 8px; }

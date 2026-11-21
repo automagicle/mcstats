@@ -3,6 +3,7 @@ import { deathInsert } from './combat.js';
 import { OPEN_ENDED } from './seasons.js';
 import { json, UUID_RE } from './util.js';
 import { tellPresence } from './presence.js';
+import { hiddenByRules, loadRules } from './chatrules.js';
 
 const KINDS = new Set(['chat', 'emote', 'say', 'join', 'leave', 'death', 'advancement', 'server', 'system']);
 const ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
@@ -128,9 +129,12 @@ export async function ingestChat(request, env) {
 
   if (rows.length) {
     // Server messages name a player without a UUID sometimes; fill it in from the players we know.
+    // lines the admin page's rules hide are stored all the same, marked (src/chatrules.js)
+    const rules = await loadRules(env.DB).catch(() => []);
+    for (const r of rows) r.push(hiddenByRules(rules, { kind: r[2], text: r[5], ts: r[1] }) ? 1 : 0);
     const stmt = env.DB.prepare(
-      `INSERT OR IGNORE INTO chat (event_id, ts_ms, kind, uuid, name, text, display, rich, via)
-       SELECT ?1, ?2, ?3, COALESCE(?4, (SELECT uuid FROM players WHERE name = ?5 COLLATE NOCASE ORDER BY first_seen DESC LIMIT 1)), ?5, ?6, ?7, ?8, ?9
+      `INSERT OR IGNORE INTO chat (event_id, ts_ms, kind, uuid, name, text, display, rich, via, hidden)
+       SELECT ?1, ?2, ?3, COALESCE(?4, (SELECT uuid FROM players WHERE name = ?5 COLLATE NOCASE ORDER BY first_seen DESC LIMIT 1)), ?5, ?6, ?7, ?8, ?9, ?10
        WHERE NOT EXISTS (SELECT 1 FROM deleted_chat WHERE event_id = ?1)` // an admin deleted it; a resend stays out
     );
     // each death also goes in the deaths table, with who did it (after its message, in the same batch)
@@ -159,12 +163,13 @@ const BIG = Number.MAX_SAFE_INTEGER;
 //   before=TS:ID      older than a message      after=TS:ID   newer than a message
 //   at=TS             up to and just after a moment (unix ms)
 //   since_id=ID       stored after that id (live updates), whatever their time; add unread_since=ID for a count
-// Only messages within the season's time span, and since its last chat reset, are returned.
+// Only messages within the season's time span, and since its last chat reset, are returned, and none
+// that the admin page's rules hide.
 export async function readChat(env, url, season) {
   const q = url.searchParams;
   const db = env.DB;
   const lo = season.lo * 1000, hi = season.hi * 1000;
-  const inSeason = (a, b) => `ts_ms >= ?${a} AND ts_ms < ?${b}`;
+  const inSeason = (a, b) => `ts_ms >= ?${a} AND ts_ms < ?${b} AND hidden = 0`;
   const limit = Math.min(200, Math.max(1, Math.floor(Number(q.get('limit'))) || 100));
   const cursor = (v) => {
     const m = /^(\d+):(\d+)$/.exec(v || '');
@@ -198,7 +203,7 @@ export async function readChat(env, url, season) {
       const seen = Math.max(0, Math.floor(Number(q.get('unread_since'))) || 0);
       body.unread = (await db.prepare(
         `SELECT COUNT(*) AS n FROM (SELECT 1 FROM chat WHERE id > ? AND kind IN ('chat', 'say', 'emote', 'death', 'advancement')
-         AND ts_ms >= ? AND ts_ms < ? LIMIT 1000)`
+         AND ts_ms >= ? AND ts_ms < ? AND hidden = 0 LIMIT 1000)`
       ).bind(seen, lo, hi).first()).n;
     }
     return json(body);
@@ -255,7 +260,7 @@ export async function searchChat(env, url, season) {
   const limit = Math.min(50, Math.max(1, Math.floor(Number(q.get('limit'))) || 30));
   const text = (q.get('q') || '').trim().slice(0, 100);
   const where = [], args = [];
-  const bounds = ['ts_ms >= ?', 'ts_ms < ?'];
+  const bounds = ['ts_ms >= ?', 'ts_ms < ?', 'hidden = 0'];
   if (text) {
     const field = q.get('in');
     if (field === 'text') where.push("text LIKE ? ESCAPE '\\'");
@@ -323,7 +328,7 @@ export async function playerChat(env, url, season) {
   if (q.get('events') === '1') {
     stmts.push(db.prepare(
       `SELECT id, ts_ms, kind, substr(text, 1, 200) FROM chat
-       WHERE ${inIds} AND kind IN ('chat', 'say', 'emote', 'death', 'advancement') AND ts_ms >= ? AND ts_ms < ?
+       WHERE ${inIds} AND kind IN ('chat', 'say', 'emote', 'death', 'advancement') AND ts_ms >= ? AND ts_ms < ? AND hidden = 0
        ORDER BY ts_ms DESC LIMIT 20000`
     ).bind(...ids, lo, hi));
   }

@@ -6620,6 +6620,51 @@ function renderAdmin() {
       button('Restore', () => adminDo({ action: 'chat.restore', event_id: m.event_id }, 'Restored'), 'btn-quiet'))))
       : empty('Nothing deleted.'));
 
+  /* ---- chat log rules: which lines are left out (src/chatrules.js) ---- */
+  const cr = d.chat_rules || { rules: [], hidden: 0 };
+  const rf = (admin.ruleForm ??= { action: 'hide', kind: 'system', match: 'starts', text: '', from: '', to: '' });
+  const count = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+  const rAction = select([['hide', 'Hide'], ['show', 'Always show']], rf.action, 'Hide or show', 'cr:action');
+  const rKind = select([['', 'every kind of message'], ...RULE_KINDS.map(([k, name]) => [k, `${name} messages`])], rf.kind, 'Kind of message', 'cr:kind');
+  const rMatch = select(RULE_MATCHES, rf.match, 'Which ones', 'cr:match');
+  const rText = el('input', { class: 'adm-input', type: 'text', placeholder: 'text to match (capitals don’t matter)', maxlength: '300',
+    autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Text to match', 'data-fk': 'cr:text' });
+  rText.value = rf.text;
+  rText.hidden = rf.match === 'any';
+  const rFrom = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages from this time on', 'data-fk': 'cr:from' });
+  const rTo = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages before this time', 'data-fk': 'cr:to' });
+  rFrom.value = rf.from;
+  rTo.value = rf.to;
+  rAction.addEventListener('change', () => { rf.action = rAction.value; });
+  rKind.addEventListener('change', () => { rf.kind = rKind.value; });
+  rMatch.addEventListener('change', () => { rf.match = rMatch.value; rText.hidden = rf.match === 'any'; if (!rText.hidden) rText.focus(); });
+  rText.addEventListener('input', () => { rf.text = rText.value; });
+  rFrom.addEventListener('change', () => { rf.from = rFrom.value; });
+  rTo.addEventListener('change', () => { rf.to = rTo.value; });
+  const ms = (v) => (v ? new Date(v).getTime() || null : null);
+  const addRule = async () => {
+    if (rf.match !== 'any' && !rf.text.trim()) { rText.focus(); return; }
+    const rule = { action: rf.action, kind: rf.kind || null, match: rf.match, text: rf.text, from_ms: ms(rf.from), to_ms: ms(rf.to) };
+    const before = cr.rules.length;
+    await adminDo({ action: 'rule.add', rule }, rf.action === 'hide' ? 'Rule added · the chat log is updated' : 'Rule added · those messages show again');
+    if ((admin.data.chat_rules?.rules.length ?? 0) > before) Object.assign(rf, { text: '', from: '', to: '' });
+    renderAdmin();
+  };
+  onEnter(rText, addRule);
+  const rulesCard = card('Chat log rules', 'right-click a message in the chat log to hide ones like it',
+    el('p', { class: 'adm-note', text: `A message is left out of the chat log when a Hide rule matches it and no Always show rule does. Rules cover messages already in the log too, unless you give them a start time. ${cr.hidden ? `${count(cr.hidden, 'message')} ${cr.hidden === 1 ? 'is' : 'are'} hidden now.` : 'Nothing is hidden now.'}` }),
+    cr.rules.length ? el('ul', { class: 'adm-list adm-scroll' }, ...cr.rules.map((r) => el('li', { class: r.enabled ? '' : 'adm-rule-off' },
+      el('span', { class: `adm-rule-tag ${r.action}`, text: r.action === 'hide' ? 'Hide' : 'Show' }),
+      el('span', { class: 'adm-main', text: ruleText(r, when) }),
+      el('span', { class: 'muted adm-when', text: r.enabled ? `matches ${count(r.matches, 'message')}` : 'turned off' }),
+      button(r.enabled ? 'Turn off' : 'Turn on', () => adminDo({ action: 'rule.update', id: r.id, enabled: !r.enabled }, r.enabled ? 'Rule turned off' : 'Rule turned on'), 'btn-quiet', `cr:t${r.id}`),
+      button('Delete', () => adminDo({ action: 'rule.delete', id: r.id }, 'Rule deleted'), 'btn-quiet', `cr:d${r.id}`))))
+      : empty('No rules yet: every message shows.'),
+    el('div', { class: 'adm-form adm-rule-form' }, rAction, rKind, rMatch, rText),
+    el('div', { class: 'adm-form adm-rule-form' },
+      el('span', { class: 'muted', text: 'Only messages from' }), rFrom, el('span', { class: 'muted', text: 'until' }), rTo,
+      el('span', { class: 'muted', text: '(leave empty for all time)' }), button('Add rule', addRule, 'btn-primary', 'cr:add')));
+
   const gapNote = el('span', { class: 'muted adm-gap-note', text: admin.gapNote || '' });
   const gapsCard = card('Missed checks', 'filled in every hour at :07 from joins and leaves, once the chat log catches up',
     el('div', { class: 'adm-form' }, button('Fill gaps now', async () => {
@@ -6671,11 +6716,78 @@ function renderAdmin() {
       teamsCard, rosterCard, el('div', { class: 'grid2' }, hiddenCard, aliasCard), saveBar),
     el('p', { class: 'adm-intro adm-intro-now' }, el('strong', { text: 'Done right away. ' }),
       'These aren’t part of Save: each button here acts as soon as it’s pressed.'),
-    uncountedCard, deletedCard, gapsCard, linkCard);
+    rulesCard, uncountedCard, deletedCard, gapsCard, linkCard);
   if (focusKey) $('#admin').querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
 }
 
-// Right-click a chat line or a death, as an admin: delete it, or leave a death out of Combat.
+// Chat log rules (src/chatrules.js): the kinds of line and ways to match, as the admin page names them.
+const RULE_KINDS = [['system', 'info'], ['server', 'server'], ['chat', 'chat'], ['say', '/say'], ['emote', '/me'],
+  ['join', 'join'], ['leave', 'leave'], ['death', 'death'], ['advancement', 'advancement']];
+const RULE_MATCHES = [['any', 'all of them'], ['exact', 'that say exactly'], ['starts', 'that start with'], ['contains', 'that contain'], ['ends', 'that end with']];
+function ruleText(r, when) {
+  const kind = r.kind ? `${RULE_KINDS.find(([k]) => k === r.kind)?.[1] ?? r.kind} messages` : 'messages of every kind';
+  const what = r.match === 'any' ? `all ${kind}` : `${kind} ${RULE_MATCHES.find(([m]) => m === r.match)[1]} “${r.text}”`;
+  const span = r.from_ms && r.to_ms ? ` · ${when(r.from_ms)} to ${when(r.to_ms)}` : r.from_ms ? ` · from ${when(r.from_ms)}` : r.to_ms ? ` · until ${when(r.to_ms)}` : '';
+  return what[0].toUpperCase() + what.slice(1) + span;
+}
+// The server's test, for taking newly hidden lines off the page at once.
+function ruleMatches(r, m) {
+  const low = (v) => v.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  if (r.kind && r.kind !== m.kind) return false;
+  if (r.from_ms != null && m.ts < r.from_ms) return false;
+  if (r.to_ms != null && m.ts >= r.to_ms) return false;
+  if (r.match === 'any') return true;
+  const text = low(m.text), want = low(r.text.trim());
+  return r.match === 'exact' ? text === want : r.match === 'starts' ? text.startsWith(want) : r.match === 'ends' ? text.endsWith(want) : text.includes(want);
+}
+
+// "Hide messages like this": the menu turns into a small form for a new Hide rule, starting from the
+// line that was clicked (its kind, its exact text).
+function hideLikeThis(m, row, e) {
+  const kindName = RULE_KINDS.find(([k]) => k === m.kind)?.[1] ?? m.kind;
+  const match = el('select', { 'aria-label': 'Which messages' });
+  for (const [v, text] of [['exact', 'With exactly this text'], ['starts', 'Starting with'], ['contains', 'Containing'], ['any', `Every ${kindName} message`]]) match.append(el('option', { value: v, text }));
+  const input = el('input', { type: 'text', maxlength: '300', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Text to match' });
+  input.value = m.text.slice(0, 300);
+  match.addEventListener('change', () => { input.hidden = match.value === 'any'; if (!input.hidden) { input.focus(); input.select(); } });
+  const onlyKind = el('input', { type: 'checkbox' }), past = el('input', { type: 'checkbox' });
+  onlyKind.checked = past.checked = true;
+  const go = async () => {
+    if (match.value !== 'any' && !input.value.trim()) { input.focus(); return; }
+    if (match.value === 'any') onlyKind.checked = true; // never every message of every kind
+    const rule = { action: 'hide', kind: onlyKind.checked ? m.kind : null, match: match.value, text: input.value, from_ms: past.checked ? null : Date.now(), to_ms: null };
+    closeAdminMenu();
+    let res;
+    try {
+      res = await adminPost({ action: 'rule.add', rule });
+    } catch (err) {
+      if (err instanceof DbLimitError) showError(err.message);
+      toast(err.message, { error: true });
+      return;
+    }
+    toast(`${res.changed ? `Hid ${res.changed.toLocaleString()} ${res.changed === 1 ? 'message' : 'messages'}` : 'Rule added'} · change it under Chat log rules on the admin page`, { ms: 5000 });
+    admin.data = null; // the admin page reads the rules again
+    const before = chat.messages.length;
+    chat.messages = chat.messages.filter((x) => !ruleMatches(rule, x));
+    if (chat.messages.length !== before && !$('#view-chat').hidden) renderChat();
+  };
+  const ok = el('button', { type: 'button', class: 'ctx-primary', text: 'Hide' });
+  ok.addEventListener('click', go);
+  input.addEventListener('keydown', (k) => { if (k.key === 'Enter') { k.preventDefault(); go(); } });
+  adminMenu.replaceChildren(el('div', { class: 'ctx-attr ctx-rule' },
+    el('div', { class: 'ctx-label', text: 'Hide from the chat log' }), match, input,
+    el('label', { class: 'ctx-check' }, onlyKind, el('span', { text: `Only ${kindName} messages` })),
+    el('label', { class: 'ctx-check' }, past, el('span', { text: 'Also ones already in the log' })),
+    el('div', { class: 'ctx-row' }, ok)));
+  row.classList.add('ctx-target');
+  adminMenu.hidden = false;
+  const { width, height } = adminMenu.getBoundingClientRect();
+  adminMenu.style.left = `${Math.min(e.clientX, innerWidth - width - 8)}px`;
+  adminMenu.style.top = `${Math.min(e.clientY, innerHeight - height - 8)}px`;
+  match.focus({ preventScroll: true });
+}
+
+// Right-click a chat line or a death, as an admin: delete it, hide ones like it, or leave a death out of Combat.
 const adminMenu = el('div', { class: 'ctx-menu', role: 'menu', hidden: '' });
 document.body.append(adminMenu);
 function closeAdminMenu() {
@@ -6693,6 +6805,7 @@ document.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   closeAdminMenu();
   const id = Number(row.dataset.chatId);
+  const shown = chat.messages.find((x) => x.id === id); // (a death in the Combat log may not be loaded here)
   const item = (text, run, danger = false) => {
     const b = el('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', text });
     b.addEventListener('click', () => { closeAdminMenu(); run(); });
@@ -6707,6 +6820,7 @@ document.addEventListener('contextmenu', (e) => {
         return b;
       })(),
       item("Don't count in combat", () => adminRemove(id, 'death.uncount'))] : []),
+    ...(shown ? [item('Hide messages like this…', () => hideLikeThis(shown, row, e))] : []),
     item('Delete message', () => adminRemove(id, 'chat.delete'), true));
   row.classList.add('ctx-target');
   adminMenu.hidden = false;
