@@ -3528,7 +3528,7 @@ function richText(m) {
   const colored = (p, t = p.t) => (p.c ? el('span', { class: 'mc', style: mcStyle(p.c), text: t }) : t);
   // The weapon's name: marked by the server mod (w); in older messages, the [bracketed] part of a death.
   let itemFrom = -1, itemTo = -1;
-  if (!pieces.some((p) => p.w) && m.kind === 'death') {
+  if (!pieces.some((p) => p.w) && (m.kind === 'death' || m.kind === 'advancement')) { // (or the advancement's name)
     itemFrom = pieces.findIndex((p) => !p.p && p.t.trimStart().startsWith('['));
     if (itemFrom >= 0) {
       itemTo = pieces.findIndex((p, k) => k >= itemFrom && p.t.trimEnd().endsWith(']'));
@@ -3547,10 +3547,41 @@ function richText(m) {
     } else if (isItem(i)) {
       const run = [];
       while (i < pieces.length && !pieces[i].p && isItem(i)) run.push(pieces[i++]);
-      out.push(itemSpan(run));
+      out.push(m.kind === 'advancement' ? advSpan(run, m) : itemSpan(run));
     } else out.push(colored(pieces[i++]));
   }
   return out;
+}
+
+// An advancement named in a message. Hovering (or focusing, or tapping) shows it as the advancements
+// box on a player's page does: its name, what it's for, and when this player earned it (the message's
+// time). The tree, the same for everyone, is fetched the first time one is pointed at.
+let advTree = null;
+function advSpan(run, m) {
+  const node = el('span', { class: 'msg-item has-tip', tabindex: '0' }, ...mcRuns(run));
+  const title = run.map((p) => p.t).join('').trim().replace(/^\[|\]$/g, '');
+  const frame = /challenge/.test(m.text) ? 'challenge' : /goal/.test(m.text) ? 'goal' : 'task';
+  let over = false;
+  const show = async (x, y) => {
+    over = true;
+    advTree ??= api(`/api/advancements?name=${encodeURIComponent(m.name || '')}`).then((d) => d.tree || []).catch(() => { advTree = null; return []; });
+    const tree = await advTree;
+    if (!over) return;
+    const a = tree.find((n) => n.title === title && n.frame === frame) || tree.find((n) => n.title === title) || { title, desc: '', frame };
+    const when = `Earned ${fmt(m.ts / 1000, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+    showTip(x, y, [{ adv: true, node: el('div', { class: `adv-tip done adv-${a.frame}` },
+      el('div', { class: 'adv-tip-title', text: a.title }),
+      el('div', { class: 'adv-tip-body' },
+        a.desc ? el('div', { class: 'adv-tip-desc', text: a.desc }) : null,
+        el('div', { class: 'adv-tip-when', text: `${a.frame === 'task' ? '' : `${a.frame === 'goal' ? 'Goal' : 'Challenge'} · `}${when}` }))) }]);
+  };
+  const hide = () => { over = false; hideTip(); };
+  node.addEventListener('pointerenter', (e) => show(e.clientX, e.clientY));
+  node.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
+  node.addEventListener('pointerleave', hide);
+  node.addEventListener('focus', () => { const r = node.getBoundingClientRect(); show(r.left + 8, r.bottom); });
+  node.addEventListener('blur', hide);
+  return node;
 }
 
 // An item named in a message, a little bolder like the players' names. Hovering (or tapping) shows
@@ -5268,7 +5299,7 @@ function renderCombatChart() {
   const total = combat.chartMode === 'total';
   $('#cb-mode-each').textContent = v.hourly ? 'Per hour' : 'Per day';
   for (const b of $('#cb-chart-mode').children) b.setAttribute('aria-pressed', String(b.dataset.v === combat.chartMode));
-  $('#cb-chart-label').textContent = total ? 'adding up, kill by kill · pinch to zoom, scroll sideways to move, pinch over the left scale to stretch the height'
+  $('#cb-chart-label').textContent = total ? 'adding up · pinch to zoom'
     : v.hourly ? 'each hour' : 'each day';
   $('#cb-legend').replaceChildren(...series.map((s) => el('span', {},
     el('i', { class: `cb-key${total ? ' line' : ''}${s.key === 'other' ? ' other' : ''}`, style: `--c:${s.color}` }), s.label)));
