@@ -19,7 +19,7 @@ icons, the grass-block logo) without dressing up as the game.
 - **Blue means everyone together.** Any other strong colour on a page belongs to a team, or to a
   state (good, warning, critical). No green as decoration.
 - **Tight.** Panels are 14px apart, padding is small, and rows are close. Favour more data on screen
-  over breathing room.
+  over breathing room. The space should feel efficently used (though not busy/cluttered) even on smaller windows and phones. However, remember to incorperate spacing where visually nessesary; don't make it cluttered that the user will be overwhelmed.
 
 ## Colour tokens
 
