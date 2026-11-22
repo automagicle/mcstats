@@ -1912,3 +1912,18 @@ a.pcb-who:hover { text-decoration: underline; }
 /* the running total's "Reset zoom", over the top right of its plot */
 #cb-chart { position: relative; }
 .cb-reset { position: absolute; top: 4px; right: 12px; padding: 3px 9px; font-size: 12px; }
+
+/* dropdowns: our own arrow, set a fixed distance in from the right edge (the browser's sits wherever it likes) */
+select:not([multiple]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' shape-rendering='crispEdges' fill='%238a929c'%3E%3Cpath d='M0 0h2v2H0zM2 2h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 10px 6px;
+  cursor: pointer;
+}
+
+/* a note under a form or table keeps the same distance from it as the form keeps from what's above */
+.adm-form + .adm-note, .adm-table-wrap + .adm-note { margin-top: 12px; }
