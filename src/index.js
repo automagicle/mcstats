@@ -5,17 +5,18 @@ import { CURRENT_SEASON } from './seasons.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
+export { LiveRelay } from './liveview.js';
 
 // Cloudflare refuses every D1 query for the rest of the UTC day once the free plan's daily rows
 // read (or written) limit is used up.
 const isDbLimit = (err) => /free tier daily row (read|write) limit|exceeded D1's free tier/i.test(String(err?.message ?? err));
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) {
       try {
-        return await handleApi(request, env, url);
+        return await handleApi(request, env, url, ctx);
       } catch (err) {
         if (!isDbLimit(err)) throw err;
         // The page shows a banner for this until the limit resets (midnight UTC).

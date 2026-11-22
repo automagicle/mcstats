@@ -46,6 +46,21 @@ final class WebChatLink {
 		CompletableFuture<String> whisper(String from, String to, String text, BooleanSupplier claim);
 	}
 
+	// Liveview (2.0.0) borrows this connection for three small things: telling the dashboard whether it's on
+	// and which keys exist, checking a key an admin typed on the dashboard, and being asked to open its own
+	// connection when someone wants to watch. The view itself never travels here.
+	interface Live {
+		// What to tell the dashboard, as a {"type":"liveview",…} message; null when there's nothing to say yet.
+		String info();
+
+		// The dashboard has someone who wants to watch.
+		void open();
+
+		// Checks a key ("viewer" or "control") typed by the dashboard account `who`. Calls done with
+		// (error, keyId): error is null when the key is right, and keyId then says which key it was.
+		void verify(String level, String key, String who, java.util.function.BiConsumer<String, String> done);
+	}
+
 	private static final long PING_MS = 30_000;
 	private static final long DEAD_MS = 75_000;
 	// the dashboard saying this long (in its answers to the online list) that it doesn't have the connection
@@ -60,6 +75,7 @@ final class WebChatLink {
 	private final LongUnaryOperator dashboardLostFor;
 	private final String userAgent;
 	private final Handler handler;
+	private volatile Live live;
 	private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	private ScheduledExecutorService exec;
@@ -84,6 +100,18 @@ final class WebChatLink {
 		this.dashboardLostFor = dashboardLostFor;
 		this.userAgent = userAgent;
 		this.handler = handler;
+	}
+
+	void live(Live live) {
+		this.live = live;
+	}
+
+	// Liveview's settings or keys changed: tell the dashboard, if connected.
+	void sendLiveInfo() {
+		WebSocket ws = socket;
+		Live l = live;
+		String info = ws == null || l == null ? null : l.info();
+		if (info != null) send(ws, info);
 	}
 
 	void start() {
@@ -186,6 +214,7 @@ final class WebChatLink {
 			backoff = 0;
 			ChatLogMod.LOG.info("Web chat connected; messages sent from the dashboard will show in game");
 			lastWarning = null;
+			sendLiveInfo();
 		});
 	}
 
@@ -278,6 +307,36 @@ final class WebChatLink {
 			if (c != null && !(m.has("ok") && m.get("ok").getAsBoolean())) {
 				c.accept(m.has("error") ? m.get("error").getAsString() : "the website refused it");
 			}
+			return;
+		}
+		if (type.equals("liveview_open")) { // someone on the dashboard wants to watch
+			Live l = live;
+			if (l != null) l.open();
+			return;
+		}
+		if (type.equals("liveview_key") && m.has("id")) { // a Liveview key typed on the dashboard: { id, level, key, who }
+			String id = m.get("id").getAsString();
+			Live l = live;
+			if (l == null) {
+				ack(ws, id, "off");
+				return;
+			}
+			String level = m.has("level") ? m.get("level").getAsString() : "";
+			String key = m.has("key") ? m.get("key").getAsString() : "";
+			String who = m.has("who") ? m.get("who").getAsString() : "";
+			if (key.isEmpty() || key.length() > 256) {
+				ack(ws, id, "wrong");
+				return;
+			}
+			l.verify(level, key, who, (error, keyId) -> {
+				JsonObject a = new JsonObject();
+				a.addProperty("type", "ack");
+				a.addProperty("id", id);
+				a.addProperty("ok", error == null);
+				if (error != null) a.addProperty("error", error);
+				if (keyId != null) a.addProperty("key_id", keyId);
+				send(ws, a.toString());
+			});
 			return;
 		}
 		if (!(type.equals("say") || type.equals("whisper")) || !m.has("id")) return;

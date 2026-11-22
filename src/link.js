@@ -14,6 +14,11 @@
 // through the mod (1.8.0), or to their page if they're only on the website. The mod sends whispers typed
 // in game to someone who's only on the website, and is sent who that is whenever it changes.
 //
+// Liveview (src/liveview.js) borrows this connection for its handshake (mod 2.0.0): the mod says here
+// whether Liveview is on and which keys exist, a key typed on the dashboard is sent down for the mod to
+// check, and the mod is asked here to open its Liveview connection when someone wants to watch. The
+// view itself goes over that other connection, not this one.
+//
 // The socket hibernates while idle, so an idle link costs next to nothing. The mod's pings (every 30
 // seconds) are answered by this object itself, not by Cloudflare's automatic reply: after a deploy
 // the automatic reply could keep answering for a connection this object no longer holds, so the mod
@@ -181,6 +186,7 @@ export class ServerLink extends DurableObject {
     this.late = new Map(); // message id -> when it was sent, for the ones that got no answer in time
     this.sent = new Map(); // player -> times of their recent messages
     this.web = null; // roster players with the dashboard open (src/presence.js), for whispers typed in game
+    this.keyTries = new Map(); // account -> times of its recent Liveview key tries
     this.started = Date.now();
     this.log = null; // recent connects and closes, kept in storage: [{ at, what }]
     ctx.setWebSocketAutoResponse(); // no automatic reply: pings are answered in webSocketMessage
@@ -329,6 +335,33 @@ export class ServerLink extends DurableObject {
       return json({ error: `No player was found called ${target}, in game or on the website.`, reason: 'refused' }, 404);
     }
 
+    // Liveview: someone wants to watch, so the mod should open its Liveview connection. { ok } (false: not connected)
+    if (path === '/liveview/open' && request.method === 'POST') {
+      const ws = this.socket();
+      if (!ws) return json({ ok: false });
+      try { ws.send(JSON.stringify({ type: 'liveview_open' })); } catch { return json({ ok: false }); }
+      return json({ ok: true });
+    }
+
+    // Liveview: a key typed on the dashboard, for the mod to check: { level, key, who }. Answers
+    // { ok: true, key_id } or { ok: false, reason: 'wrong' | 'not_set' | 'limited' | 'off' | 'offline' }.
+    if (path === '/liveview/verify' && request.method === 'POST') {
+      const { level, key, who } = await request.json();
+      const ws = this.socket();
+      if (!ws) return json({ ok: false, reason: 'offline' });
+      // wrong keys are counted by the mod too; this keeps one account from hammering it
+      const now = Date.now();
+      const tries = (this.keyTries.get(who) || []).filter((t) => now - t < 60_000);
+      if (tries.length >= 8) return json({ ok: false, reason: 'limited' });
+      tries.push(now);
+      this.keyTries.set(who, tries);
+      if (this.keyTries.size > 500) this.keyTries.delete(this.keyTries.keys().next().value);
+      const r = await this.ask(ws, { type: 'liveview_key', level, key, who });
+      if (!r || r.unsure) return json({ ok: false, reason: 'offline' });
+      if (r.ok && r.key_id) return json({ ok: true, key_id: r.key_id });
+      return json({ ok: false, reason: ['wrong', 'not_set', 'limited', 'off'].includes(r.error) ? r.error : 'off' });
+    }
+
     if (path === '/status') {
       const ws = this.socket();
       const a = ws?.deserializeAttachment() || {};
@@ -337,6 +370,7 @@ export class ServerLink extends DurableObject {
       this.log ??= (await this.ctx.storage.get('log')) ?? [];
       return json({
         linked: !!ws, sockets: this.ctx.getWebSockets().length, version: a.version ?? null,
+        liveview: a.live ?? null, // what the mod said about Liveview: { enabled, control, viewer_key, control_key }
         connected_ago: ago(a.at), heard_ago: ago(a.heard), started_ago: ago(this.started),
         log: this.log.slice(-12).map((e) => ({ ago: ago(e.at), what: e.what })),
       });
@@ -400,7 +434,19 @@ export class ServerLink extends DurableObject {
       } else if (!this.pending.has(m.id)) {
         this.note(`an answer came for a message no longer waited on (ok: ${m.ok === true})`);
       }
-      this.pending.get(m.id)?.({ ok: m.ok === true, error: typeof m.error === 'string' ? m.error.slice(0, 200) : null });
+      this.pending.get(m.id)?.({
+        ok: m.ok === true, error: typeof m.error === 'string' ? m.error.slice(0, 200) : null,
+        key_id: typeof m.key_id === 'string' && /^[0-9a-f]{8,32}$/.test(m.key_id) ? m.key_id : null, // a Liveview key check
+      });
+    }
+    // Liveview on the server (mod 2.0.0): whether it's on, whether commands are allowed, and the ids of its
+    // two keys. Sent when the mod connects and whenever any of it changes; kept with the connection.
+    if (m?.type === 'liveview') {
+      const id = (v) => (typeof v === 'string' && /^[0-9a-f]{8,32}$/.test(v) ? v : null);
+      const a = ws.deserializeAttachment() || {};
+      ws.serializeAttachment({
+        ...a, live: { enabled: m.enabled === true, control: m.control === true, viewer_key: id(m.viewer_key), control_key: id(m.control_key) },
+      });
     }
     // typed in game to a player who's only on the website (mod 1.8.0): { id, from, to, text }
     if (m?.type === 'whisper' && typeof m.id === 'string') {

@@ -2766,16 +2766,18 @@ async function loadSnapshots(from) {
   return state.snaps.rows.filter((r) => r[0] >= from);
 }
 
-// Shows one of the views ('home', 'player', 'chat', 'combat') and marks its tab.
+// Shows one of the views ('home', 'player', 'chat', 'combat', 'admin', 'live') and marks its tab.
 function showView(name) {
-  for (const v of ['home', 'player', 'chat', 'combat', 'admin']) $(`#view-${v}`).hidden = v !== name;
+  for (const v of ['home', 'player', 'chat', 'combat', 'admin', 'live']) $(`#view-${v}`).hidden = v !== name;
   if (name !== 'player') clearPlayerModel();
+  if (name !== 'live') liveMod?.hide(); // Liveview stops drawing, and lets go of its connection after a while
   document.body.classList.toggle('chat-mode', name === 'chat');
+  document.body.classList.toggle('live-mode', name === 'live'); // Liveview shows in-game names only: no IGN / Name switch
   $('#search-btn').hidden = name !== 'chat';
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
-  const tab = name === 'chat' || name === 'combat' ? name : name === 'admin' ? null : 'activity';
-  for (const t of ['activity', 'chat', 'combat']) {
+  const tab = name === 'chat' || name === 'combat' || name === 'live' ? name : name === 'admin' ? null : 'activity';
+  for (const t of ['activity', 'chat', 'combat', 'live']) {
     if (t === tab) $(`#tab-${t}`).setAttribute('aria-current', 'page');
     else $(`#tab-${t}`).removeAttribute('aria-current');
   }
@@ -6169,8 +6171,46 @@ const site = { admin: false };
 if (!DUMMY) {
   api('/api/me').then((r) => {
     site.admin = !!r.admin;
+    syncLiveTab();
     if (site.admin && state.status) renderLive();
   }).catch(() => {});
+}
+
+/* ---------- liveview: admins watching the world live ---------- */
+
+// The Liveview tab is only there for admins. The page itself is public/liveview.js (the 3D view, its
+// connection and its keys), loaded the first time the tab is opened, like the 3D player model.
+function syncLiveTab() {
+  $('#tab-live').hidden = !site.admin;
+}
+const onLive = () => location.hash === '#/live' || location.hash.startsWith('#/live/');
+let liveLoad = null;
+let liveMod = null;
+async function showLive() {
+  showView('live');
+  document.title = `Liveview · ${SITE}`;
+  if (!site.admin) {
+    // the check may still be on its way
+    const r = DUMMY ? null : await api('/api/me').catch(() => null);
+    site.admin = !!r?.admin;
+    syncLiveTab();
+  }
+  const say = (title, text) => { $('#lv-gate-title').textContent = title; $('#lv-gate-text').textContent = text; };
+  if (!site.admin) {
+    say('Liveview is for admins', DUMMY ? 'It isn’t part of the sample data.' : 'This account isn’t one of the dashboard’s admins.');
+    return;
+  }
+  if (!state.status) loadStatus().catch(() => {}); // the pill at the top of every page
+  liveLoad ??= import('/liveview.js');
+  try {
+    liveMod = await liveLoad;
+  } catch (err) {
+    console.error(err);
+    liveLoad = null;
+    say('Liveview didn’t load', 'The page’s code couldn’t be fetched. Check the connection and open the tab again.');
+    return;
+  }
+  if (onLive()) liveMod.show();
 }
 
 async function adminPost(body) {
@@ -6324,6 +6364,7 @@ async function showAdmin() {
 const analyticsPage = () => {
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   if (m) return `player:${m[1].toLowerCase()}`;
+  if (onLive()) return 'live';
   return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/analytics': 'admin' }[location.hash] || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
@@ -7164,6 +7205,7 @@ async function route() {
     else if (location.hash === '#/combat') await showCombat();
     else if (location.hash === '#/admin') await showAdmin();
     else if (location.hash === '#/admin/analytics') await showAnalytics();
+    else if (onLive()) await showLive();
     else await showHome();
     renderUnread();
     countView();
@@ -7506,6 +7548,7 @@ async function refresh() {
     else if (location.hash === '#/combat') await showCombat({ refresh: true });
     else if (location.hash === '#/admin') { /* the admin page reloads only on a change */ }
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
+    else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
     else await showHome();
     renderUnread();
     showError('');

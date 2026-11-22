@@ -17,6 +17,7 @@ import { cached } from './cache.js';
 import { presence } from './presence.js';
 import { teamRows } from './teams.js';
 import { analytics, recordHit } from './analytics.js';
+import { connectLiveview, handleLiveview } from './liveview.js';
 
 const DAY = 86400;
 
@@ -55,7 +56,7 @@ async function aliases(db) {
   return (await db.prepare('SELECT alias, name FROM player_aliases').all()).results;
 }
 
-export async function handleApi(request, env, url) {
+export async function handleApi(request, env, url, ctx) {
   // The server mod posts chat here; it authenticates with its own token, not a login.
   if (url.pathname === '/api/ingest/chat') {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
@@ -76,6 +77,8 @@ export async function handleApi(request, env, url) {
 
   // The server mod's WebSocket, which carries chat sent from the dashboard into the game.
   if (url.pathname === '/api/ingest/link') return connectLink(request, env);
+  // And its Liveview connection, open only while an admin watches (src/liveview.js).
+  if (url.pathname === '/api/ingest/liveview') return connectLiveview(request, env);
 
   const who = await signedIn(request, env, url);
   if (!who) return json({ error: 'unauthorized' }, 401);
@@ -86,6 +89,8 @@ export async function handleApi(request, env, url) {
     return sendWebChat(request, env, url, who);
   }
   if (url.pathname === '/api/me') return me(env, who);
+  // Liveview: admins watching the world live, behind the server's own keys (src/liveview.js).
+  if (url.pathname === '/api/liveview' || url.pathname.startsWith('/api/liveview/')) return handleLiveview(request, env, url, who, ctx);
   // Website analytics (src/analytics.js): the page reports views, and admins read them.
   if (url.pathname === '/api/hit') return recordHit(request, env, who);
   if (url.pathname === '/api/admin/analytics') return analytics(env, url, who);

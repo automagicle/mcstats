@@ -7,7 +7,7 @@ import { json, UUID_RE } from './util.js';
 import { isAdmin } from './admin.js';
 import { CURRENT_SEASON } from './seasons.js';
 
-const PAGES = new Set(['home', 'chat', 'combat', 'admin']);
+const PAGES = new Set(['home', 'chat', 'combat', 'admin', 'live']);
 const MAX_DAYS = 365;
 
 const day = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);

@@ -5,10 +5,14 @@ It runs on Cloudflare's free plan, so nothing needs to stay on at home.
 
 - **Collector**: a Cron-triggered Worker asks [mcstatus.io](https://mcstatus.io) about the server every minute and records the player count plus each named player's session in D1 (SQLite).
 - **Dashboard**: static files in `public/`, served by the same Worker. It shows players online over time, a GitHub-style daily heatmap, a leaderboard, busiest hours, and a page for each player.
-- **Chat log, combat, gear and advancements** (optional): a small Fabric server mod in `mod/` posts public chat, every death
+- **Chat log, combat, gear and advancements** (optional): a Fabric server mod in `mod/` posts public chat, every death
   (who died, who or what did it, and how), what each player wears and carries, and their advancements, to the Worker,
   which stores them in D1. It also shows chat typed on the dashboard in game (web chat).
-  See [mod/README.md](mod/README.md) for setup.
+  See [mod/README.md](mod/README.md) for setup, and [mod/CHANGELOG.md](mod/CHANGELOG.md) for what each of its
+  versions added.
+- **Liveview** (admins only, optional): a fourth tab that shows the world as it is right now, in 3D, straight from
+  the server mod: fly a camera through the terrain, follow a player, open inventories and chests, read what's
+  happening. It's behind two keys that are made on the Minecraft server (see [Liveview](#liveview)).
 - **Seasons**: the main page shows the current season (season 2); `/s1/` is the season 1 archive. Seasons split the
   recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
 - **Privacy**: the server address is a Worker secret. Every `/api/*` request must carry a valid Cloudflare Access login token. Until Access is configured, the API refuses everyone.
@@ -133,6 +137,67 @@ visitors, page views, time on the site and the share on phones for the last 7, 3
 each day, the most viewed pages, and each visitor (by IGN where their login is on the roster) with their views, days,
 time and when they were last on. **Leave out admins** (on by default) hides the `ADMIN_EMAIL` logins' own visits.
 
+## Liveview
+
+`#/live`, the **Liveview** tab, is only there for admins (the `ADMIN_EMAIL` logins). It shows the Minecraft world
+live: the terrain around your camera with the game's own textures, every online player, the mobs around them, and
+a feed of what happens. The server mod (2.0.0 or newer) does the work; nothing about the world is stored here.
+It used to be a separate mod with its own web page and passwords, and is now part of this one.
+
+**Turning it on**:
+
+1. Update the dashboard: `npm run db:migrate:remote` (adds the `liveview_access` table), then `npm run deploy`
+   (adds the `LiveRelay` Durable Object).
+2. Put `mcstats-chat-2.0.0.jar` in the server's `mods` folder in place of the older jar, and restart the server. If
+   the standalone Liveview mod was installed, remove it (see [mod/CHANGELOG.md](mod/CHANGELOG.md)).
+3. In game, as an operator, run `/liveview key viewer`, open the Liveview tab and enter the key. For controls,
+   do the same with `/liveview key control` when the page asks.
+
+**Watching** (the World, Players and Log sections):
+
+- Click the view to fly (WASD, Space and Shift for up and down, Ctrl to go faster, Esc to stop), or drag to look
+  around. **Keys** on the view lists everything; **Settings** has fly speed, mouse sensitivity, field of view, sky
+  and weather. With nobody online the camera starts over the world spawn.
+- **Players** (or M) lists who's on: go to one, follow them in first person or from behind, open their inventory
+  or ender chest. Clicking a player in the world opens their inventory too; right-clicking a chest, barrel or
+  shulker box looks inside. Items show the game's own tooltips.
+- A player's page there has their health, food, game mode and position as they change, and their inventory.
+- T or Enter types a chat message, sent the same way as from the Chat log (`[Web] <you> message`).
+- Watching never changes the world. A player can hide from it in game with `/liveview optout`.
+
+**Two keys, kept on the Minecraft server.** Being an admin isn't enough to watch: the first time, the page asks for
+the **viewer key**. An operator makes it in game with `/liveview key viewer`; the game shows it once (click to
+copy). The mod checks what you type, and the dashboard then remembers that this account entered it (table
+`liveview_access`, by the key's id, never the key), so it's asked once per account.
+
+**Controls** (running commands as the server console from the Console section or the in-view chat with `/`,
+moving items in an open chest, and the buttons that change a player: game mode, heal, teleport, kick…) are a
+second step with a second key, the **control key** (`/liveview key control`), also entered once per account. Even
+then controls are off every time the page opens: the button at the top says **Watching only** until you switch it
+to **Controls on** (amber), and nothing switches it on for you. Without controls the page can't change anything:
+the Worker and the mod both refuse.
+
+- Running either command again makes a new key and the old one stops working at once: everyone watching is sent
+  back to the key prompt (viewer key), or goes back to watching only (control key). That's how access is taken away.
+- `/liveview who` (operators) lists the accounts watching and which have controls on. Every command and item move
+  from the dashboard is written to the server log with the account that made it.
+- On the server, `liveview=false` in `config/mcstats-chat.properties` turns it all off, and
+  `liveview_control=false` turns off only the controls. See [mod/README.md](mod/README.md).
+
+**How the view gets here.** The mod can't be reached from the internet, so, as with web chat, it dials out: one
+WebSocket to `/api/ingest/liveview` (same token as chat), opened only while someone watches; the Worker asks for it
+over the web chat connection. It lands in a Durable Object, `LiveRelay`, with the pages' own WebSockets
+(`/api/liveview/ws`), which passes frames between them (`src/liveview.js`). The game's textures and models (the mod
+packs them from Mojang's client jar the first time someone watches) come through the same socket once and are
+kept in Cloudflare's cache and the browser after that.
+
+**Cost.** Nothing while nobody watches. While someone does, the relay is awake and the mod sends it one frame every
+50 ms for all viewers together (a Durable Object is billed per frame received, 20 frames to a request): about
+3,600 requests and 460 GB-seconds per hour of watching, against the free plan's 100,000 requests and 13,000
+GB-seconds a day. A page left on another tab of the dashboard lets go of its connection after 30 seconds, and one
+in a background browser tab after 2 minutes; both pick it up again when you come back. At most 8 pages can watch
+at once.
+
 ## Live online list
 
 The charts and totals come from the once-a-minute check (mcstatus.io plus the server mod's list, below). What's online
@@ -235,6 +300,14 @@ npm run seed:local        # optional: 200 days of fake data, plus two weeks of f
 npm run dev               # http://localhost:8787, trigger a check at /__scheduled
 ```
 
+**Liveview locally**: add `ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`, then run the mod against the local
+dashboard: in `mod/run/config/mcstats-chat.properties` set `url=http://localhost:8787/api/ingest/chat` and `token=`
+to the `CHAT_INGEST_TOKEN` above, accept the EULA in `mod/run/eula.txt`, and `cd mod && ./gradlew runServer`. Type
+`liveview key viewer` in the server console and enter the key on `http://localhost:8787/#/live`. Set
+`pause-when-empty-seconds=0` in `mod/run/server.properties`, or the view freezes a minute after the server starts
+with nobody on it. `wrangler dev` restarts the Worker whenever a file changes, which drops the view's
+connections; the page reconnects by itself.
+
 ## Dashboard
 
 - **Header**: S1 / S2 switch between seasons. When the season has a roster, **IGN / Name** switches every player's name
@@ -335,6 +408,7 @@ npm run dev               # http://localhost:8787, trigger a check at /__schedul
   on the Chat log tab and in the page title, and on the jump button while you're scrolled up. The count is remembered in
   the browser, and a "New" line marks where they start when you open the page. Both the graph and the bar of who's online now
   (along the bottom) fold away, and the page remembers that.
+- **Liveview** (admins): see [Liveview](#liveview).
 - **Theme**: dark by default on every device; the switch at the top picks light or dark and the choice is
   remembered in the browser.
 - Times are shown in `TZ_NAME` from `wrangler.jsonc` (Pacific by default).
@@ -364,4 +438,5 @@ npm run dev               # http://localhost:8787, trigger a check at /__schedul
   the mod's WebSocket, which sleeps between messages (it wakes for the mod's ping every 30 seconds, about
   2,900 short wake-ups a day, so a connection lost in a deploy is noticed and remade).
   The live online list uses a second one (`Presence`), woken by the mod's reports (about every 20 seconds while the
-  server's up) and holding the pages' WebSockets, which also sleep between updates.
+  server's up) and holding the pages' WebSockets, which also sleep between updates. Liveview uses a third
+  (`LiveRelay`), which only exists while an admin is watching (see [Liveview](#liveview) for what that costs).

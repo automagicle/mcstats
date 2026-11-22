@@ -9,6 +9,9 @@ import java.util.regex.Pattern;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import dev.mcserverstats.liveview.LiveSettings;
+import dev.mcserverstats.liveview.LiveviewMod;
+import dev.mcserverstats.liveview.relay.RelayLink;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -74,6 +77,35 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		});
 		instance = this;
 
+		// Liveview (dev.mcserverstats.liveview): the dashboard's admins watching the world. It has its own
+		// connection for the view, opened only while someone watches; what it needs from this side is the
+		// settings, where the dashboard is, and the web chat connection for the handshake.
+		LiveviewMod liveview = new LiveviewMod(
+				() -> {
+					Config c = uploader.config();
+					// the dashboard asks for the view over the web chat connection, so without it nobody could
+					return c.ready() && c.webChat() ? c.liveview() : LiveSettings.DEFAULT.off();
+				},
+				() -> relayTarget(uploader.config(), "mcstats-chat/" + version),
+				() -> link.sendLiveInfo());
+		link.live(new WebChatLink.Live() {
+			@Override
+			public String info() {
+				return liveview.info();
+			}
+
+			@Override
+			public void open() {
+				liveview.requestRelay();
+			}
+
+			@Override
+			public void verify(String level, String key, String who, java.util.function.BiConsumer<String, String> done) {
+				liveview.verify(level, key, who, r -> done.accept(r.ok() ? null : r.error(), r.keyId()));
+			}
+		});
+		liveview.init();
+
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 			this.server = server;
 			current = server;
@@ -125,6 +157,18 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			if (!postingWeb && uploader.systemMessages()) systemMessage(server, message);
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::logSentToEveryone);
+	}
+
+	// Where Liveview connects: /api/ingest/liveview next to the chat url, with the same token. Null until
+	// the mod is set up.
+	private static RelayLink.Target relayTarget(Config c, String userAgent) {
+		if (!c.ready()) return null;
+		try {
+			java.net.URI uri = java.net.URI.create(c.url().replaceFirst("/chat/?$", "/liveview").replaceFirst("^http", "ws"));
+			return new RelayLink.Target(uri, c.token(), c.accessClientId(), c.accessClientSecret(), userAgent);
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
 	}
 
 	// A message sent from the dashboard by a roster player: shown to everyone as "[Web] <name> text",

@@ -1,10 +1,13 @@
-# mcstats-chat (server mod)
+# mcstats (server mod)
 
-A small server-side Fabric mod that sends the server's public chat to the dashboard's **Chat log** page, every death
-to its **Combat** page, what each player wears and carries to the **3D model** on their player page, and shows chat
-sent from the dashboard in game.
+A server-side Fabric mod that sends the server's public chat to the dashboard's **Chat log** page, every death
+to its **Combat** page, what each player wears and carries to the **3D model** on their player page, shows chat
+sent from the dashboard in game, and (from 2.0.0) lets the dashboard's admins watch the world live in its
+**Liveview** tab.
 It's one jar with no other dependencies (the bits of Fabric API it uses are bundled inside), for
 Minecraft **26.2** on Fabric Loader 0.18.4 or newer. Players don't install anything.
+
+What each version added is in [CHANGELOG.md](CHANGELOG.md).
 
 **Recorded:** public chat, `/say`, `/me`, joins, leaves, deaths, advancements, and server start/stop.
 Names are sent as chat shows them (team prefix and colors), so the dashboard can match. Deaths and
@@ -57,6 +60,7 @@ From 1.6.1 the mod's answers can no longer get lost behind a ping, and a message
 4 seconds is dropped rather than shown after the sender was told it failed. If no answer comes in time, the dashboard keeps
 the message as "sending…" and watches the log for it before saying it failed.
 Set `web_chat=false` to turn it off.
+**Liveview** (2.0.0 or newer): see [Liveview](#liveview) below.
 **Never recorded:** private messages (`/msg`, `/tell`, `/w`, `/teammsg`) and commands. Let players know chat is logged.
 
 ## How it gets to the dashboard
@@ -109,7 +113,7 @@ retried batch is never stored twice.
 5. **Deploy the dashboard.** Merging to `main` deploys it and creates the `chat` table.
 
 6. **Install the mod on mcsh.io.**
-   - Upload `mcstats-chat-1.9.0.jar` into the server's `mods` folder.
+   - Upload `mcstats-chat-2.0.0.jar` into the server's `mods` folder.
    - Start the server once. That creates `config/mcstats-chat.properties`.
    - Fill in that file (the template has comments):
 
@@ -127,6 +131,63 @@ retried batch is never stored twice.
    on the Chat log page within about 15 seconds. If anything is wrong, the console says what
    (wrong token, Access blocking it, wrong url), at most once every 10 minutes.
 
+## Liveview
+
+Dashboard admins can watch the world from the dashboard's Liveview tab: the terrain around their camera, every
+online player, nearby mobs, inventories and chests, and a feed of what happens. Watching never changes the world.
+With a second key they can also run commands as the server console and move items in containers. The dashboard's
+[README](../README.md#liveview) describes the page; this is the server's side of it. What travels between the
+mod and the page, message by message, is in [PROTOCOL.md](PROTOCOL.md).
+
+**The two keys.** Nobody can watch until an operator has made the viewer key, and nobody can run a command
+until one has made the control key:
+
+| Command | Who | |
+| --- | --- | --- |
+| `/liveview key viewer` | operators | Makes a new viewer key and shows it once (click to copy). Admins enter it on the dashboard, once per account, to watch. |
+| `/liveview key control` | operators | The same for the control key: commands and item moves from the dashboard. |
+| `/liveview who` | operators | The dashboard accounts watching right now, and which have controls on. |
+| `/liveview optout`, `/liveview optin` | any player | Hide yourself from Liveview (your marker, inventory and actions), or come back. |
+
+Run the key commands in game rather than from the console, so the key stays out of the server log. Only the
+keys' hashes are kept, with the opt-out list, in `config/mcstats-liveview.json`; don't publish that file, and
+don't delete it to get a new key (that also forgets who opted out): run the command again. A new key replaces
+the old one at once. Everyone watching is disconnected and has to enter the new viewer key, or, for the control
+key, goes back to watching only. That is also how you take access away from someone.
+
+Give the control key only to people you'd make an operator: it runs anything the console can. The viewer key
+alone can never change the world. Every command and item move from the dashboard is logged with the account
+that made it:
+
+```
+Liveview command from someone@example.org: /gamemode creative Steve
+```
+
+**How it connects.** Nothing listens on the server. When an admin opens the tab, the dashboard asks for the view
+over the web chat connection, and the mod opens a second WebSocket to `/api/ingest/liveview` next to the chat url
+(same token and service token, no extra setup). It closes again a minute after the last viewer leaves. Liveview
+therefore needs `web_chat=true`.
+
+**Textures.** The server jar has no textures, so the first time someone watches, the mod downloads the official
+Minecraft client jar for the server's version from Mojang (checked against Mojang's published hash) into
+`config/mcstats-liveview-cache`, and packs the textures from it and from the installed mods. The server needs to
+reach `piston-meta.mojang.com` and `piston-data.mojang.com` for that; if it can't, players, mobs and the feed still
+show, without terrain, and the console says why. Set `liveview_client_jar` to a client jar's path to skip the
+download.
+
+**An empty server.** Minecraft pauses a server 60 seconds after the last player leaves
+(`pause-when-empty-seconds` in `server.properties`), and a paused server stops updating the view. Set it to `0`
+to keep the view live with nobody on. A host that puts the whole server to sleep when it's empty can't be
+watched until it wakes.
+
+**What it costs the server.** Nothing until someone watches. While they do, chunks around each viewer's camera
+are kept loaded and ticking, the way they would be for a spectator, and are let go two seconds after the camera
+moves on. Mobs near a camera don't despawn for lack of a nearby player. `liveview_camera_chunks` sets how far.
+
+Liveview uses two more mixins (`mcstats_liveview.mixins.json`): one watches the particles and effects the game
+sends to players, so the page can show them; the other keeps mobs near a viewer's camera from despawning. Like
+the others, if one can't apply, only that part stops working.
+
 ## Troubleshooting
 
 Search the server console (latest.log) for `mcstats-chat`:
@@ -140,6 +201,10 @@ Search the server console (latest.log) for `mcstats-chat`:
 | `Web chat connected` | Messages typed on the dashboard will show in game. |
 | `The dashboard lost the web chat connection; reconnecting` | 1.7.1 or newer: the dashboard said for 40 seconds that it no longer has the connection (usually just after a deploy); it reconnects by itself. |
 | `Web chat isn't connected: …` | Same reasons as below; the dashboard shows the message box as offline meanwhile. |
+| `Liveview is ready but has no viewer key yet` | Liveview is on and waiting for an operator to run `/liveview key viewer` in game. |
+| `Liveview connected to the dashboard`, `… is watching` | An admin opened the Liveview tab. |
+| `Liveview terrain is disabled: …` | The game's textures couldn't be fetched or packed; the rest of the line says why. Players, mobs and the feed still show. |
+| `Liveview is off: config/mcstats-liveview.json could not be read` | The keys file is damaged. Running `/liveview key viewer` starts it afresh (players who opted out have to do so again). |
 | `Couldn't send chat: …` | The rest of the line says which part is wrong. Note that Cloudflare Access answers 401 for a service token it doesn't recognise and 403 for one it knows but no Service Auth policy allows. |
 
 To test a config file from your own computer, put a copy named `mcstats-chat.properties` in the repo root
@@ -155,6 +220,16 @@ or pass another file's path.
 | `access_client_id`, `access_client_secret` | The Cloudflare Access service token |
 | `system_messages` | `false` to send only chat, without joins, leaves, deaths and advancements (default `true`) |
 | `web_chat` | `false` to stop showing chat sent from the dashboard (default `true`) |
+| `liveview` | `false` to turn Liveview off (default `true`; nobody can watch until a viewer key is made) |
+| `liveview_control` | `false` to refuse commands and item moves from the dashboard, whatever keys exist (default `true`) |
+| `liveview_camera_chunks` | Chunks of terrain sent around a viewer's camera, 2 to 12 (default `8`) |
+| `liveview_player_chunks` | Chunks kept ready around each player, so jumping to them is instant, 0 to 4 (default `2`) |
+| `liveview_entity_blocks` | How far from a player or camera mobs are sent, in blocks, 0 to 128 (default `64`) |
+| `liveview_client_jar` | A Minecraft client jar to read textures from; blank downloads the official one |
+
+A properties file made by an older version has none of the `liveview` keys; add the ones you want to change.
+The on/off switches are picked up within a few seconds, like the rest; the three sizes and the client jar
+are read when the server starts.
 
 ## Building
 
@@ -162,8 +237,13 @@ Needs JDK 25.
 
 ```bash
 cd mod
-./gradlew build      # → build/libs/mcstats-chat-1.9.0.jar
+./gradlew build      # → build/libs/mcstats-chat-2.0.0.jar
 ```
 
 For another Minecraft version, update `minecraft_version` and `fabric_api_version` in `gradle.properties`
 (see https://fabricmc.net/develop) and the `minecraft` range in `src/main/resources/fabric.mod.json`, then rebuild.
+Liveview reads the game's own classes far more than the rest of the mod does (chunks, block models, entity
+models), so expect it to need changes for a new Minecraft version; everything that touches Minecraft is in
+`dev.mcserverstats.liveview.mc`.
+
+When you release a version, bump `version` in `gradle.properties` and add it to [CHANGELOG.md](CHANGELOG.md).

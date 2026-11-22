@@ -34,7 +34,7 @@ Always use the variable, never the hex. Dark follows the system unless the theme
 | `--surface-2` | `#e7e9ec` | `#121417` | Controls set into a panel: inputs, segmented controls, icon buttons |
 | `--raise` | `#fbfbfc` | `#272b30` | Things that sit above a panel: badges, the pressed segment, plain buttons |
 | `--bar` | `#f2f3f5` | `#0c0e10` | Top bar |
-| `--stage` | `#dcdfe3` | `#0e1012` | Backdrop behind a 3D model or map-like view |
+| `--stage` | `#dcdfe3` | `#0e1012` | Backdrop behind a 3D model, the Liveview world, or a game screen shown on a page |
 | `--ink` | `#262a30` | `#eceef0` | Main text |
 | `--ink-2` | `#50565e` | `#b6bcc4` | Secondary text, labels |
 | `--muted` | `#757c86` | `#878e97` | Notes, units, sub-labels |
@@ -49,7 +49,7 @@ Always use the variable, never the hex. Dark follows the system unless the theme
 | `--series-3` | `#dd9a00` | `#d9a02a` | Third chart series |
 | `--accent-ink` | `#ffffff` | `#ffffff` | Text on blue |
 | `--good` | `#1fa64a` | `#3fbf5a` | Server up, positive state |
-| `--warning` | `#f2ad1c` | `#f0b429` | Warnings, advancement markers |
+| `--warning` | `#f2ad1c` | `#f0b429` | Warnings, advancement markers, Liveview's controls being on |
 | `--critical` | `#dc4343` | `#e5534b` | Errors, deaths, destructive actions, unread badge |
 | `--lv0`…`--lv4` | `#e5e7ea` `#bcd6f7` `#7fb1ef` `#3f86e3` `#1f5fb5` | `#14171a` `#173d6e` `#2565b5` `#4f96e8` `#a4cbf7` | Heatmap steps, near zero to high |
 | `--team-red` | `#d93a33` | `#f27a72` | Fallback team colours; real ones come from Admin → Teams |
@@ -167,6 +167,46 @@ gold `#a8782a` when earned, green `#55ff55` description) copy the game's own col
 - When a chart scrolls or zooms, the y axis stays fixed and only the plot moves; neighbouring data is
   preloaded so there is no blank edge.
 - The marker that rides a line on hover is the only round shape on the site.
+
+## Liveview
+
+The Liveview tab ([public/liveview.js](public/liveview.js), admins only) is built from the same parts as the
+rest: a page title with a segmented control for its sections, panels, number tiles, tables. Three things are its own.
+
+**The stage** (`.lv-stage`) is the 3D view: `--stage` behind it, `height: clamp(360px, 62vh, 760px)`, no frame of
+its own (it sits in a panel). It comes first on the page, above the tiles, because the world is what the page is for.
+Everything that floats over it follows the floating-layer recipe, so it reads over any sky, by day or night:
+
+| Over the stage | Class | Exact values |
+| --- | --- | --- |
+| Tool buttons (top right) | `.lv-tools button` | 28px tall, `padding: 0 9px`, 13px/600, 14px icon; `--surface` with cut corners in its own colour + lift; hover and open: `--raise`. Icons only under 640px |
+| Popover (settings, keys) | `.lv-pop` | 300px (keys 340px), 12px in from the stage's edge, `padding: 12px 14px 14px`, 10px gap, frame + lift |
+| Following bar, error banner | `.lv-follow`, `.lv-banner` | centred, 52px from the top, frame + lift; the banner adds `inset 3px 0 0 var(--critical)` |
+| Camera position | `.lv-hud b` | `400 20px/1.1 var(--px-20)`, white, `text-shadow: 2px 2px 0 rgba(0,0,0,.6)`: the game's debug text |
+| Slider | `.lv-range input` | 6px set-in track (`--surface-2`, 1px `--edge`), 10×18px square blue handle |
+| Key cap | `.lv-keys kbd` | 11.5px/700, 18px tall, `--raise`, `0 0 0 1px var(--edge), 0 2px 0 var(--pit)` |
+| Players menu | `.lv-side` | covers the stage in solid `--surface`; rows divided by 1px `--grid` |
+
+White text straight on the world (the position, the hint, chat) always has a flat 1–2px black shadow, never a blur.
+
+**Amber means the world can be changed.** Watching is the default and looks like any other control
+(`.lv-control`: 30px tall, `--surface-2`, a pixel padlock). Switched on, the same button is `--warning` with dark
+text (`#241b02`), cut corners + drop, and the padlock's shackle lifts. Anything that only exists while controls are
+on carries the same mark: a `inset 3px 0 0 var(--warning)` bar and a 9% `--warning` wash (`.lv-acts-control`).
+What needs controls is swapped for a short note and a **Turn on controls** button while they're off
+(`.lv-locked` / `.lv-unlocked`), rather than shown disabled. Destructive actions are `--critical` text
+(`.btn.lv-danger`) and turn solid `--critical` while they wait for the second click.
+
+**The game's own screens are copied, not restyled**: inventories and chests (`.mc-screen`), item tooltips
+(`.mc-tip`), chat lines and the crosshair are drawn from the game's textures and font, like item tooltips elsewhere.
+On a page (a player's inventory) they sit on a `--stage` backdrop. The controls around them (close button, the
+"inventory below" dropdown) are ours.
+
+The gate card (`.lv-gate`, max 480px, centred) is what shows when something is in the way of watching: one pixel-art
+eye, a title, one or two sentences, and at most one field and one button.
+
+The console (`.lv-console`) is the one place with a fixed-width face (`ui-monospace`, 12.5px), so command output
+lines up.
 
 ## Motion
 

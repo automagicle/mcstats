@@ -31,15 +31,18 @@
 
   // LINK holds the server mod's WebSocket, which carries chat sent from the dashboard into the game
   // (src/link.js). PRESENCE pushes who's online to open pages as players join and leave (src/presence.js).
+  // LIVEVIEW passes the live view between the server mod and the admins watching it (src/liveview.js).
   "durable_objects": {
     "bindings": [
       { "name": "LINK", "class_name": "ServerLink" },
-      { "name": "PRESENCE", "class_name": "Presence" }
+      { "name": "PRESENCE", "class_name": "Presence" },
+      { "name": "LIVEVIEW", "class_name": "LiveRelay" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ServerLink"] },
-    { "tag": "v2", "new_sqlite_classes": ["Presence"] }
+    { "tag": "v2", "new_sqlite_classes": ["Presence"] },
+    { "tag": "v3", "new_sqlite_classes": ["LiveRelay"] }
   ],
 
   // MC_SERVER is a secret (wrangler secret put MC_SERVER), never put it here.

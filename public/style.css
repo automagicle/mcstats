@@ -1894,6 +1894,248 @@ a.pcb-who:hover { text-decoration: underline; }
 }
 
 
+/* ---------- liveview (admins): the world as it is right now ---------- */
+
+/* The page is built from the same parts as the rest: panels, tiles, segmented controls, tables. What's
+   its own is the stage (the 3D view) and what floats over it, which follows the floating-layer recipe
+   (frame + lift) so it reads over any sky. The game's own screens, chat lines and tooltips inside the
+   stage copy the game, like item tooltips elsewhere. Amber marks controls: the button that turns them
+   on, and anything that would change the world. */
+#view-live [hidden] { display: none !important; }
+#tab-live[hidden] { display: none; }
+/* names here are always the game's own, so the IGN / Name switch has nothing to do */
+.live-mode .name-toggle { display: none; }
+.lv-top { margin-bottom: 10px; }
+.lv-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.lv-gated .lv-bar { display: none; }
+.lv-bar .adm-tabs .tab-badge { margin-left: 6px; vertical-align: 0; }
+
+/* watching only / controls on */
+.lv-control {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 0;
+  font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  color: var(--ink-2); background: var(--surface-2); --pc: var(--surface-2); box-shadow: var(--pixel);
+}
+.lv-control:hover { color: var(--ink); --pc: var(--grid); background: var(--grid); }
+.lv-control:focus-visible, .lv-tools button:focus-visible, .lv-screen-close:focus-visible, #view-live .btn:focus-visible,
+#view-live .seg button:focus-visible, #view-live .adm-tabs a:focus-visible, #view-live .icon-btn:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.lv-control[aria-pressed="true"] { color: #241b02; --pc: var(--warning); background: var(--warning); box-shadow: var(--pixel), var(--drop-sm); }
+.lv-control[aria-pressed="true"]:hover { filter: brightness(1.06); }
+.lv-lock { flex: none; overflow: visible; }
+.lv-lock-hole { fill: var(--pc); }
+.lv-lock-bar { transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1); }
+/* the shackle lifts when controls are on */
+.lv-control[aria-pressed="true"] .lv-lock-bar { transform: translateY(-1px); }
+.lv-status[data-state="wait"] .dot { background: var(--warning); }
+
+/* the gate: what's in the way of watching */
+.lv-gate { max-width: 480px; margin: 36px auto; padding: 22px 22px 24px; display: grid; gap: 10px; justify-items: start; }
+.lv-gate h2 { font-size: 16px; }
+.lv-gate-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.lv-gate code, .lv-dialog code, .lv-console-hint code { font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-2); padding: 1px 5px; white-space: nowrap; }
+.lv-gate-form { width: 100%; margin-top: 4px; }
+.lv-gate-form .adm-input, .lv-dialog .adm-input { flex: 1 1 200px; padding: 6px 8px; font-size: 14px; }
+.lv-gate-error { font-size: 13px; line-height: 1.45; color: var(--critical); }
+.lv-gate-error:empty { display: none; }
+.lv-eye { margin-bottom: 6px; }
+.lv-eye-edge { fill: var(--ink-2); }
+.lv-eye-white { fill: var(--raise); }
+.lv-eye-iris { fill: var(--series-1); }
+.lv-eye-pupil { fill: var(--ink); }
+
+/* the stage */
+.lv-stage { position: relative; height: clamp(360px, 62vh, 760px); overflow: hidden; background: var(--stage); }
+.lv-stage > #lv-view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; cursor: crosshair; }
+.lv-stage > #lv-view:focus-visible { box-shadow: inset 0 0 0 2px var(--series-1); }
+.lv-stage:fullscreen { height: 100vh; }
+/* where the camera is, the way the game's own debug text looks: pixel digits with a flat shadow */
+.lv-hud { position: absolute; left: 12px; top: 10px; z-index: 1; display: grid; gap: 1px; color: #fff; pointer-events: none; }
+.lv-hud b { font: 400 20px/1.1 var(--px-20); letter-spacing: 0.02em; white-space: pre; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6); }
+.lv-hud span { font-size: 12px; font-weight: 600; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.7); }
+.lv-help { position: absolute; left: 12px; bottom: 10px; z-index: 1; font-size: 12.5px; font-weight: 600; color: #fff; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.7); pointer-events: none; }
+.lv-stage.flying .lv-help { display: none; }
+/* The game's crosshair: hud/crosshair.png (15x15) at the GUI scale, drawn inverting what is behind it the way the
+   game blends it, so it stays visible on any background. A plain cross until the game's textures are in. */
+.lv-cross { position: absolute; left: 50%; top: 50%; width: var(--cross, 30px); height: var(--cross, 30px); transform: translate(-50%, -50%); pointer-events: none; mix-blend-mode: difference; z-index: 1;
+  background: var(--cross-img, none) center / 100% 100% no-repeat; image-rendering: pixelated; }
+.lv-cross:not(.sprite)::before, .lv-cross:not(.sprite)::after { content: ''; position: absolute; background: #fff; }
+.lv-cross:not(.sprite)::before { left: calc(50% - var(--cross, 30px) / 30); top: 0; width: calc(var(--cross, 30px) / 15); height: 100%; }
+.lv-cross:not(.sprite)::after { top: calc(50% - var(--cross, 30px) / 30); left: 0; height: calc(var(--cross, 30px) / 15); width: 100%; }
+.lv-banner { position: absolute; left: 50%; top: 52px; z-index: 3; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 12px 7px 14px;
+  font-size: 13px; color: var(--ink); background: var(--surface); box-shadow: var(--frame), inset 3px 0 0 var(--critical), var(--lift); }
+
+/* what floats over the stage */
+.lv-tools { position: absolute; right: 12px; top: 12px; z-index: 4; display: flex; gap: 8px; }
+.lv-tools button {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 0;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  color: var(--ink-2); background: var(--surface); --pc: var(--surface); box-shadow: var(--pixel), var(--lift);
+}
+.lv-tools button:hover, .lv-tools button[aria-expanded="true"] { color: var(--ink); --pc: var(--raise); background: var(--raise); }
+.lv-tools svg { width: 14px; height: 14px; flex: none; }
+.lv-pop { position: absolute; right: 12px; top: 52px; z-index: 5; width: min(300px, calc(100% - 24px)); max-height: calc(100% - 64px); overflow: auto; scrollbar-width: thin;
+  display: grid; gap: 10px; padding: 12px 14px 14px; font-size: 13px; color: var(--ink); background: var(--surface); box-shadow: var(--frame), var(--lift); }
+.lv-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lv-pop h3, .lv-side h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.lv-range { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; color: var(--ink-2); }
+.lv-range output { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* a slider in the same shapes as the rest: a set-in track and a square handle */
+.lv-range input { grid-column: 1 / -1; width: 100%; height: 18px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.lv-range input::-webkit-slider-runnable-track { height: 6px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--edge); }
+.lv-range input::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 18px; margin-top: -6px; border: 0; border-radius: 0; background: var(--series-1); }
+.lv-range input::-moz-range-track { height: 6px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--edge); }
+.lv-range input::-moz-range-thumb { width: 10px; height: 18px; border: 0; border-radius: 0; background: var(--series-1); }
+.lv-range input:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.lv-settings .adm-check { font-size: 13px; color: var(--ink-2); }
+.lv-keys { width: min(340px, calc(100% - 24px)); }
+.lv-keys dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0; align-items: baseline; }
+.lv-keys dt { display: flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--ink-2); }
+.lv-keys dd { margin: 0; color: var(--ink-2); }
+/* a key cap: a raised square with the flat shadow under it */
+.lv-keys kbd { padding: 0 6px; font: inherit; font-size: 11.5px; font-weight: 700; line-height: 18px; color: var(--ink); background: var(--raise); box-shadow: 0 0 0 1px var(--edge), 0 2px 0 var(--pit); }
+.lv-follow { position: absolute; left: 50%; top: 52px; z-index: 3; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px;
+  width: max-content; max-width: calc(100% - 24px); padding: 6px 8px 6px 12px; font-size: 13px; color: var(--ink); background: var(--surface); box-shadow: var(--frame), var(--lift); }
+.lv-follow .btn { padding: 4px 10px; }
+
+/* the game's chat, over the bottom left of the world */
+.lv-chat { position: absolute; left: 4px; bottom: 44px; z-index: 2; width: min(660px, calc(100% - 8px)); display: flex; flex-direction: column; pointer-events: none; }
+.lv-chat canvas { display: block; max-width: 100%; image-rendering: pixelated; background: rgba(0, 0, 0, 0.5); transition: opacity 600ms; }
+.lv-chat canvas.gone { opacity: 0; }
+.lv-chat.open canvas.gone { opacity: 1; }
+.lv-chat-input { position: absolute; left: 4px; right: 4px; bottom: 4px; z-index: 4; }
+.lv-chat-input input { width: 100%; padding: 7px 9px; border: 0; outline: none; font: inherit; font-size: 15px; color: #fff; caret-color: #fff; background: rgba(0, 0, 0, 0.6); }
+.lv-chat-hint { position: absolute; left: 8px; right: 8px; bottom: 44px; z-index: 4; font-size: 12px; font-weight: 600; color: #fff; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.75); pointer-events: none; }
+
+/* the players menu, over the whole stage */
+.lv-side { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; color: var(--ink); background: var(--surface); }
+.lv-side > header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--edge); }
+.lv-side > header .icon-btn { margin-left: auto; }
+.lv-goto { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.lv-goto input { width: 72px; font-variant-numeric: tabular-nums; }
+.lv-goto .btn { padding: 5px 12px; }
+.lv-side-list { flex: 1; overflow: auto; scrollbar-width: thin; padding: 0 16px 14px; }
+.lv-side-list > .empty { padding: 28px 0; text-align: center; }
+.lv-who-row { display: grid; gap: 10px; padding: 12px 0 14px; border-top: 1px solid var(--grid); }
+.lv-who-row:first-child { border-top: 0; }
+.lv-who-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lv-who-head .lv-face { width: 32px; height: 32px; }
+.lv-who-head .lv-name { display: block; font-size: 14px; font-weight: 650; }
+.lv-who-head small { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.lv-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lv-acts .btn { padding: 4px 10px; font-size: 12.5px; }
+/* what changes the world sits apart, marked amber like the button that allows it */
+.lv-acts-control { padding: 8px 10px; background: color-mix(in srgb, var(--warning) 9%, transparent); box-shadow: inset 3px 0 0 var(--warning); }
+#view-live .btn.lv-danger { color: var(--critical); }
+#view-live .btn.lv-danger.armed { color: #fff; --pc: var(--critical); background: var(--critical); box-shadow: var(--pixel); }
+.lv-face { flex: none; image-rendering: pixelated; background: var(--surface-2); }
+.pname .lv-face { width: 24px; height: 24px; }
+.lv-name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* game screens (an inventory, a chest) over the world, and on a player's page */
+.lv-screen-wrap { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; overflow: auto; background: rgba(0, 0, 0, 0.45); }
+.lv-screen-wrap > div > .empty { padding: 10px 14px; color: var(--ink); background: var(--surface); box-shadow: var(--frame), var(--lift); }
+.mc-screen { position: relative; image-rendering: pixelated; }
+.mc-screen canvas.label, .mc-screen canvas.doll { position: absolute; image-rendering: pixelated; pointer-events: none; }
+.lv-screen-close { position: absolute; right: -14px; top: -14px; z-index: 2; width: 26px; height: 26px; padding: 0; border: 0; font-size: 17px; line-height: 1; cursor: pointer;
+  color: var(--ink); background: var(--surface); --pc: var(--surface); box-shadow: var(--pixel), var(--lift); }
+.lv-screen-close:hover { --pc: var(--raise); background: var(--raise); }
+.mc-slot { position: absolute; image-rendering: pixelated; }
+.mc-slot:hover::after { content: ''; position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); pointer-events: none; }
+.mc-slot canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
+.mc-slot .glint { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: plus-lighter; opacity: 0.8; background-repeat: repeat;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%; animation: lv-glint 6s linear infinite; }
+@keyframes lv-glint { from { background-position: 0 0; } to { background-position: 256px 128px; } }
+.mc-slot .dura { position: absolute; background: #000; pointer-events: none; }
+.mc-slot .dura i { position: absolute; left: 0; top: 0; bottom: 50%; }
+.mc-slot.sel::before { content: ''; position: absolute; inset: -2px; z-index: 1; border: 2px solid #fff; pointer-events: none; }
+/* the game's item tooltip, drawn in its own font; it follows the mouse anywhere on the page */
+.mc-tip { position: fixed; z-index: 80; pointer-events: none; image-rendering: pixelated; }
+.mc-tip canvas { display: block; image-rendering: pixelated; }
+.screen-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; max-width: 352px; margin: 0 auto 10px; font-size: 12.5px; font-weight: 600; color: #fff; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.75); }
+.screen-bar select { margin-left: 6px; padding: 3px 28px 3px 6px; font: inherit; font-weight: 500; color: var(--ink); border: 1px solid var(--edge); background-color: var(--surface-2); text-shadow: none; }
+.lv-inv-host { overflow-x: auto; padding: 14px 12px; background: var(--stage); }
+.lv-inv-host:empty { display: none; }
+.lv-inv-host + .lv-inv-host { margin-top: 12px; }
+.lv-inv-host .mc-screen { margin: 0 auto; }
+.lv-inv-host > .empty { padding: 0; }
+
+/* lists under the world */
+#view-live .tiles { margin: 14px 0; }
+.lv-details, .lv-more { font-size: 12.5px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.lv-details { margin-left: auto; }
+.lv-details:hover, .lv-more:hover { color: var(--ink); }
+#view-live tr.link:focus-visible { outline: 2px solid var(--series-1); outline-offset: -2px; }
+.lv-feed-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 5px 0; border-top: 1px solid var(--grid); font-size: 13.5px; }
+.lv-feed-row:first-child { border-top: 0; }
+.lv-feed-row time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.log-msg { overflow-wrap: anywhere; }
+.lv-log { max-height: 72vh; overflow: auto; scrollbar-width: thin; }
+.lv-log thead th { position: sticky; top: 0; background: var(--surface); }
+.lv-time { width: 1%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lv-kind { display: inline-block; padding: 1px 6px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: var(--ink-2); background: var(--surface-2); }
+.lv-kind.chat { color: var(--ink); }
+.lv-kind.death, .lv-kind.attack { color: var(--critical); background: color-mix(in srgb, var(--critical) 16%, transparent); }
+.lv-kind.join { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); }
+.lv-kind.leave { color: color-mix(in srgb, var(--warning) 62%, var(--ink)); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+
+/* one player */
+.lv-player-head { flex-wrap: wrap; }
+.lv-player-head .p-avatar { width: 64px; height: 64px; }
+.lv-player-who { flex: 1 1 180px; min-width: 0; }
+.lv-player-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.lv-player-links a.btn { text-decoration: none; }
+.lv-meter { height: 5px; margin-top: 6px; background: var(--surface-2); }
+.lv-meter i { display: block; height: 100%; width: 0; background: var(--critical); transition: width 0.25s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.lv-meter.lv-food i { background: var(--series-3); }
+.grid2.lv-player-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+
+/* watching only: what needs controls is swapped for a note */
+#view-live .lv-unlocked { display: none; }
+#view-live.lv-controls-on .lv-unlocked { display: block; }
+#view-live.lv-controls-on .lv-actions.lv-unlocked { display: grid; }
+#view-live.lv-controls-on .lv-locked { display: none; }
+.lv-locked { display: grid; gap: 10px; justify-items: start; font-size: 14px; color: var(--ink-2); }
+.lv-locked p { margin: 0; }
+.lv-actions { gap: 12px; }
+.lv-action-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.lv-action-row > span { width: 84px; font-size: 13px; color: var(--ink-2); }
+.lv-action-row select { max-width: 180px; padding: 5px 28px 5px 8px; }
+
+/* the console: the one place a fixed-width face earns its keep, so command output lines up */
+.lv-console { height: min(54vh, 520px); margin-bottom: 10px; padding: 10px 12px; overflow: auto; scrollbar-width: thin;
+  font: 12.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--surface-2); border: 1px solid var(--edge); }
+.lv-console-hint { font-family: var(--font); font-size: 13px; color: var(--muted); }
+.lv-cmd { margin-top: 8px; font-weight: 600; color: var(--series-1); }
+.lv-cmd:first-child { margin-top: 0; }
+.lv-out { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lv-out.bad { color: var(--critical); }
+.lv-cmd-form .adm-input { flex: 1 1 200px; padding: 6px 8px; font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+/* the control key */
+.lv-dialog { width: min(430px, calc(100vw - 32px)); padding: 18px 18px 16px; border: 0; color: var(--ink); background: var(--surface); box-shadow: var(--frame), var(--lift); }
+.lv-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.lv-dialog h2 { margin: 0 0 6px; font-size: 16px; font-weight: 700; }
+.lv-dialog p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.lv-dialog .adm-input { width: 100%; }
+.lv-dialog .lv-gate-error { margin-top: 8px; }
+.lv-dialog .range-actions { margin-top: 14px; }
+.lv-stage .lv-toast { z-index: 90; }
+
+@media (max-width: 640px) {
+  .lv-stage { height: clamp(300px, 58vh, 520px); }
+  .lv-tools button { padding: 0 7px; }
+  .lv-tools button span { display: none; }
+  .lv-hud b { font-size: 20px; }
+  .grid2.lv-player-grid { grid-template-columns: minmax(0, 1fr); }
+  .lv-action-row > span { width: 100%; }
+  .lv-gate { margin: 16px auto; padding: 16px; }
+  .lv-bar { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lv-lock-bar, .lv-meter i, .lv-chat canvas { transition: none; }
+  .mc-slot .glint { animation: none; }
+}
+
 /* ---------- shape ---------- */
 
 /* Nothing is rounded with a curve. Panels, badges and floating layers have a cut-corner frame and its
