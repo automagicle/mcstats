@@ -1,8 +1,9 @@
 /* The look: quiet panels with square corners and hairline edges, kept tight. The pixel face is for
    numbers and titles only (Jersey 10 at 20px, 15 at 30px, 20 at 40px, 25 at 50px: each is drawn for
    that size), beside the pixel art that's already here (heads, items, the logo). Everything else is
-   plain: controls and floating layers are slightly rounded, shadows are soft. Blue is everyone
-   together; the other strong colors on a page belong to the teams. */
+   plain. Nothing is rounded with a curve: corners are cut by one 2px square and shadows are flat and
+   offset at 45 degrees (see "shape" at the end). Blue is everyone together; the other strong colors
+   on a page belong to the teams. DESIGN.md at the top of the repo describes all of this in full. */
 :root {
   color-scheme: light;
   /* Day: soft greys rather than white, and colors bright enough to read as colors. */

@@ -15,6 +15,8 @@ It runs on Cloudflare's free plan, so nothing needs to stay on at home.
   The exceptions are the mod's `/api/ingest/*` endpoints, which take its `CHAT_INGEST_TOKEN` instead (and still need the
   Access service token to get past Access). Service tokens can't read the dashboard.
 
+The look of the dashboard (colors, type, the 2px pixel shapes, spacing, components) is written down in [DESIGN.md](DESIGN.md).
+
 ## Deploy
 
 ```bash
