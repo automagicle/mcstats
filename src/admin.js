@@ -1,6 +1,6 @@
-// The admin page: who may use it, and what it can change. Admins are the emails in the ADMIN_EMAIL
-// secret (comma-separated), so they stay out of this public repository.
-//   GET  /api/me     { email, admin } for the page (no database needed)
+// The admin page: who may use it, and what it can change. Admins are this server's members with the
+// "admin" permission (src/roles.js); being one on another server counts for nothing here.
+//   GET  /api/me     { email, admin, super, role, perms } for the page
 //   GET  /api/admin  the lists the admin page edits
 //   POST /api/admin  { action, ... } one change (see ACTIONS). The page's settings (teams, roster,
 //                    each player's teams over time, hidden players, merged accounts) are saved
@@ -24,18 +24,17 @@ const MAX_ROSTER = 500;
 const MAX_PERIODS = 2000;
 const MAX_BODY = 4096, MAX_CONFIG_BODY = 512 * 1024;
 
-// Whether this sign-in may use the admin page. Once its permissions are loaded (src/roles.js, which every
-// /api/ request does first) that is its "admin" permission; ADMIN_EMAIL is only the default for someone
-// whose permissions were never changed.
-export const isAdmin = (env, who) => {
-  if (who?.perms) return !!who.perms.admin;
-  const email = who?.email?.toLowerCase();
-  if (!email) return false;
-  return String(env.ADMIN_EMAIL || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean).includes(email);
-};
+// Whether this sign-in may use this server's admin page: its "admin" permission here (src/roles.js, loaded
+// by every /api/ request first). Nobody without an email, and nobody whose permissions weren't loaded.
+export const isAdmin = (env, who) => !!who?.email && !!who?.perms?.admin;
 
 // GET /api/me: who's signed in and what they may do (the page shows or hides things by it).
-export const me = (env, who) => json({ email: who.email, admin: isAdmin(env, who), super: !!who.perms?.super, perms: who.perms ?? null });
+//   super  may use the Roles tab (this server's owners, and the site's super admins)
+export const me = (env, who) => json({
+  email: who.email, admin: isAdmin(env, who), super: !!(who.perms?.super || who.perms?.owner),
+  role: who.perms?.role ?? null, perms: who.perms ?? null,
+  server: env.TENANT ? { slug: env.TENANT.slug, name: env.TENANT.name } : null,
+});
 
 export async function adminState(env, season) {
   if (!season.n) return json({ error: 'pick a season' }, 400);

@@ -1,7 +1,7 @@
 import { canonName, canonUuid, marks, playerGroup } from './aliases.js';
 import { deathInsert } from './combat.js';
 import { OPEN_ENDED } from './seasons.js';
-import { json, UUID_RE } from './util.js';
+import { json, UUID_RE, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { hiddenByRules, loadRules } from './chatrules.js';
 
@@ -175,12 +175,9 @@ export async function rewordDeaths(db) {
 // A death message can carry death: { cause, killer?, killer_uuid?, mob?, weapon? } (see combat.js).
 // Cloudflare Access only lets it through with the service token; the bearer token is checked here too.
 export async function ingestChat(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'chat ingest is not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) {
-    return json({ error: 'unauthorized' }, 401);
-  }
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
 
   if (Number(request.headers.get('Content-Length')) > MAX_BODY) return json({ error: 'too large' }, 413);
   const raw = await request.text();

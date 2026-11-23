@@ -58,7 +58,8 @@ async function aliases(db) {
 }
 
 export async function handleApi(request, env, url, ctx) {
-  // The server mod posts chat here; it authenticates with its own token, not a login.
+  // The server mod posts chat here. Its key was checked before the request got here (src/index.js,
+  // src/tenant.js); each of these refuses unless it was (util.js ingestDenied).
   if (url.pathname === '/api/ingest/chat') {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
     return ingestChat(request, env);
@@ -81,14 +82,15 @@ export async function handleApi(request, env, url, ctx) {
   // And its Liveview connection, open only while an admin watches (src/liveview.js).
   if (url.pathname === '/api/ingest/liveview') return connectLiveview(request, env);
 
-  const who = await signedIn(request, env, url);
-  if (!who) return json({ error: 'unauthorized' }, 401);
-  // What this sign-in may do (src/roles.js). Being let in by Access isn't enough any more if a super
-  // admin has switched "view" off for it: then only /api/me answers, so the page can say so.
+  // Who's asking, on this server (src/auth.js): a member who signed in, or someone who can only look.
+  const who = await signedIn(request, env);
+  if (!who) return json({ error: 'unauthorized', reason: 'join' }, 401);
+  // What they may do here (src/roles.js). A member whose "view" an owner has switched off gets only
+  // /api/me, so the page can say so.
   who.perms = await loadPerms(env, who);
   if (url.pathname === '/api/me') return me(env, who);
   if (!who.perms.view) return json({ error: 'no_access' }, 403);
-  // Roles: super admins set everyone's permissions.
+  // Roles: the server's owners set its members' roles and permissions.
   if (url.pathname === '/api/admin/roles') return handleRoles(request, env, url, who, () => serverAccess(env));
 
   // Chat from the dashboard, for players whose login email is on the roster.
@@ -109,7 +111,7 @@ export async function handleApi(request, env, url, ctx) {
     watch.headers.set('X-Viewer', JSON.stringify(player?.admin ? { admin: true } : player?.ign ? { ign: player.ign } : {}));
     return presence(env).fetch(watch);
   }
-  // The admin page: only the emails in the ADMIN_EMAIL secret.
+  // The admin page: this server's admins only.
   if (url.pathname === '/api/admin') {
     if (!isAdmin(env, who)) return json({ error: 'forbidden' }, 403);
     const season = seasonFor(env, url);

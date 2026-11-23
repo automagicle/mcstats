@@ -4,24 +4,35 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
 
-  // Only the workers.dev URL, which Cloudflare Access protects. Preview URLs
-  // would be a second, unprotected way in.
+  // Many Minecraft servers, one Worker. Each server's data lives only in its own Durable Object (Tenant);
+  // the DIRECTORY database only says which servers exist. See README.md, "How servers are kept apart".
   "workers_dev": true,
   "preview_urls": false,
 
-  // Static UI from ./public. Only /api/* runs the Worker (and requires login); /s1/ (the season 1
-  // archive) runs it too, to serve the same page there.
+  // Static pages from ./public: the landing page (/), joining (/join) and making a server (/new).
+  // The Worker runs first for the API, every server's pages (/s/<server>/...), the old season-1 archive
+  // address (/s1/, now under the first server), and the stats page's file, which is only served inside a server.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/s1", "/s1/*"]
+    "run_worker_first": ["/api/*", "/s/*", "/s1", "/s1/*", "/stats", "/stats.html"]
   },
 
-  // Check the server every minute (mcstatus.io caches for ~60s anyway).
-  "triggers": { "crons": ["* * * * *"] },
+  // The mod versions shown on /new, read from mod/ (scripts/mod-info.mjs writes src/modinfo.gen.js).
+  "build": { "command": "node scripts/mod-info.mjs" },
 
   "d1_databases": [
     {
+      // Which servers exist: slug, name, hashed join password, hashed mod keys, owner. No stats.
+      // Create it with `npx wrangler d1 create mcstats-directory` and put its id here.
+      "binding": "DIRECTORY",
+      "database_name": "mcstats-directory",
+      "database_id": "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create",
+      "migrations_dir": "directory-migrations"
+    },
+    {
+      // The single-server database from before. Nothing reads it at runtime any more; it stays bound
+      // until scripts/copy-tenant.mjs has copied it into the first server and you've checked the counts.
       "binding": "DB",
       "database_name": "mcstats",
       "database_id": "b45c9980-b769-42cf-94e2-421c6a20931b",
@@ -29,43 +40,42 @@
     }
   ],
 
+  // TENANT is one per server, named by its id, and holds all of that server's data in its own SQLite
+  // (src/tenant.js). LINK, PRESENCE and LIVEVIEW are one per server too, named by the same id:
   // LINK holds the server mod's WebSocket, which carries chat sent from the dashboard into the game
   // (src/link.js). PRESENCE pushes who's online to open pages as players join and leave (src/presence.js).
   // LIVEVIEW passes the live view between the server mod and the admins watching it (src/liveview.js).
+  // LIMITER counts join and sign-in attempts (src/limiter.js).
   "durable_objects": {
     "bindings": [
+      { "name": "TENANT", "class_name": "Tenant" },
       { "name": "LINK", "class_name": "ServerLink" },
       { "name": "PRESENCE", "class_name": "Presence" },
-      { "name": "LIVEVIEW", "class_name": "LiveRelay" }
+      { "name": "LIVEVIEW", "class_name": "LiveRelay" },
+      { "name": "LIMITER", "class_name": "Limiter" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ServerLink"] },
     { "tag": "v2", "new_sqlite_classes": ["Presence"] },
-    { "tag": "v3", "new_sqlite_classes": ["LiveRelay"] }
+    { "tag": "v3", "new_sqlite_classes": ["LiveRelay"] },
+    { "tag": "v4", "new_sqlite_classes": ["Tenant", "Limiter"] }
   ],
 
-  // MC_SERVER is a secret (wrangler secret put MC_SERVER), never put it here.
-  // So is CHAT_INGEST_TOKEN, which the chat mod sends (see mod/README.md).
+  // Secrets (npx wrangler secret put NAME), never put here:
+  //   SESSION_SECRET     signs every cookie (at least 32 characters; `openssl rand -base64 48`)
+  //   RESEND_API_KEY     sends the sign-in codes
+  //   OPS_TOKEN          for scripts/copy-tenant.mjs (at least 32 characters)
+  //   SUPER_ADMIN_EMAIL  site operators: can do everything on any server they sign in to
+  //   CHAT_INGEST_TOKEN  the old shared mod token; still accepted for the first server (LEGACY_SLUG)
+  //   MC_SERVER          the old server address; copied into the first server's settings once
   "vars": {
-    "TZ_NAME": "America/Los_Angeles",
-    // The server's Minecraft version; player pages draw armor and items with this version's textures.
+    // Every server runs the mod, which needs this Minecraft version; player pages draw armor and items with its textures.
     "MC_VERSION": "26.2",
-    // When season 2 begins, as an ISO time with its offset (e.g. "2026-11-08T16:00:00-08:00") or unix seconds.
-    // Everything before it is season 1 (shown at /s1/); the main page shows only what comes after.
-    // Until it's set, season 2 has no data and season 1 keeps going.
-    "SEASON2_START": "2026-11-13T19:00:00-08:00",
-    // When the season officially begins, if recording started earlier (to test). Charts mark this as the
-    // season's start; what was recorded before it still shows and still counts. Remove it to show none.
-    "SEASON2_OPENS": "2026-11-15T19:30:00-08:00",
-    // Chat resets: at each of these times (ISO with offset, separated by commas) the chat log starts over.
-    // Nothing is deleted; earlier messages stay in the database and are just no longer shown or counted.
-    // A time still in the future takes effect on its own when it arrives.
-    "CHAT_RESETS": "2026-11-15T18:00:00-08:00",
-    // Filled in after enabling Cloudflare Access on the workers.dev URL.
-    // Until both are set, every /api/* request is refused.
-    "ACCESS_TEAM_DOMAIN": "magicle.cloudflareaccess.com",
-    "ACCESS_AUD": "c8278e0ad7bc5ed7657d1fdc291991cfd374509c4b59fc008036f96e88c24864"
+    // The server the old shared CHAT_INGEST_TOKEN, the old /s1/ address and the old D1 data belong to.
+    "LEGACY_SLUG": "eggsmp",
+    "EMAIL_FROM": "mcstats <noreply@emptyconsole.com>",
+    "MAX_SERVERS_PER_OWNER": "3"
   },
 
   "observability": { "enabled": true }

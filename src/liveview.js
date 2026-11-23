@@ -30,9 +30,9 @@
 // (20 frames count as one request): about 3,600 requests an hour of watching, however many watch.
 
 import { DurableObject } from 'cloudflare:workers';
+import { siblingEnv } from './tenantenv.js';
 import { loadPerms } from './roles.js';
-import { sameSecret } from './chat.js';
-import { json } from './util.js';
+import { json, ingestDenied } from './util.js';
 
 const MAX_VIEWERS = 8;
 const MAX_PAGE_MESSAGE = 8 * 1024; // what the mod accepts from a page
@@ -149,7 +149,8 @@ async function unlock(request, env, url, who) {
 async function asset(request, env, url, ctx) {
   const name = url.pathname.slice('/api/liveview/assets/'.length);
   if (!ASSET_NAME.test(name)) return json({ error: 'not found' }, 404);
-  const cacheKey = new Request(`${url.origin}/api/liveview/assets/${name}`);
+  // kept per server: an asset came from that server's mod, and is only for those allowed to watch it
+  const cacheKey = new Request(`${url.origin}/_server/${env.TENANT?.id ?? 'none'}/api/liveview/assets/${name}`);
   const cache = caches.default;
   let res = await cache.match(cacheKey);
   if (!res) {
@@ -212,10 +213,9 @@ export async function handleLiveview(request, env, url, who, ctx) {
 
 // GET /api/ingest/liveview (WebSocket) from the server mod.
 export async function connectLiveview(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) return json({ error: 'unauthorized' }, 401);
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'expected a WebSocket' }, 426);
   if (!env.LIVEVIEW) return json({ error: 'not set up' }, 503);
   return relay(env).fetch(new Request('https://relay/mod', request));
@@ -245,6 +245,8 @@ const CLOSE = {
 export class LiveRelay extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    // one per server, named by its id; this.env is that server's (its database, its other objects)
+    this.env = siblingEnv(env, ctx);
     this.pages = null; // v -> socket, rebuilt from the sockets themselves after a sleep
     this.assets = new Map(); // request id -> { chunks, size, type, resolve }
     this.nextAsset = 1;

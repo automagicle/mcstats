@@ -5,7 +5,8 @@
 // folded in) and the textures from /api/mc/textures/…; three.js is only loaded for 3D items.
 // Loaded on demand by app.js: itemIcon(id) -> Promise<data URL | null> (a 64×64 picture: one slot).
 
-const TEX = (path) => `/api/mc/textures/${path}.png`;
+// under this server's address: images don't go through public/tenant.js's fetch
+const TEX = (path) => `${window.MCS?.base ?? ''}/api/mc/textures/${path}.png`;
 const SIZE = 64; // 4 screen pixels per game pixel, so it stays sharp at 32 CSS pixels on any screen
 const ID_RE = /^[a-z0-9_]{1,64}$/;
 

@@ -1,0 +1,8 @@
+{
+  "//": "The first server's settings, as they were in wrangler.jsonc's vars before servers had their own. scripts/copy-tenant.mjs sends them once; after that they're changed on /new (Settings). MC_SERVER comes from the Worker's MC_SERVER secret.",
+  "TZ_NAME": "America/Los_Angeles",
+  "CURRENT_SEASON": "2",
+  "SEASON2_START": "2026-11-13T19:00:00-08:00",
+  "SEASON2_OPENS": "2026-11-15T19:30:00-08:00",
+  "CHAT_RESETS": "2026-11-15T18:00:00-08:00"
+}

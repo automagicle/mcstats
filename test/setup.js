@@ -1,0 +1,3 @@
+import { applyD1Migrations, env } from 'cloudflare:test';
+
+await applyD1Migrations(env.DIRECTORY, env.TEST_DIRECTORY_MIGRATIONS);

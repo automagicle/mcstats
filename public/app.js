@@ -46,11 +46,17 @@ function headImg(name, size, attrs = {}) {
 
 /* ---------- seasons ---------- */
 
-// The main page shows the current season; /s1/ (and later /s2/, …) show past ones.
-// A season that's over is shown as of its end: the page's clock stops there.
-const CURRENT_SEASON = 2; // keep in step with src/seasons.js
-const SEASON = Number(location.pathname.match(/^\/s(\d+)\//)?.[1]) || CURRENT_SEASON;
-const SITE = SEASON < CURRENT_SEASON ? `Season ${SEASON} · mcstats` : 'mcstats';
+// Every server has its own pages under /s/<server>/ (BASE): the main page shows the server's current
+// season, and BASE/s1/ (and later /s2/, …) show past ones. The Worker tells the page which server it's on and
+// its current season (window.MCS, from src/index.js). A season that's over is shown as of its end: the
+// page's clock stops there.
+const MCS = window.MCS || { base: '', name: 'mcstats', season: 1 };
+const BASE = MCS.base || '';
+const CURRENT_SEASON = Number(MCS.season) || 1;
+const SEASON = Number(location.pathname.slice(BASE.length).match(/^\/s(\d+)\//)?.[1]) || CURRENT_SEASON;
+const SITE = SEASON < CURRENT_SEASON ? `Season ${SEASON} · ${MCS.name || 'mcstats'}` : (MCS.name || 'mcstats');
+// A season's page: BASE/ for the current one, BASE/sN/ for an earlier one.
+const seasonHref = (n) => (n === CURRENT_SEASON ? `${BASE}/` : `${BASE}/s${n}/`);
 // ?dummydata on the main page fills it with made-up activity (public/dummy.js). The chat log stays empty.
 const DUMMY = SEASON === CURRENT_SEASON && new URLSearchParams(location.search).has('dummydata');
 let clockStop = Infinity; // the last moment of a finished season (unix seconds)
@@ -168,7 +174,11 @@ async function api(path) {
   if (DUMMY && !path.startsWith('/api/roster')) return (await dummyApi())(path);
   const url = `${path}${path.includes('?') ? '&' : '?'}season=${SEASON}`;
   const res = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-  if (res.status === 401) throw new AuthError('unauthorized');
+  if (res.status === 401) {
+    // not let in on this server (any more): its join page
+    if (MCS.slug) location.assign(`/join?server=${encodeURIComponent(MCS.slug)}`);
+    throw new AuthError('unauthorized');
+  }
   if (res.status === 503) {
     const body = await res.json().catch(() => null);
     if (body?.error === 'db_limit') {
@@ -1981,8 +1991,8 @@ function renderLive() {
       + (archived() ? ` · Season ${SEASON} archive` : last ? ` · updated ${fmt(last.ts, { hour: 'numeric', minute: '2-digit' })}` : '')
       + (DUMMY ? ' · sample data' : '') + ' · ',
     SEASON === CURRENT_SEASON
-      ? el('a', { href: '/s1/', text: 'Season 1 archive' })
-      : el('a', { href: '/', text: 'Current season' }),
+      ? el('a', { href: seasonHref(1), text: 'Season 1 archive' })
+      : el('a', { href: seasonHref(CURRENT_SEASON), text: 'Current season' }),
     ...(site.admin ? [' · ', el('a', { href: '#/admin', text: 'Admin' })] : []));
   renderSeasonNote();
 }
@@ -1999,19 +2009,19 @@ function renderSeasonNote() {
   let kids = null;
   if (DUMMY) {
     kids = [el('strong', { text: 'Sample data.' }), ' This activity is made up, to show how the page looks. The chat log is left empty. ',
-      el('a', { href: '/', text: 'Show real data' })];
+      el('a', { href: seasonHref(CURRENT_SEASON), text: 'Show real data' })];
   } else if (st && SEASON === CURRENT_SEASON && !st.data_start) {
     const s = st.season;
     const when = s?.start && !s.started
       ? ` It starts ${fmt(s.start, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : '';
     kids = [el('strong', { text: `No Season ${SEASON} data yet.` }), `${when} `,
-      el('a', { href: `/s${SEASON - 1}/`, text: `See Season ${SEASON - 1}’s archived stats →` })];
+      el('a', { href: seasonHref(SEASON - 1), text: `See Season ${SEASON - 1}’s archived stats →` })];
   } else if (st && SEASON === CURRENT_SEASON && seasonOpens() && nowSec() < seasonOpens()) {
     kids = [el('strong', { text: `Season ${SEASON} starts ${fmt(seasonOpens(), { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` })];
   } else if (st && SEASON < CURRENT_SEASON && !$('#view-home').hidden) {
     kids = [el('strong', { text: `Season ${SEASON} archive` }),
       archived() ? ` · ${seasonSpan()}. ` : ` · still recording until Season ${SEASON + 1} starts. `,
-      el('a', { href: SEASON + 1 === CURRENT_SEASON ? '/' : `/s${SEASON + 1}/`, text: `Go to Season ${SEASON + 1} →` })];
+      el('a', { href: seasonHref(SEASON + 1), text: `Go to Season ${SEASON + 1} →` })];
   }
   note.classList.toggle('dummy', DUMMY);
   note.hidden = !kids;
@@ -2992,7 +3002,7 @@ function renderPlayerName() {
 // the game's elbow lines, on the tab's background. Hidden advancements only show once earned.
 const ADV = { scale: 2, dx: 28, dy: 27, box: 26, pad: 9 };
 const adv = { key: null, tab: recall('advTab') || null, data: null };
-const advTexture = (path) => `/api/mc/textures/${path}.png`;
+const advTexture = (path) => `${BASE}/api/mc/textures/${path}.png`;
 let mcIcons = null;
 function setItemIcon(img, icon) {
   mcIcons ??= import('/mcicons.js');
@@ -6094,7 +6104,7 @@ async function renderPlayerEgg(name, gear) {
   if (state.playerData?.name !== name) return;
 
   const head = el('div', { class: 'egg-head' },
-    el('img', { class: 'egg-icon', src: `/api/mc/textures/item/${egg.model}.png`, alt: '', width: 44, height: 44 }),
+    el('img', { class: 'egg-icon', src: `${BASE}/api/mc/textures/item/${egg.model}.png`, alt: '', width: 44, height: 44 }),
     el('div', { class: 'egg-title' },
       el('h2', { class: 'p-egg', style: egg.color ? `--egg:${egg.color}` : '' }, info?.symbol ? `${info.symbol} ` : '', egg.name),
       el('div', { class: 'card-sub', text: info?.theme || 'Egg SMP egg' })));
@@ -6432,7 +6442,7 @@ async function showRoles() {
   }
   adminTab('roles');
   if (!site.super) {
-    root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for super admins.' }));
+    root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for the server’s owners.' }));
     return;
   }
   if (!roles.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
@@ -6466,51 +6476,63 @@ function renderRoles() {
     return el('span', { class: 'muted', text: 'Not let in', title: 'They enter the viewer key in the Liveview tab, or an operator runs /liveview access viewer with their email in game' });
   };
   const ago = (ts) => { const s = nowSec() - ts; return s < 120 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : fmt(ts, { month: 'short', day: 'numeric' }); };
+  const roleCell = (u) => {
+    if (u.super) return el('span', { class: 'an-tag', text: 'Super admin' });
+    if (u.role === 'owner') return el('span', { class: 'an-tag', text: 'Owner' });
+    const pick = el('select', { class: 'adm-input', 'aria-label': `Role for ${u.email}` },
+      el('option', { value: '', text: 'Not a member' }), el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }));
+    pick.value = u.role || '';
+    pick.addEventListener('change', () => save(pick.value ? { email: u.email, role: pick.value } : { email: u.email, remove: true }));
+    return pick;
+  };
+  const fixed = (u) => u.super || u.role === 'owner';
   const body = d.users.map((u) => {
     const boxes = ROLE_PERMS.map(([key, label]) => {
       const box = el('input', { type: 'checkbox', 'aria-label': `${label} for ${u.email}` });
       box.checked = !!u.perms[key];
-      box.disabled = u.super;
+      box.disabled = fixed(u);
       box.addEventListener('change', () => save({ email: u.email, perms: { ...u.perms, [key]: box.checked } }, () => { box.checked = !box.checked; }));
       return el('td', { class: 'role-box' }, box);
     });
-    return el('tr', { class: u.super ? 'role-super' : '' },
+    return el('tr', { class: fixed(u) ? 'role-super' : '' },
       el('td', {},
         el('div', { class: 'role-who' }, el('span', { class: 'adm-ign', text: u.email }),
-          u.super ? el('span', { class: 'an-tag', text: 'Super admin' }) : u.custom ? el('span', { class: 'an-tag', text: 'Changed' }) : null),
+          u.custom && !fixed(u) ? el('span', { class: 'an-tag', text: 'Changed' }) : null),
         el('div', { class: 'role-sub muted', text: [u.name, u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site'].filter(Boolean).join(', ') })),
+      el('td', {}, roleCell(u)),
       ...boxes,
       el('td', {}, serverCell(u)),
-      el('td', { class: 'adm-act' }, u.custom && !u.super
-        ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to the defaults' }, ) : null));
+      el('td', { class: 'adm-act' }, u.custom && !fixed(u)
+        ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to what the role gives' }, ) : null));
   });
   for (const [i, tr] of body.entries()) {
     const u = d.users[i];
     tr.querySelector('.btn-quiet')?.addEventListener('click', () => save({ email: u.email, reset: true }));
   }
   const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
-  const add = el('form', { class: 'adm-form role-add' }, email, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
+  const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }));
+  const add = el('form', { class: 'adm-form role-add' }, email, role, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
   add.addEventListener('submit', (e) => {
     e.preventDefault();
     const v = email.value.trim().toLowerCase();
     if (!v) return;
-    const known = d.users.find((u) => u.email === v);
-    if (known) { toast(`${v} is already in the table.`); return; }
-    // listed with what anyone gets by default; the checkboxes take it from there
-    save({ email: v, perms: { view: true, chat: true, admin: false, liveview: false, liveview_op: false } });
+    const known = d.users.find((u) => u.email === v && u.role);
+    if (known) { toast(`${v} is already a member.`); return; }
+    save({ email: v, role: role.value });
   });
   root.replaceChildren(
     el('section', { class: 'card adm-card' },
-      el('div', { class: 'card-head' }, el('h2', { text: 'Roles' }), el('span', { class: 'card-sub', text: 'what each sign-in may do; a change is saved at once' })),
-      el('p', { class: 'adm-note', text: 'Everyone who has opened the site, is on the roster, or was added here. Someone not marked “Changed” has the defaults: View and Chat for anyone the login lets in, and everything for the admin emails. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
+      el('div', { class: 'card-head' }, el('h2', { text: 'Roles' }), el('span', { class: 'card-sub', text: 'who belongs to this server, and what they may do; a change is saved at once' })),
+      el('p', { class: 'adm-note', text: 'Members are people who signed in here with their email, or were added below. A role sets the ticks: Admin gets everything but this tab, Member gets View and Chat; “Changed” means someone’s ticks differ from their role’s. Being a member here means nothing on any other server. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
       el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table role-table' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'Sign-in' }),
+          el('th', { text: 'Role' }),
           ...ROLE_PERMS.map(([, label, title]) => el('th', { class: 'role-box', text: label, title })),
           el('th', { text: 'Minecraft server', title: 'What the server itself lets this account do in Liveview' }),
           el('th', {}))),
         el('tbody', {}, ...body))),
-      el('p', { class: 'adm-note', text: 'Add someone before they’ve visited, to set what they can do when they do:' }),
+      el('p', { class: 'adm-note', text: 'Add someone before they’ve signed in, to set what they can do when they do (they sign in with this email on this server):' }),
       add));
 }
 

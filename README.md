@@ -1,9 +1,11 @@
 # mcserverstats
 
-Tracks who's on a Minecraft server and when, and shows it on a private dashboard.
-It runs on Cloudflare's free plan, so nothing needs to stay on at home.
+Tracks who's on Minecraft servers and when, and shows each server on its own private dashboard. Many servers
+use one site at the same time; each has its own page (`/s/<server>/`), its own password, its own data and its own
+members, and none can see or change another's (see [How servers are kept apart](#how-servers-are-kept-apart)).
+It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay on at home.
 
-- **Collector**: a Cron-triggered Worker asks [mcstatus.io](https://mcstatus.io) about the server every minute and records the player count plus each named player's session in D1 (SQLite).
+- **Collector**: each server's Durable Object sets its own alarm to ask [mcstatus.io](https://mcstatus.io) about its Minecraft server every minute, and records the player count plus each named player's session in its own SQLite.
 - **Dashboard**: static files in `public/`, served by the same Worker. It shows players online over time, a GitHub-style daily heatmap, a leaderboard, busiest hours, and a page for each player.
 - **Chat log, combat, gear and advancements** (optional): a Fabric server mod in `mod/` posts public chat, every death
   (who died, who or what did it, and how), what each player wears and carries, and their advancements, to the Worker,
@@ -13,11 +15,10 @@ It runs on Cloudflare's free plan, so nothing needs to stay on at home.
 - **Liveview** (admins only, optional): a fourth tab that shows the world as it is right now, in 3D, straight from
   the server mod: fly a camera through the terrain, follow a player, open inventories and chests, read what's
   happening. It's behind two keys that are made on the Minecraft server (see [Liveview](#liveview)).
-- **Seasons**: the main page shows the current season (season 2); `/s1/` is the season 1 archive. Seasons split the
-  recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
-- **Privacy**: the server address is a Worker secret. Every `/api/*` request must carry a valid Cloudflare Access login token. Until Access is configured, the API refuses everyone.
-  The exceptions are the mod's `/api/ingest/*` endpoints, which take its `CHAT_INGEST_TOKEN` instead (and still need the
-  Access service token to get past Access). Service tokens can't read the dashboard.
+- **Seasons**: a server's main page shows its current season; `/s/<server>/s1/` is its season 1 archive. Seasons split
+  the recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
+- **Privacy**: looking at a server needs its join password (or the owner can make it public); chatting from the
+  website and the admin pages need an email sign-in on that server. The mod's uploads need that server's key.
 
 The look of the dashboard (colors, type, the 2px pixel shapes, spacing, components) is written down in [DESIGN.md](DESIGN.md).
 
@@ -26,26 +27,76 @@ The look of the dashboard (colors, type, the 2px pixel shapes, spacing, componen
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create mcstats             # paste the database_id into wrangler.jsonc
-npm run db:migrate:remote
-npx wrangler secret put MC_SERVER          # e.g. play.example.com or 1.2.3.4:25565
+npx wrangler d1 create mcstats-directory     # paste its database_id into wrangler.jsonc (DIRECTORY)
+npm run dir:migrate:remote
+openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
+npx wrangler secret put RESEND_API_KEY        # sends sign-in codes; EMAIL_FROM's domain must be verified in Resend
+npx wrangler secret put SUPER_ADMIN_EMAIL     # you: can do everything on any server you sign in to
+npm run build:mod                             # the mod jar that /new offers (needs Java 25)
 npm run deploy
 ```
 
-Then, in the Cloudflare dashboard, open **Workers & Pages → mcstats → Settings → Domains & Routes**.
-Enable **Cloudflare Access** on the `workers.dev` route and allow only your email. Copy the
-**team domain** (`<team>.cloudflareaccess.com`) and the **Audience (AUD) tag** into `ACCESS_TEAM_DOMAIN`
-and `ACCESS_AUD` in `wrangler.jsonc`, then run `npm run deploy` again.
+Then open the site, choose **Create a server**, and follow the steps: sign in with your email, name the server and
+set its join password, install the mod, paste the key it shows into the mod's config, and wait for the first upload.
+Players join at `/join` with the server's name and password.
+
+Nothing else is set per deployment: each server's address, time zone, seasons and chat resets are its own settings
+(the **Optional setup** step on `/new`, or `POST /api/site/servers/<server>/settings` with `MC_SERVER`, `TZ_NAME`,
+`CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS`, `CHAT_RESETS`, `PUBLIC`).
+
+`npm test` runs the tests (Vitest inside the Workers runtime), including the ones that check servers stay apart.
+
+### Moving from the single-server version
+
+The single-server version kept everything in the `mcstats` D1 database and was behind Cloudflare Access. To move it
+into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
+
+1. Do the [Deploy](#deploy) steps above, and also `openssl rand -base64 48 | npx wrangler secret put OPS_TOKEN`.
+   Keep the `CHAT_INGEST_TOKEN`, `MC_SERVER` and `ADMIN_EMAIL` secrets: the old shared token keeps working for the
+   first server, the address and the admins are copied into it.
+2. Remove the Cloudflare Access application from the Worker's address (Zero Trust → Access → Applications), or it
+   keeps asking everyone, players and the mod included, for an Access login first.
+3. Copy the data and check it:
+   `OPS_TOKEN=… JOIN_PASSWORD=… npm run copy-tenant -- --url https://<worker address> --owner you@example.org`.
+   Uploads from the mod wait (it keeps them) until the copy is checked; the script prints each table's row count
+   on both sides and only finishes if they all match.
+4. Give players `/join`, the name `eggsmp` and the join password. Old links to `/s1/` go to `/s/eggsmp/s1/`.
+5. When you're ready, make the first server a key of its own on `/new` (sign in with the owner email) and put it
+   in the mod's `token=`; then the old `CHAT_INGEST_TOKEN` secret can be deleted.
+
+## How servers are kept apart
+
+- **One object per server.** Every server's data (stats, chat, deaths, gear, roster, members, settings, its mod key)
+  lives only in its own Durable Object's SQLite (`src/tenant.js`), named by a random id. Its migrations
+  (`src/tenant/schema.js`) run inside it when it starts; a stored version number says which have run. Its web chat,
+  live updates and Liveview objects are named by the same id, so they can't reach another server's either.
+- **The directory** (`DIRECTORY`, a D1 database: `directory-migrations/`) only says which servers exist: slug, name,
+  hashed join password, hashed mod key, owner, created date. No stats. A D1 database rather than one directory object,
+  because every page load looks a server up and one object would make every request in the world wait in one line.
+- **Which server** a request is for is decided once, in the Worker (`src/index.js`): from the address (`/s/<server>/`)
+  for pages, and only from the key (`mcs_<server id>_…`) for the mod. A server named in a body or query string is ignored.
+- **Cookies** are signed with a key derived from `SESSION_SECRET` and the server's id, and sent only to that server's
+  pages (`Path=/s/<server>/`, HttpOnly, Secure, SameSite=Lax). Joining A gives nothing on B; signing in on A makes you
+  nobody on B.
+- **Roles** are per server: `owner`, `admin`, `member` (src/roles.js), each a starting set of the five permissions.
+  Every admin check asks "is this email an admin *of this server*".
+- **Caches** are per server: the `cache` table is in each server's own database, and Liveview's assets are cached
+  under the server's id. Only the game's own textures and Mojang skins are shared, keyed by version and name.
+- **Joining** gives the same answer for a wrong password and a server that doesn't exist, takes the same time
+  (PBKDF2 runs either way), and is rate limited the same way: per server and address, per server, and per address.
+  Passwords are PBKDF2-SHA256 with a per-server salt and 100,000 iterations (the most the Workers runtime allows).
 
 ## Seasons
 
-Everything recorded before `SEASON2_START` (in `wrangler.jsonc`) is season 1, shown at `/s1/`; the main page shows only
+Each server has its own seasons: `CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS` and `CHAT_RESETS` are its
+settings (see [Deploy](#deploy)); a new server starts in season 1, and `n` below is any season. For the first server:
+everything recorded before `SEASON2_START` is season 1, shown at `/s1/`; the main page shows only
 what comes after. While it's empty, season 2 has no data (the main page says so and links to the archive) and season 1
 keeps recording. When season 2 begins:
 
 1. Set `SEASON2_START` to the moment it starts, with its offset, e.g. `"2026-11-08T16:00:00-08:00"` (on the hour is tidiest:
    hourly totals are per hour).
-2. If it's on a new server, update the address: `npx wrangler secret put MC_SERVER`.
+2. If it's on a new Minecraft server, update the address (the server's `MC_SERVER` setting, on `/new`).
 3. `npm run deploy`.
 
 **Recording before the official start**: to test before a season opens, set `SEASON2_START` to when recording should
@@ -57,7 +108,7 @@ over it, and a line at the top says the season hasn't started. To drop the test 
 From then on `/s1/` is frozen at the end of season 1: its charts show its final days, the tiles show its length, peak and
 total, the leaderboard opens on All, and it stops refreshing.
 
-**Chat resets**: `CHAT_RESETS` (in `wrangler.jsonc`) is a list of times, separated by commas, like
+**Chat resets**: `CHAT_RESETS` (a server setting) is a list of times, separated by commas, like
 `"2026-11-15T18:00:00-08:00"`. At each one the chat log starts over: messages from before the latest reset that has
 passed are no longer shown, searched or counted (the unread badge and each player's message count included). Nothing is
 deleted: they stay in the database, and removing the time (and deploying) brings them back. A time in the future takes
@@ -131,13 +182,14 @@ saved at once (table `user_perms`, `src/roles.js`):
 | **Liveview** | Watch through Liveview, once the Minecraft server lets the account in. |
 | **Liveview controls** | Run commands and move items from Liveview, once the server allows that too. |
 
-Someone whose row was never touched has the defaults: View and Chat for anyone the login lets in, and all five
-for the `ADMIN_EMAIL` logins, which is how things were before this page existed. **Reset** puts a row back to
-them. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
+Everything here is per server. Each member has a **role**, which sets their ticks: **Owner** (all five, and this
+tab), **Admin** (all five) and **Member** (View and Chat). Anyone who can look at the server becomes a member by
+signing in on it; owners add admins and members here (or on `/new`), switch single ticks, and remove members.
+"Changed" means someone's ticks differ from their role's; **Reset** puts them back. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
 is only half of it, and that half can't be given from the dashboard.
 
-**Super admins** are the sign-in emails in the `SUPER_ADMIN_EMAIL` secret (comma-separated). They can do
-everything, can't be changed from the page, and are the only ones who see Roles:
+**Super admins** are the sign-in emails in the `SUPER_ADMIN_EMAIL` secret (comma-separated): the site's operators.
+Signed in on any server, they can do everything there and can't be changed from the page:
 
 ```bash
 npx wrangler secret put SUPER_ADMIN_EMAIL
@@ -145,13 +197,8 @@ npx wrangler secret put SUPER_ADMIN_EMAIL
 
 For local development, add `SUPER_ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`.
 
-Admins by default are the sign-in emails in the `ADMIN_EMAIL` secret (comma-separated), so they stay out of this repository:
-
-```bash
-npx wrangler secret put ADMIN_EMAIL
-```
-
-For local development, add `ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`. Players, teams and eggs changed on the page are
+The old `ADMIN_EMAIL` secret only matters once: `scripts/copy-tenant.mjs` makes those emails admins of the first
+server. Players, teams and eggs changed on the page are
 replaced the next time `npm run roster:remote` runs, so copy lasting ones into the roster file (it also holds the real
 names and chat emails, which the page doesn't show).
 
@@ -163,7 +210,7 @@ route (home, chat, combat, admin, or `player:<uuid>`) on each page view, and onc
 visible. Rows are per visitor (their Cloudflare Access login), page and UTC day, so storage stays small. The tab shows
 visitors, page views, time on the site and the share on phones for the last 7, 30 or 90 days or year, a chart of
 each day, the most viewed pages, and each visitor (by IGN where their login is on the roster) with their views, days,
-time and when they were last on. **Leave out admins** (on by default) hides the `ADMIN_EMAIL` logins' own visits.
+time and when they were last on. **Leave out admins** (on by default) hides this server's admins' own visits.
 
 ## Liveview
 
@@ -316,26 +363,35 @@ npx wrangler d1 execute mcstats --remote --command "INSERT OR REPLACE INTO playe
 npx wrangler d1 execute mcstats --remote --command "DELETE FROM player_aliases WHERE alias = 'OldName'"
 ```
 
-## Sign-in (Cloudflare Access)
+## Sign-in
 
-The Access application's **Allow** policy decides who can open the dashboard. Its **Include** rules are OR'd, so one
-policy can let in a whole email domain *and* individual addresses: add an **Emails ending in** rule (e.g.
-`@school.org`) and an **Emails** rule (or an Access **List** of emails) for people outside it. Turn on the
-**One-time PIN** login method (Zero Trust → Settings → Authentication) so any email address can sign in with a code;
-a Google login works too for Google accounts. Keep the separate **Service Auth** policy for the mod's service token.
+Two things, separately:
 
-Being let in only allows reading. **Sending chat** also needs the email to be on the season's roster (see Teams above);
-anyone else sees the message box disabled with the reason.
+- **Looking**: the server's join password, on `/join`. It gives a cookie for that server's pages, good for 30 days or
+  until the owner changes the password. An owner can make a server public instead.
+- **Being someone**: **Sign in** at the top of a server's page sends a 6-digit code by email (through Resend; it works
+  for 10 minutes and 5 tries). Anyone who can look becomes a **member** of that server by signing in; owners make
+  admins on the Roles tab or on `/new`. People an owner added can also sign in from `/join` ("Added by email?")
+  without the password.
+
+**Sending chat** also needs the email to be on the season's roster (see Teams above); anyone else sees the message box
+disabled with the reason. Making servers (`/new`) is a sign-in of its own, by email code too.
+
+Cloudflare Access isn't used any more; the mod's `access_client_id` / `access_client_secret` settings are only for a
+dashboard still behind it.
 
 ## Local development
 
 ```bash
-printf 'DEV_NO_AUTH=1\nMC_SERVER=demo.mcstatus.io\nCHAT_INGEST_TOKEN=local-dev-token-0123456789abcdef0123456789\n' > .dev.vars
-# optional: DEV_EMAIL=<a roster email> in .dev.vars to try sending chat as that player
-npm run db:migrate:local
-npm run seed:local        # optional: 200 days of fake data, plus two weeks of fake chat
-npm run dev               # http://localhost:8787, trigger a check at /__scheduled
+printf 'SESSION_SECRET=local-session-secret-0123456789abcdef\nEMAIL_DEV_LOG=1\nOPS_TOKEN=local-ops-token-0123456789abcdef0123\nCHAT_INGEST_TOKEN=local-dev-token-0123456789abcdef0123456789\n' > .dev.vars
+npm run dir:migrate:local
+npm run dev               # http://localhost:8787: Create a server; sign-in codes are printed in this terminal
 ```
+
+`EMAIL_DEV_LOG=1` prints emails instead of sending them. `DEV_NO_AUTH=1` (with an optional `DEV_EMAIL=`) lets
+`localhost` into every server without a password or sign-in. To try the stats page with fake data: `npm run
+db:migrate:local && npm run seed:local` fills the old single-server database, and `OPS_TOKEN=… JOIN_PASSWORD=… npm run
+copy-tenant -- --url http://localhost:8787 --owner you@example.org --local` copies it into a server.
 
 **Liveview locally**: add `ADMIN_EMAIL=` and `SUPER_ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`, then run the mod against the local
 dashboard: in `mod/run/config/mcstats-chat.properties` set `url=http://localhost:8787/api/ingest/chat` and `token=`
@@ -448,7 +504,7 @@ connections; the page reconnects by itself.
 - **Liveview** (admins): see [Liveview](#liveview).
 - **Theme**: dark by default on every device; the switch at the top picks light or dark and the choice is
   remembered in the browser.
-- Times are shown in `TZ_NAME` from `wrangler.jsonc` (Pacific by default).
+- Times are shown in each server's `TZ_NAME` setting (UTC until it's set).
 
 ## Notes
 

@@ -23,11 +23,12 @@ record Config(String url, String token, String accessClientId, String accessClie
 			# e.g. https://mcstats.example.workers.dev/api/ingest/chat
 			url=
 
-			# The same value as the CHAT_INGEST_TOKEN secret on the Worker.
+			# This server's key, from the dashboard's setup page (/new, "Connect the mod"). It starts with mcs_
+			# and is shown once; making a new one there stops the old one at once.
 			token=
 
-			# Cloudflare Access service token, so the request gets past the login page
-			# (Zero Trust > Access > Service credentials > Service tokens).
+			# Only if the dashboard sits behind Cloudflare Access: a service token, so the request gets past
+			# the login page (Zero Trust > Access > Service credentials > Service tokens). Otherwise leave blank.
 			access_client_id=
 			access_client_secret=
 

@@ -9,7 +9,8 @@
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
 
-const TEX = (path) => `/api/mc/textures/${path}.png`;
+// under this server's address: images don't go through public/tenant.js's fetch
+const TEX = (path) => `${window.MCS?.base ?? ''}/api/mc/textures/${path}.png`;
 const BASE_YAW = 0.42; // turned a little to show the weapon side
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 

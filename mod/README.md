@@ -68,12 +68,12 @@ Set `web_chat=false` to turn it off.
 ```
 Minecraft server ── mod queues each message ──► every few seconds, one HTTPS POST
                                                  to /api/ingest/chat on the Worker
-                    Cloudflare Access ──────────► lets it through only with the service token
-                    Worker ─────────────────────► checks CHAT_INGEST_TOKEN, stores rows in D1 (chat table)
-Dashboard ◄──────── /api/chat ◄────────────────── read by the Chat log page (behind your normal login)
+                    Worker ─────────────────────► the key (token=) says which server it's from; that
+                                                  server's own Durable Object checks it and stores the rows
+Dashboard ◄──────── /s/<server>/api/chat ◄─────── read by that server's Chat log page
 
-Dashboard ── POST /api/chat/send ──► Worker checks the login email is on the roster
-                                     ──► Durable Object ──► the mod's WebSocket (/api/ingest/link)
+Dashboard ── POST /s/<server>/api/chat/send ──► Worker checks the signed-in email is on the roster
+                                     ──► that server's link object ──► the mod's WebSocket (/api/ingest/link)
                                      ──► mod shows "[Web] <name> …" in game, answers ok, logs it as chat
 ```
 
@@ -84,52 +84,29 @@ retried batch is never stored twice.
 
 ## Setup (once)
 
-1. **Make a token** (any long random string):
+The dashboard walks you through this: open it, choose **Create a server**, and follow the steps. In short:
 
-   ```bash
-   openssl rand -hex 32
+1. **Install the mod** on the server: `mcstats-chat-<version>.jar` (from the dashboard's setup page) into the
+   server's `mods/` folder. The server needs Fabric Loader and the Minecraft version in `fabric.mod.json`;
+   the Fabric API pieces the mod uses are built into its jar. Restart the server once; that creates
+   `config/mcstats-chat.properties`.
+2. **Connect it.** The setup page makes your server's key (it starts with `mcs_` and is shown once) and shows
+   the file filled in. The two lines that matter:
+
+   ```properties
+   url=https://<the dashboard>/api/ingest/chat
+   token=mcs_…
    ```
 
-2. **Give it to the Worker** as a secret named `CHAT_INGEST_TOKEN`:
+   Saved changes are picked up within a few seconds; no restart needed. Making a new key on the setup page stops
+   the old one at once. `access_client_id` / `access_client_secret` stay blank (they're only for a dashboard behind
+   Cloudflare Access).
+3. **Check it.** The server console should say `Sending chat to …`, and the setup page turns green when the
+   first upload arrives. If anything is wrong, the console says what (wrong key, wrong url), at most once every
+   10 minutes.
 
-   ```bash
-   npx wrangler secret put CHAT_INGEST_TOKEN
-   ```
-
-   You can also add it in the Cloudflare dashboard: **Workers & Pages → mcstats → Settings → Variables and Secrets → Add → Secret**.
-
-3. **Create an Access service token**, so the mod can get past the login page. In Cloudflare
-   **Zero Trust → Access → Service credentials → Service Tokens**, click **Create Service Token**,
-   name it `mcstats-chat`, and pick **Non-expiring**. Copy the **Client ID** and **Client Secret**
-   (the secret is only shown once).
-
-4. **Allow that token on the dashboard's Access application.** Go to **Zero Trust → Access → Applications**,
-   open the mcstats `workers.dev` application, then **Policies → Add a policy**:
-   - Action: **Service Auth**
-   - Include: **Service Token** → `mcstats-chat`
-
-   Save. A service token can only post chat; the Worker won't show it any dashboard data.
-
-5. **Deploy the dashboard.** Merging to `main` deploys it and creates the `chat` table.
-
-6. **Install the mod on mcsh.io.**
-   - Upload `mcstats-chat-2.0.0.jar` into the server's `mods` folder.
-   - Start the server once. That creates `config/mcstats-chat.properties`.
-   - Fill in that file (the template has comments):
-
-     ```properties
-     url=https://mcstats.<your-subdomain>.workers.dev/api/ingest/chat
-     token=<the CHAT_INGEST_TOKEN from step 1>
-     access_client_id=<Client ID from step 3>
-     access_client_secret=<Client Secret from step 3>
-     ```
-
-     Saved changes are picked up within a few seconds; no restart needed. You can also upload a
-     filled-in copy of the file to `config/` before the first start.
-
-7. **Check it.** The server console should say `Sending chat to …`. Say something in chat; it shows up
-   on the Chat log page within about 15 seconds. If anything is wrong, the console says what
-   (wrong token, Access blocking it, wrong url), at most once every 10 minutes.
+A dashboard set up before servers had their own keys still takes its old shared `CHAT_INGEST_TOKEN` in `token=`, for
+its first server only.
 
 ## Liveview
 
@@ -223,8 +200,8 @@ or pass another file's path.
 | Key | |
 | --- | --- |
 | `url` | The dashboard address plus `/api/ingest/chat` |
-| `token` | Must equal the Worker's `CHAT_INGEST_TOKEN` |
-| `access_client_id`, `access_client_secret` | The Cloudflare Access service token |
+| `token` | Your server's key from the dashboard's setup page (`mcs_…`) |
+| `access_client_id`, `access_client_secret` | Only for a dashboard behind Cloudflare Access: its service token |
 | `system_messages` | `false` to send only chat, without joins, leaves, deaths and advancements (default `true`) |
 | `web_chat` | `false` to stop showing chat sent from the dashboard (default `true`) |
 | `liveview` | `false` to turn Liveview off (default `true`; nobody can watch until a viewer key is made) |

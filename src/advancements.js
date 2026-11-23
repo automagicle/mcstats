@@ -3,8 +3,7 @@
 // Only the fields the dashboard uses are kept; everything is re-checked here.
 
 import { marks, playerGroup } from './aliases.js';
-import { sameSecret } from './chat.js';
-import { json, UUID_RE } from './util.js';
+import { json, UUID_RE, ingestDenied } from './util.js';
 
 const MAX_BODY = 1024 * 1024;
 const MAX_PLAYERS = 100;
@@ -67,10 +66,9 @@ function cleanProgress(p) {
 
 // POST /api/ingest/advancements from the server mod: { tree?: { ts, list: [...] }, players: [{ uuid, name, ts, done, part }] }
 export async function ingestAdvancements(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'ingest is not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) return json({ error: 'unauthorized' }, 401);
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
 
   const raw = await request.text();
   if (raw.length > MAX_BODY) return json({ error: 'too large' }, 413);

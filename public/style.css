@@ -2181,3 +2181,119 @@ select:not([multiple]) {
 
 /* a note under a form or table keeps the same distance from it as the form keeps from what's above */
 .adm-form + .adm-note, .adm-table-wrap + .adm-note { margin-top: 12px; }
+
+/* ---------- signing in on a server's page (public/tenant.js) ---------- */
+
+/* these set display, which would otherwise beat the hidden attribute */
+.acct-pop [hidden], .site-main [hidden] { display: none !important; }
+
+.acct { position: relative; flex: none; }
+.acct-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: var(--frame), var(--lift);
+  display: grid;
+  gap: 10px;
+}
+.acct-form { display: grid; gap: 10px; }
+.acct-form > .btn, .site-form > .btn { justify-self: start; }
+.acct-label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.acct-label .adm-input { padding: 6px 8px; font-size: 14px; }
+.acct-note { margin: 0; font-size: 13px; color: var(--muted); }
+.acct-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.acct-err { margin: 0; font-size: 13px; color: var(--critical); }
+@media (max-width: 640px) {
+  .acct-btn { max-width: 120px; padding: 6px 10px; }
+}
+
+/* ---------- the site's own pages: landing, join, create (public/site.js) ---------- */
+
+.wiz-panel > .site-go, .wiz-panel > .site-row:last-child { margin-top: 18px; }
+.site-hero { margin: 36px 0 20px; }
+.site-hero-title { font: 400 50px/1.05 var(--px-50); letter-spacing: 0.01em; margin: 0 0 10px; }
+.site-title { font: 400 30px/1.1 var(--px-30); letter-spacing: 0.01em; margin: 0 0 6px; }
+.site-h2 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
+.site-sub { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; max-width: 62ch; }
+.site-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.site-choice { display: grid; gap: 6px; align-content: start; justify-items: start; text-decoration: none; margin: 0; }
+.site-choice h2 { font: 400 30px/1.1 var(--px-30); margin: 0; }
+.site-choice:hover { background: var(--raise); }
+.site-choice:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.site-card { max-width: 640px; margin: 24px auto; padding: 20px 22px 22px; }
+.site-form { display: grid; gap: 14px; margin: 0 0 4px; }
+.site-field { display: grid; gap: 4px; }
+.site-label { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0; }
+.site-hint { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.site-input { padding: 7px 9px; font-size: 15px; width: 100%; box-sizing: border-box; }
+.site-input:focus-visible, .site-main .adm-input:focus-visible { outline: 2px solid var(--series-1); outline-offset: -1px; }
+.site-go { justify-self: start; padding: 8px 18px; font-size: 14px; }
+.site-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 14px 0 0; }
+.site-inline { display: flex; gap: 8px; flex-wrap: wrap; }
+.site-inline .adm-input { padding: 6px 8px; font-size: 14px; }
+.site-inline input { flex: 1 1 200px; min-width: 0; }
+.site-check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--ink-2); }
+.site-check input { margin-top: 3px; }
+.site-err { margin: 0; font-size: 13.5px; color: var(--critical); }
+.site-ok { margin: 0; font-size: 13.5px; color: var(--good); }
+.site-more { margin-top: 18px; }
+.site-more summary { cursor: pointer; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
+.site-more[open] summary { margin-bottom: 12px; }
+.site-main code { font-size: 0.92em; background: var(--surface-2); padding: 1px 4px; overflow-wrap: anywhere; }
+
+/* the create-a-server steps: a list of steps beside the current one */
+.wiz { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 24px; }
+.wiz .site-card { margin: 0; max-width: none; }
+.wiz-nav { display: grid; gap: 18px; position: sticky; top: 14px; }
+.wiz-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.wiz-step-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; background: none; font: inherit; font-size: 14px; color: var(--muted); text-align: left; }
+button.wiz-step-btn { cursor: pointer; color: var(--ink-2); }
+button.wiz-step-btn:hover { background: var(--surface-2); }
+.wiz-step.now .wiz-step-btn { color: var(--ink); font-weight: 600; background: var(--surface-2); box-shadow: var(--frame); }
+.wiz-n { flex: none; display: grid; place-items: center; width: 22px; height: 22px; font: 400 20px/1 var(--px-20); background: var(--surface-2); color: var(--ink-2); }
+.wiz-step.now .wiz-n { background: var(--series-1); color: var(--accent-ink); }
+.wiz-step.done .wiz-n { background: var(--good); color: var(--accent-ink); }
+.wiz-account { display: grid; gap: 8px; justify-items: start; font-size: 13px; }
+.wiz-account .site-hint { margin: 0; }
+.wiz-mine { margin: 4px 0 0; padding-left: 18px; }
+.wiz-checks { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: wiz; }
+.wiz-check { padding: 12px 14px; background: var(--surface-2); }
+.wiz-check-head { display: flex; gap: 10px; align-items: center; font-weight: 650; font-size: 14.5px; cursor: pointer; }
+.wiz-check-head input { width: 16px; height: 16px; margin: 0; }
+.wiz-check-body { padding-left: 26px; font-size: 14px; color: var(--ink-2); }
+.wiz-check-body p { margin: 6px 0 0; }
+.wiz-check-body .btn-primary { display: inline-block; text-decoration: none; }
+.wiz-warn { padding: 8px 12px; margin: 14px 0 10px; background: color-mix(in srgb, var(--warning) 18%, var(--surface)); box-shadow: var(--frame); font-size: 14px; }
+.wiz-keyline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+.wiz-keytext { flex: 1 1 260px; min-width: 0; padding: 8px 10px !important; font-size: 13px !important; word-break: break-all; box-shadow: var(--frame); }
+.wiz-config { width: 100%; box-sizing: border-box; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; padding: 8px 10px; }
+.wiz-wait { display: flex; gap: 10px; align-items: center; padding: 12px 14px; background: var(--surface-2); font-size: 14.5px; font-weight: 600; }
+.wiz-dot { flex: none; width: 10px; height: 10px; background: var(--warning); animation: wiz-pulse 1.4s steps(2, jump-none) infinite; }
+.wiz-wait.ok { background: color-mix(in srgb, var(--good) 16%, var(--surface)); }
+.wiz-wait.ok .wiz-dot { background: var(--good); animation: none; }
+@keyframes wiz-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .wiz-dot { animation: none; } }
+.wiz-tips { margin-top: 14px; font-size: 14px; color: var(--ink-2); }
+.wiz-tips ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+
+@media (max-width: 800px) {
+  .wiz { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .wiz-nav { position: static; }
+  .wiz-steps { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; }
+  .wiz-step-btn { flex-direction: column; gap: 4px; font-size: 11px; padding: 6px 2px; text-align: center; justify-content: flex-start; }
+  .wiz-account { grid-auto-flow: column; justify-content: space-between; align-items: center; }
+  .wiz-account > div { display: none; }
+}
+@media (max-width: 600px) {
+  .site-choices { grid-template-columns: minmax(0, 1fr); }
+  .site-hero-title { font: 400 30px/1.1 var(--px-30); }
+  .site-card { padding: 16px; margin: 14px 0; }
+  .wiz-step-btn { font-size: 0; gap: 0; }
+  .wiz-step.now .wiz-step-btn { font-size: 11px; gap: 4px; }
+}

@@ -397,8 +397,8 @@ final class Uploader {
 		return switch (status) {
 			case 401 -> fromAccess
 					? "Cloudflare Access doesn't recognise access_client_id / access_client_secret (deleted token or wrong secret)"
-					: "the token doesn't match CHAT_INGEST_TOKEN on the Worker";
-			case 503 -> "the Worker doesn't have a CHAT_INGEST_TOKEN secret yet";
+					: "the token isn't this server's key on the dashboard (check token=, or make a new key on its setup page)";
+			case 503 -> "the dashboard isn't taking uploads right now; they're kept and sent again";
 			case 403 -> "Cloudflare Access knows this service token, but no Service Auth policy on the app allows it";
 			case 301, 302, 303, 307, 308 -> "Cloudflare Access sent it to the login page (HTTP " + status
 					+ "); check access_client_id / access_client_secret";

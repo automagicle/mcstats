@@ -26,9 +26,9 @@
 // doesn't hold goes quiet, and the mod reconnects by itself within about 75 seconds.
 
 import { DurableObject } from 'cloudflare:workers';
-import { sameSecret } from './chat.js';
-import { CURRENT_SEASON } from './seasons.js';
-import { json } from './util.js';
+import { siblingEnv } from './tenantenv.js';
+import { currentSeason } from './seasons.js';
+import { json, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { ADMIN_SENDER, deliverWhisper, parseCommand } from './whisper.js';
 
@@ -82,10 +82,9 @@ export const cleanWebText = (s) => String(s).replace(/[\u0000-\u001f\u007f-\u009
 
 // GET /api/ingest/link (WebSocket) from the server mod.
 export async function connectLink(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) return json({ error: 'unauthorized' }, 401);
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'expected a WebSocket' }, 426);
   return link(env).fetch(new Request('https://link/connect', request));
 }
@@ -99,7 +98,7 @@ export async function playerFor(env, email) {
   const row = await env.DB.prepare(
     `SELECT e.ign, r.team FROM roster_email e LEFT JOIN roster r ON r.season = e.season AND r.ign = e.ign
      WHERE e.season = ? AND e.email = ?`
-  ).bind(CURRENT_SEASON, email).first();
+  ).bind(currentSeason(env), email).first();
   if (!row) return null;
   if (row.ign === ADMIN) return { admin: true };
   return row.team ? { ign: row.ign, team: row.team } : null;
@@ -185,6 +184,8 @@ export async function sendWebChat(request, env, url, who) {
 export class ServerLink extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    // one per server, named by its id; this.env is that server's (its database, its other objects)
+    this.env = siblingEnv(env, ctx);
     this.pending = new Map(); // message id -> resolve, while a send waits for the mod's answer
     this.late = new Map(); // message id -> when it was sent, for the ones that got no answer in time
     this.sent = new Map(); // player -> times of their recent messages

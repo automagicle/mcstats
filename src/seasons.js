@@ -1,13 +1,18 @@
 // Seasons split the recorded data by time; nothing is copied or deleted.
 // Season 1 is everything before SEASON2_START. Season n runs from SEASONn_START up to SEASON(n+1)_START.
-// Until SEASONn_START is set (in wrangler.jsonc), season n hasn't started and has no data.
+// Until SEASONn_START is set, season n hasn't started and has no data. These, and CURRENT_SEASON, are each
+// server's own settings (src/tenantenv.js); a new server starts in season 1.
 
-export const CURRENT_SEASON = 2; // the season the main page shows; earlier ones live under /s1/, /s2/, …
+// The season a server's main page shows; earlier ones live under /s/<server>/s1/, /s2/, …
+export const currentSeason = (env) => {
+  const n = Number(env.CURRENT_SEASON);
+  return Number.isInteger(n) && n >= 1 && n <= 99 ? n : 1;
+};
 
 const FAR = 1e12; // "no end yet", in unix seconds (also used as the start of a season that hasn't begun)
 
 // Unix seconds, or an ISO date like "2026-11-08T16:00:00-08:00". Empty or invalid means not set.
-function parseStart(v) {
+export function parseStart(v) {
   const s = String(v ?? '').trim();
   if (!s) return null;
   const t = /^\d+$/.test(s) ? Number(s) : Date.parse(s) / 1000;
@@ -25,7 +30,7 @@ export function seasonFor(env, url) {
   const raw = url.searchParams.get('season');
   if (raw == null) return { n: null, lo: 0, hi: FAR, info: null };
   const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > CURRENT_SEASON) return null;
+  if (!Number.isInteger(n) || n < 1 || n > currentSeason(env)) return null;
   const now = Date.now() / 1000;
   const start = startOf(env, n);
   const next = startOf(env, n + 1);

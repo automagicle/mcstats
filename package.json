@@ -9,9 +9,16 @@
     "db:migrate:remote": "wrangler d1 migrations apply mcstats --remote",
     "seed:local": "node scripts/seed-fake.mjs > .wrangler/seed.sql && wrangler d1 execute mcstats --local --file .wrangler/seed.sql",
     "roster:local": "node scripts/roster-sql.mjs 2 > .wrangler/roster.sql && wrangler d1 execute mcstats --local --file .wrangler/roster.sql",
-    "roster:remote": "node scripts/roster-sql.mjs 2 > .wrangler/roster.sql && wrangler d1 execute mcstats --remote --file .wrangler/roster.sql"
+    "roster:remote": "node scripts/roster-sql.mjs 2 > .wrangler/roster.sql && wrangler d1 execute mcstats --remote --file .wrangler/roster.sql",
+    "test": "node scripts/mod-info.mjs --check && vitest run",
+    "build:mod": "cd mod && ./gradlew build && mkdir -p ../public/downloads && cp build/libs/mcstats-chat-$(grep '^version=' gradle.properties | cut -d= -f2).jar ../public/downloads/",
+    "dir:migrate:local": "wrangler d1 migrations apply mcstats-directory --local",
+    "dir:migrate:remote": "wrangler d1 migrations apply mcstats-directory --remote",
+    "copy-tenant": "node scripts/copy-tenant.mjs"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.9.0",
+    "vitest": "^4.1.12",
     "wrangler": "4.150.0"
   }
 }

@@ -25,6 +25,7 @@
 //   - whether the server mod's web chat connection is up, so the message box can say so right away;
 //   - a nudge whenever new chat is logged, so pages fetch it at once instead of at their next check.
 import { DurableObject } from 'cloudflare:workers';
+import { siblingEnv } from './tenantenv.js';
 import { ONLINE_FRESH_SECONDS } from './online.js';
 import { json } from './util.js';
 
@@ -52,6 +53,8 @@ export async function tellPresence(env, path, body) {
 export class Presence extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    // one per server, named by its id; this.env is that server's (its database, its other objects)
+    this.env = siblingEnv(env, ctx);
     // pages keep their socket open with a ping now and then; answered without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     this.info = null; // { at, hidden: Set, alias: Map lowercased alias -> { name, uuid } }

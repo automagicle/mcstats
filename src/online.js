@@ -2,8 +2,7 @@
 // the server's tab list. The minute-by-minute check (src/poll.js) adds these players to the ones the
 // server-list ping names, since the ping can leave some out.
 
-import { sameSecret } from './chat.js';
-import { json, UUID_RE } from './util.js';
+import { json, UUID_RE, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { linkStatus } from './link.js';
 
@@ -13,10 +12,9 @@ const NAME_RE = /^[A-Za-z0-9_.]{1,20}$/; // Java names, and Bedrock ones through
 export const ONLINE_FRESH_SECONDS = 75;
 
 export async function ingestOnline(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'ingest is not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) return json({ error: 'unauthorized' }, 401);
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
 
   const raw = await request.text();
   if (raw.length > 64 * 1024) return json({ error: 'too large' }, 413);

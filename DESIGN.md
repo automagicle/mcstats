@@ -152,6 +152,10 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Toast | `.toast` | `--ink` background (errors `--critical`), cut corners + lift, bottom centre |
 | Table | `.adm-table`, `.an-table` | headings 12–12.5px/600; rows divided by 1px `--grid`; no zebra stripes |
 | Leaderboard bar | `.bar` | 5px tall, `--series-1` (or the team's colour), 4px under its row's text, never narrower than 2px |
+| Sign-in popover | `.acct-pop` | 300px, `padding: 14px`, 10px gap, `--surface`, frame + lift; under the top bar's Sign in button |
+| Site card | `.site-card` | a `.card`, max 640px, `padding: 20px 22px 22px`; title `400 30px/1.1 var(--px-30)`; fields 14px apart, labels 13px/600 `--ink-2`, hints 12.5px `--muted` |
+| Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 `--surface-2`, current `--series-1`, done `--good` with ✓; current row `--surface-2` with frame. Under 800px a row of squares above the step |
+| Waiting strip | `.wiz-wait` | `--surface-2`, 14.5px/600, a 10px square that blinks in two steps (`--warning`); green (`--good` mixed 16% into `--surface`) once it's done |
 
 Focus is always `outline: 2px solid var(--series-1)` (offset 1–2px, or -1px on inputs).
 

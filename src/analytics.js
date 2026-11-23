@@ -5,7 +5,7 @@
 // Rows are per visitor, page and UTC day, so a busy day is still only a few hundred rows.
 import { json, UUID_RE } from './util.js';
 import { isAdmin } from './admin.js';
-import { CURRENT_SEASON } from './seasons.js';
+import { currentSeason } from './seasons.js';
 
 const PAGES = new Set(['home', 'chat', 'combat', 'admin', 'live']);
 const MAX_DAYS = 365;
@@ -46,16 +46,19 @@ export async function analytics(env, url, who) {
   const now = Math.floor(Date.now() / 1000);
   const from = day(now - (days - 1) * 86400);
   const db = env.DB;
-  const [rows, firsts, names, players] = await db.batch([
+  const [rows, firsts, names, players, admins] = await db.batch([
     db.prepare('SELECT day, visitor, page, views, minutes, mobile, last_ts FROM site_visits WHERE day >= ?').bind(from),
     db.prepare('SELECT visitor, MIN(day) AS first FROM site_visits GROUP BY visitor'),
-    db.prepare('SELECT email, ign FROM roster_email WHERE season = ?').bind(CURRENT_SEASON),
+    db.prepare('SELECT email, ign FROM roster_email WHERE season = ?').bind(currentSeason(env)),
     db.prepare(`SELECT DISTINCT p.uuid, p.name FROM players p
                 WHERE p.uuid IN (SELECT DISTINCT substr(page, 8) FROM site_visits WHERE day >= ? AND page LIKE 'player:%')`).bind(from),
+    // this server's admins (and owners), for "Leave out admins"
+    db.prepare('SELECT email FROM user_perms WHERE admin = 1'),
   ]);
+  const adminSet = new Set([...admins.results.map((r) => r.email.toLowerCase()), ...String(env.SUPER_ADMIN_EMAIL || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)]);
   const ign = Object.fromEntries(names.results.map((r) => [r.email.toLowerCase(), r.ign]));
   const visitors = {};
-  for (const r of firsts.results) visitors[r.visitor] = { name: ign[r.visitor] || null, first: r.first, admin: isAdmin(env, { email: r.visitor }) };
+  for (const r of firsts.results) visitors[r.visitor] = { name: ign[r.visitor] || null, first: r.first, admin: adminSet.has(String(r.visitor).toLowerCase()) };
   return json({
     days, from, today: day(now),
     rows: rows.results,

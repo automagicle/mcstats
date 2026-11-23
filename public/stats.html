@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>mcstats</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Crect width='8' height='3' fill='%235fae4c'/%3E%3Cpath fill='%235fae4c' d='M1 3h1v1H1zM4 3h2v1H4zM7 3h1v1H7z'/%3E%3Cpath fill='%2386cf6f' d='M0 0h2v1H0zM5 0h1v1H5zM3 1h1v1H3zM6 1h2v1H6z'/%3E%3Cpath fill='%236b4324' d='M2 5h1v1H2zM6 4h1v1H6zM4 6h2v1H4zM0 7h1v1H0z'/%3E%3Cpath fill='%23a47148' d='M0 4h1v1H0zM3 5h1v1H3zM6 6h1v1H6zM2 7h1v1H2z'/%3E%3C/svg%3E">
+  <!-- Archivo for text; the Jersey pixel faces for numbers and titles (each drawn for one size, see style.css) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..800;1,400..800&family=Jersey+10&family=Jersey+15&family=Jersey+20&family=Jersey+25&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Dark by default; a theme picked with the switch is saved and wins. Set before first paint, so there's no flash.
+    document.documentElement.dataset.theme = 'dark';
+    try { const t = localStorage.getItem('theme'); if (t === 'light') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-left">
+      <a class="brand" href="#/">
+        <span class="logo" aria-hidden="true"></span>
+        <span>mcstats</span>
+      </a>
+      <nav class="tabs" aria-label="Pages">
+        <a href="#/" id="tab-activity">Activity</a>
+        <a href="#/combat" id="tab-combat">Combat</a>
+        <a href="#/chat" id="tab-chat">Chat log<span class="tab-badge" id="tab-chat-badge" hidden></span></a>
+        <!-- admins only (app.js shows it once /api/me says so) -->
+        <a href="#/live" id="tab-live" hidden>Liveview</a>
+      </nav>
+    </div>
+    <div class="top-right">
+      <button type="button" class="search-btn" id="search-btn" aria-expanded="false" aria-controls="search-pop" title="Search chat" hidden>
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+        <span class="search-btn-label">Search</span><kbd id="search-kbd"></kbd>
+      </button>
+      <div class="seg name-toggle" id="name-toggle" role="group" aria-label="Show players by" hidden>
+        <button type="button" data-v="ign" title="Show in-game names">IGN</button><button type="button" data-v="real" title="Show real names">Name</button>
+      </div>
+      <div id="live" class="live" aria-live="polite"><span class="dot"></span><span id="live-text">Loading…</span></div>
+      <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
+        <span class="theme-knob"></span>
+        <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>
+        <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="search-pop" id="search-pop" role="dialog" aria-label="Search chat" hidden>
+    <div class="search-bar">
+      <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input id="search-q" type="search" placeholder="Search chat" autocomplete="off" spellcheck="false" aria-label="Search chat">
+      <button type="button" class="icon-btn search-filter-btn" id="search-filter-btn" aria-expanded="false" aria-controls="search-filters" title="Filters">
+        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/></svg>
+        <span class="search-filter-n" id="search-filter-n" hidden></span>
+      </button>
+      <button type="button" class="icon-btn" id="search-close" aria-label="Close search" title="Close (Esc)">
+        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="search-filters" id="search-filters" hidden>
+      <div class="sf-row"><span class="sf-label">Look in</span>
+        <div class="seg" id="sf-in" role="group" aria-label="Look in">
+          <button type="button" data-v="all">Everything</button><button type="button" data-v="text">Messages</button><button type="button" data-v="name">Names</button>
+        </div>
+      </div>
+      <div class="sf-row"><label class="sf-label" for="sf-from">From</label><select id="sf-from"><option value="">Anyone</option></select></div>
+      <div class="sf-row"><label class="sf-label" for="sf-kind">Type</label>
+        <select id="sf-kind">
+          <option value="">Everything</option><option value="chat">Chat messages</option><option value="death">Deaths</option>
+          <option value="advancement">Advancements</option><option value="joins">Joins &amp; leaves</option>
+        </select>
+      </div>
+    </div>
+    <div class="search-results" id="search-results"></div>
+  </div>
+
+  <main>
+    <div id="error" class="notice notice-error" hidden></div>
+    <div id="season-note" class="notice season-note" hidden></div>
+
+    <!-- Home -->
+    <section id="view-home" hidden>
+      <div class="now">
+      <div class="tiles">
+        <div class="tile"><div class="tile-label" id="t-online-label">Online now</div><div class="tile-value" id="t-online">–</div><div class="tile-sub" id="t-online-sub"></div></div>
+        <div class="tile"><div class="tile-label" id="t-peak-label">Peak today</div><div class="tile-value" id="t-peak">–</div><div class="tile-sub">players at once</div></div>
+        <div class="tile"><div class="tile-label" id="t-week-label">Played this week</div><div class="tile-value" id="t-week">–</div><div class="tile-sub" id="t-week-sub">player-hours, last 7 days</div></div>
+        <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value" id="t-players">–</div><div class="tile-sub">this season</div></div>
+      </div>
+
+      <div id="online-list" class="chips"></div>
+      </div>
+      <div id="sample-warning" class="notice" hidden></div>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <h2>Players online</h2>
+            <span id="tl-label" class="card-sub"></span>
+          </div>
+          <div class="range-ctl" id="tl-ctl"></div>
+        </div>
+        <div class="legend-row">
+          <div id="tl-legend" class="legend"></div>
+          <div class="seg heat-team" id="tl-team" role="group" aria-label="Average online" hidden>
+            <button type="button" data-v="all" title="Everyone together">All</button>
+            <button type="button" data-v="teams" title="Red and Blue, stacked">By team</button>
+            <button type="button" data-v="share" title="Each team's share of who's on, out of 100%">Share</button>
+          </div>
+        </div>
+        <div id="timeline" class="chart"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <h2>Daily activity</h2>
+            <span id="daily-label" class="card-sub"></span>
+          </div>
+          <div class="range-ctl" id="daily-ctl"></div>
+        </div>
+        <div id="heatmap" class="chart chart-bars"></div>
+      </section>
+
+      <div class="grid2 grid-side">
+        <section class="card">
+          <div class="card-head">
+            <div class="card-title card-title-stacked">
+              <h2>Leaderboard</h2>
+              <span id="lb-note" class="card-sub"></span>
+            </div>
+            <div class="range-ctl" id="lb-ctl"></div>
+          </div>
+          <div id="leaderboard"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div class="card-title card-title-stacked">
+              <h2>Busiest times</h2>
+              <span class="card-sub">avg players online</span>
+            </div>
+            <div class="seg heat-team" id="heat-team" role="group" aria-label="Which team" hidden>
+              <button type="button" data-v="all" title="Everyone">All</button>
+              <button type="button" data-v="red" title="Red team only">Red</button>
+              <button type="button" data-v="blue" title="Blue team only">Blue</button>
+              <button type="button" data-v="mix" title="Both teams, blended by their share">Mix</button>
+            </div>
+          </div>
+          <div id="weekgrid"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Player -->
+    <section id="view-player" hidden>
+      <a class="back" href="#/">← All players</a>
+      <div class="player-top">
+        <figure class="p-model-card" id="p-model-card" hidden>
+          <div id="p-model" class="p-model" role="img" aria-label="3D model of the player"></div>
+          <figcaption id="p-model-note" class="p-model-note"></figcaption>
+        </figure>
+        <div class="player-side">
+          <div class="player-head">
+            <img id="p-head" class="p-avatar" alt="" width="64" height="64">
+            <div>
+              <h1 id="p-name"></h1>
+              <div id="p-team" class="p-team" hidden></div>
+              <div id="p-status" class="card-sub"></div>
+            </div>
+          </div>
+
+          <div class="tiles">
+            <div class="tile"><div class="tile-label">Total played</div><div class="tile-value" id="p-total">–</div><div class="tile-sub" id="p-total-sub"></div></div>
+            <div class="tile"><div class="tile-label">Sessions</div><div class="tile-value" id="p-sessions">–</div><div class="tile-sub" id="p-avg"></div></div>
+            <div class="tile"><div class="tile-label">Longest session</div><div class="tile-value" id="p-longest">–</div><div class="tile-sub" id="p-longest-sub"></div></div>
+            <div class="tile">
+              <div class="tile-label">Chat messages
+                <select id="p-chat-mode" class="tile-select" aria-label="Count">
+                  <option value="total">total</option><option value="today">today</option>
+                </select>
+              </div>
+              <div class="tile-value" id="p-chat">–</div><div class="tile-sub" id="p-chat-sub"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid2 p-egg-combat" id="p-egg-combat">
+        <section class="card egg-card" id="p-egg-card" hidden>
+          <div id="p-egg-body"></div>
+        </section>
+        <section class="card pcombat-card" id="p-combat-card">
+          <div class="card-head">
+            <div class="card-title"><h2>Combat</h2><span class="card-sub" id="pcb-sub"></span></div>
+            <a class="card-link" href="#/combat">Combat page</a>
+          </div>
+          <div id="p-combat"></div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <h2>Activity</h2>
+            <span id="pa-label" class="card-sub"></span>
+          </div>
+          <div class="range-ctl" id="pa-ctl"></div>
+        </div>
+        <div id="p-heatmap" class="chart chart-bars chart-strip"></div>
+      </section>
+
+      <div class="grid2 grid-side grid-side-left">
+        <section class="card">
+          <div class="card-head"><h2>When they play</h2><span class="card-sub">total time by hour</span></div>
+          <div id="p-weekgrid"></div>
+          <div class="p-usual">
+            <div class="pc-section">Usually on <span class="muted" id="p-usual-sub"></span></div>
+            <div id="p-usual"></div>
+          </div>
+        </section>
+        <section class="card recent-card">
+          <div class="card-head"><h2>Recent sessions</h2></div>
+          <div id="p-recent"></div>
+        </section>
+      </div>
+
+      <section class="card adv-card" id="p-adv-card" hidden>
+        <div class="card-head">
+          <div class="card-title"><h2>Advancements</h2><span class="card-sub" id="adv-sub"></span></div>
+          <div class="adv-tabs" id="adv-tabs" role="tablist" aria-label="Advancement tabs"></div>
+        </div>
+        <div class="adv-view" id="adv-view" tabindex="-1"><div class="adv-tree" id="adv-tree"></div></div>
+      </section>
+    </section>
+
+    <!-- Combat -->
+    <section id="view-combat" hidden>
+      <div class="combat" id="combat">
+        <div class="combat-main">
+          <div class="combat-bar">
+            <div class="card-title">
+              <h1 class="page-title">Combat</h1>
+              <span id="cb-label" class="card-sub"></span>
+            </div>
+            <div class="range-ctl" id="cb-ctl"></div>
+            <button type="button" class="dl-open" id="dl-open" aria-controls="death-log" hidden>
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2a5 5 0 0 1 10 0v2.3l-1.5 1v2.5h-7v-2.5L3 9.5z"/><path d="M6.2 7.8h.01M9.8 7.8h.01"/></svg>
+              Death log
+            </button>
+          </div>
+
+          <section class="card" id="cb-score-card">
+            <div class="card-head">
+              <div class="card-title"><h2>Teams</h2><span class="card-sub">each team's kills and deaths</span></div>
+            </div>
+            <div id="cb-score"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div class="card-title"><h2>Kills and deaths over time</h2><span id="cb-chart-label" class="card-sub"></span></div>
+              <div class="seg" id="cb-chart-mode" role="group" aria-label="Chart shows">
+                <button type="button" data-v="each" id="cb-mode-each">Per day</button><button type="button" data-v="total">Running total</button>
+              </div>
+            </div>
+            <div id="cb-legend" class="legend cb-legend"></div>
+            <div id="cb-chart" class="chart chart-bars"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div class="card-title"><h2>Leaderboard</h2><span id="cb-lb-note" class="card-sub"></span></div>
+            </div>
+            <div id="cb-leaderboard" class="cb-leaderboard"></div>
+          </section>
+        </div>
+
+        <aside class="card death-log" id="death-log" aria-label="Death log">
+          <div class="dl-head">
+            <h2>Death log</h2>
+            <div class="seg" id="dl-type" role="group" aria-label="Which deaths">
+              <button type="button" data-v="" title="Every death">All</button><button type="button" data-v="pvp" title="Killed by another player">PvP</button><button type="button" data-v="other" title="Everything else: mobs, falls, lava…">Other</button>
+            </div>
+            <button type="button" class="icon-btn" id="dl-close" aria-label="Hide the death log" title="Hide the death log">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+          </div>
+          <div class="dl-scroll" id="dl-scroll" role="log" aria-label="Deaths, newest at the bottom" tabindex="0">
+            <div class="dl-edge" id="dl-edge"></div>
+            <div id="dl-list"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Admin (only for the emails in the ADMIN_EMAIL secret) -->
+    <section id="view-admin" hidden>
+      <div class="adm-top">
+        <h1 class="page-title adm-title">Admin</h1>
+        <div class="seg adm-tabs" role="tablist" aria-label="Admin sections">
+          <a role="tab" href="#/admin" id="adm-tab-settings">Settings</a>
+          <a role="tab" href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
+          <!-- super admins only (app.js shows it once /api/me says so) -->
+          <a role="tab" href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
+        </div>
+      </div>
+      <div id="admin"></div>
+      <div id="analytics" hidden></div>
+      <div id="roles" hidden></div>
+    </section>
+
+    <!-- Liveview: admins watching the world live (public/liveview.js, loaded when this is first opened).
+         Every id here starts with "lv-". -->
+    <section id="view-live" class="lv-gated" hidden>
+      <div class="adm-top lv-top">
+        <h1 class="page-title adm-title">Liveview</h1>
+        <div class="lv-bar">
+          <div class="seg adm-tabs" role="tablist" aria-label="Liveview sections">
+            <a role="tab" href="#/live" data-tab="map">World</a>
+            <a role="tab" href="#/live/players" data-tab="players">Players</a>
+            <a role="tab" href="#/live/log" data-tab="log">Log<span class="tab-badge" id="lv-log-badge" hidden></span></a>
+            <a role="tab" href="#/live/console" data-tab="console">Console</a>
+          </div>
+          <button type="button" class="lv-control" id="lv-control-pill" aria-pressed="false">
+            <svg class="lv-lock" width="14" height="16" viewBox="0 0 7 8" shape-rendering="crispEdges" aria-hidden="true" fill="currentColor"><path class="lv-lock-bar" d="M1 1h1v3H1zM5 1h1v3H5zM2 0h3v1H2z"/><path d="M0 4h7v4H0z"/><path class="lv-lock-hole" d="M3 5h1v2H3z"/></svg>
+            <span id="lv-control-label">Watching only</span>
+          </button>
+          <div class="live lv-status" id="lv-status-pill" role="status"><span class="dot"></span><span id="lv-status">Connecting</span></div>
+        </div>
+      </div>
+
+      <!-- What's in the way of watching, if anything: the server being off, no key yet, or this account not having entered it -->
+      <div class="card lv-gate" id="lv-gate">
+        <svg class="lv-eye" width="44" height="28" viewBox="0 0 11 7" shape-rendering="crispEdges" aria-hidden="true">
+          <path class="lv-eye-white" d="M3 1h5v5H3zM1 2h9v3H1z"/>
+          <path class="lv-eye-edge" d="M3 0h5v1H3zM1 1h2v1H1zM8 1h2v1H8zM0 2h1v3H0zM10 2h1v3h-1zM1 5h2v1H1zM8 5h2v1H8zM3 6h5v1H3z"/>
+          <path class="lv-eye-iris" d="M4 2h3v3H4zM3 3h5v1H3z"/>
+          <path class="lv-eye-pupil" d="M5 3h1v1H5z"/>
+        </svg>
+        <h2 id="lv-gate-title">Liveview</h2>
+        <p class="lv-gate-text" id="lv-gate-text">Checking the server…</p>
+        <form class="adm-form lv-gate-form" id="lv-gate-form" autocomplete="off" hidden>
+          <label class="sr-only" for="lv-gate-key">Viewer key</label>
+          <input id="lv-gate-key" class="adm-input" type="password" autocomplete="off" spellcheck="false" placeholder="Viewer key" maxlength="256" required>
+          <button type="submit" class="btn btn-primary" id="lv-gate-enter">Start watching</button>
+        </form>
+        <div class="lv-gate-error" id="lv-gate-error" role="status"></div>
+        <button type="button" class="btn" id="lv-gate-retry" hidden>Check again</button>
+      </div>
+
+      <div id="lv-app" hidden>
+        <div class="notice notice-error" id="lv-notice" hidden></div>
+
+        <!-- World -->
+        <div data-view="map">
+          <section class="card lv-world">
+            <div class="card-head">
+              <div class="card-title">
+                <h2>World</h2>
+                <span class="card-sub" id="lv-terrain">Waiting for the game’s textures</span>
+                <span class="data-note" id="lv-throttle" hidden>Mob updates slowed down</span>
+              </div>
+              <div class="range-ctl">
+                <div class="seg"><button type="button" id="lv-fullbright" aria-pressed="false" title="Light everything fully, like night vision">Fullbright</button></div>
+                <div class="seg" id="lv-dims" role="group" aria-label="Dimension">
+                  <button type="button" data-dim="minecraft:overworld">Overworld</button>
+                  <button type="button" data-dim="minecraft:the_nether">Nether</button>
+                  <button type="button" data-dim="minecraft:the_end">End</button>
+                </div>
+              </div>
+            </div>
+            <div class="lv-stage" id="lv-stage">
+              <canvas id="lv-view" tabindex="0" aria-label="3D view of the world"></canvas>
+              <div class="lv-hud" id="lv-hud"><b id="lv-hud-pos"></b><span id="lv-hud-more"></span></div>
+              <div class="lv-cross"></div>
+              <div class="lv-help">Click the view to fly, or drag to look around.</div>
+              <div class="lv-banner" id="lv-banner" hidden></div>
+              <div class="lv-follow" id="lv-follow-bar" hidden>
+                <span>Following <strong id="lv-follow-name"></strong></span>
+                <div class="seg" role="group" aria-label="View">
+                  <button type="button" data-follow="first" title="What they see">First person</button>
+                  <button type="button" data-follow="back" title="Behind them">Behind</button>
+                  <button type="button" data-follow="front" title="In front, facing them">In front</button>
+                </div>
+                <button type="button" class="btn" id="lv-follow-stop" title="Stop following (Esc)">Stop</button>
+              </div>
+              <div class="lv-tools">
+                <button type="button" id="lv-menu-btn" title="Players: go to them, follow them, open inventories (M)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="5" r="2.6"/><path d="M3 14c.6-2.9 2.6-4.4 5-4.4s4.4 1.5 5 4.4"/></svg><span>Players</span></button>
+                <button type="button" id="lv-chat-btn" title="Chat and commands (T, Enter or /)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span>Chat</span></button>
+                <button type="button" id="lv-keys-btn" title="What the keys and mouse do" aria-expanded="false" aria-controls="lv-keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8"/><path d="M4 6.5h1M7.5 6.5h1M11 6.5h1M4.5 9.5h7"/></svg><span>Keys</span></button>
+                <button type="button" id="lv-settings-btn" title="Fly speed, mouse, field of view, sky and weather" aria-expanded="false" aria-controls="lv-settings"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><path d="M5.5 3v3M10.5 6.5v3M7 10v3"/></svg><span>Settings</span></button>
+                <button type="button" id="lv-full-btn" title="Fullscreen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg><span>Fullscreen</span></button>
+              </div>
+              <form class="lv-pop lv-settings" id="lv-settings" hidden autocomplete="off">
+                <div class="lv-pop-head"><h3>Settings</h3><button type="button" class="btn btn-quiet" id="lv-settings-reset">Reset</button></div>
+                <label class="lv-range"><span>Fly speed</span><output id="lv-set-speed-out"></output><input type="range" id="lv-set-speed" min="0" max="100" step="1" aria-label="Fly speed"></label>
+                <label class="lv-range"><span>Ctrl speeds up by</span><output id="lv-set-sprint-out"></output><input type="range" id="lv-set-sprint" min="1" max="10" step="0.5" aria-label="How much faster Ctrl flies"></label>
+                <label class="lv-range"><span>Mouse sensitivity</span><output id="lv-set-sens-out"></output><input type="range" id="lv-set-sens" min="10" max="300" step="5" aria-label="Mouse sensitivity"></label>
+                <label class="lv-range"><span>Field of view</span><output id="lv-set-fov-out"></output><input type="range" id="lv-set-fov" min="30" max="110" step="1" aria-label="Field of view"></label>
+                <label class="adm-check"><input type="checkbox" id="lv-set-invert"> Invert mouse up and down</label>
+                <label class="adm-check"><input type="checkbox" id="lv-set-sky"> Sun, moon and stars</label>
+                <label class="adm-check"><input type="checkbox" id="lv-set-clouds"> Clouds</label>
+                <label class="adm-check"><input type="checkbox" id="lv-set-weather"> Rain, thunder and lightning</label>
+              </form>
+              <div class="lv-pop lv-keys" id="lv-keys" hidden>
+                <div class="lv-pop-head"><h3>Keys and mouse</h3><button type="button" class="icon-btn" id="lv-keys-close" aria-label="Close" title="Close (Esc)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+                <dl>
+                  <dt><kbd>Click</kbd></dt><dd>Fly: the mouse looks around. <kbd>Esc</kbd> stops.</dd>
+                  <dt><kbd>Drag</kbd></dt><dd>Look around without flying.</dd>
+                  <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move.</dd>
+                  <dt><kbd>Space</kbd><kbd>Shift</kbd></dt><dd>Up and down.</dd>
+                  <dt><kbd>Ctrl</kbd></dt><dd>Faster. Scrolling while flying changes the speed.</dd>
+                  <dt><kbd>Click</kbd> a player</dt><dd>Their inventory.</dd>
+                  <dt><kbd>Right-click</kbd></dt><dd>Look inside a chest, barrel or shulker box.</dd>
+                  <dt><kbd>T</kbd><kbd>/</kbd></dt><dd>Chat, or a command.</dd>
+                  <dt><kbd>M</kbd></dt><dd>Players: go to one, or follow them.</dd>
+                  <dt><kbd>V</kbd></dt><dd>Switch the view while following.</dd>
+                  <dt><kbd>F</kbd></dt><dd>Fullscreen.</dd>
+                </dl>
+              </div>
+              <div class="lv-chat" id="lv-chat-lines" aria-live="polite"></div>
+              <div class="lv-chat-hint" id="lv-chat-hint" hidden>Enter sends it as chat from the dashboard. Start with / for a command: /tp Steve and /spectate Steve move your camera; anything else runs on the server and needs controls on. Esc closes.</div>
+              <form class="lv-chat-input" id="lv-chat-form" hidden><input id="lv-chat-input" autocomplete="off" spellcheck="false" maxlength="256" aria-label="Chat message or command"></form>
+              <aside class="lv-side" id="lv-side" hidden>
+                <header>
+                  <h3>Players</h3>
+                  <form class="lv-goto" id="lv-goto-form" autocomplete="off">
+                    <span>Go to</span>
+                    <input class="adm-input" id="lv-goto-x" inputmode="decimal" placeholder="X" aria-label="X">
+                    <input class="adm-input" id="lv-goto-y" inputmode="decimal" placeholder="Y" aria-label="Y">
+                    <input class="adm-input" id="lv-goto-z" inputmode="decimal" placeholder="Z" aria-label="Z">
+                    <select class="adm-input" id="lv-goto-dim" aria-label="Dimension"><option value="">This dimension</option><option value="minecraft:overworld">Overworld</option><option value="minecraft:the_nether">Nether</option><option value="minecraft:the_end">End</option></select>
+                    <button type="submit" class="btn btn-primary">Go</button>
+                    <button type="button" class="btn" id="lv-goto-here" title="Fill in where the camera is now">Here</button>
+                  </form>
+                  <button type="button" class="icon-btn" id="lv-side-close" aria-label="Close" title="Close (Esc)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+                </header>
+                <div class="lv-side-list" id="lv-side-list"></div>
+              </aside>
+              <div class="lv-screen-wrap" id="lv-screen-wrap" hidden><div id="lv-screen-host"></div></div>
+            </div>
+          </section>
+
+          <div class="tiles">
+            <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="lv-s-online">–</div><div class="tile-sub" id="lv-s-online-c">players on the server</div></div>
+            <div class="tile"><div class="tile-label">Tick time</div><div class="tile-value" id="lv-s-mspt">–</div><div class="tile-sub" id="lv-s-mspt-c">ms per tick, 50 is the limit</div></div>
+            <div class="tile"><div class="tile-label">Mobs nearby</div><div class="tile-value" id="lv-s-mobs">–</div><div class="tile-sub">around players and your camera</div></div>
+            <div class="tile"><div class="tile-label">Watching</div><div class="tile-value" id="lv-s-viewers">–</div><div class="tile-sub" id="lv-s-viewers-c">pages watching</div></div>
+          </div>
+
+          <div class="grid2">
+            <section class="card">
+              <div class="card-head"><div class="card-title"><h2>Players online</h2><span class="card-sub" id="lv-online-sub"></span></div></div>
+              <div id="lv-map-players"></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><div class="card-title"><h2>Recent activity</h2></div><a class="lv-more" href="#/live/log">Full log</a></div>
+              <div class="lv-feed" id="lv-feed-mini"><div class="empty">Nothing has happened yet.</div></div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Players -->
+        <div data-view="players" hidden>
+          <section class="card">
+            <div class="card-head"><div class="card-title"><h2>Players online</h2><span class="card-sub" id="lv-players-sub"></span></div></div>
+            <div id="lv-players-table"></div>
+          </section>
+        </div>
+
+        <!-- One player -->
+        <div data-view="player" hidden>
+          <a class="back" href="#/live/players">← Players online</a>
+          <div class="player-head lv-player-head">
+            <canvas class="p-avatar" id="lv-p-face" width="8" height="8"></canvas>
+            <div class="lv-player-who"><h1 id="lv-p-name">Player</h1><div class="muted" id="lv-p-where"></div></div>
+            <div class="lv-player-links">
+              <button type="button" class="btn" data-act="view">Show in the world</button>
+              <button type="button" class="btn" data-act="follow">Follow</button>
+              <a class="btn" id="lv-p-stats" href="#/" hidden>Stats page</a>
+            </div>
+          </div>
+          <div class="tiles">
+            <div class="tile"><div class="tile-label">Health</div><div class="tile-value" id="lv-p-health">–</div><div class="lv-meter"><i id="lv-p-health-bar"></i></div></div>
+            <div class="tile"><div class="tile-label">Food</div><div class="tile-value" id="lv-p-food">–</div><div class="lv-meter lv-food"><i id="lv-p-food-bar"></i></div></div>
+            <div class="tile"><div class="tile-label">Game mode</div><div class="tile-value" id="lv-p-mode">–</div><div class="tile-sub" id="lv-p-held">Holding nothing</div></div>
+            <div class="tile"><div class="tile-label">Position</div><div class="tile-value tile-value-sm" id="lv-p-pos">–</div><div class="tile-sub" id="lv-p-dim"></div></div>
+          </div>
+          <div class="grid2 lv-player-grid">
+            <section class="card">
+              <div class="card-head"><div class="card-title"><h2>Inventory</h2><span class="card-sub">as it is right now; hover an item for its tooltip</span></div></div>
+              <div class="lv-inv-host" id="lv-p-inv"></div>
+              <div class="lv-inv-host" id="lv-p-ender"></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><div class="card-title"><h2>Controls</h2><span class="card-sub">these change the player</span></div></div>
+              <div class="lv-locked">
+                <p>You’re only watching, so nothing here can change the world.</p>
+                <button type="button" class="btn" data-controls-on>Turn on controls</button>
+              </div>
+              <div class="lv-actions lv-unlocked">
+                <div class="lv-action-row"><span>Teleport</span>
+                  <button class="btn" type="button" data-act="tp-camera" title="Moves the player to where your camera is">To my camera</button>
+                  <select class="adm-input" id="lv-p-tp-target" aria-label="Teleport to another player"></select>
+                  <button class="btn" type="button" data-act="tp-player">Go</button>
+                </div>
+                <div class="lv-action-row"><span>Game mode</span>
+                  <div class="seg" id="lv-p-modes" role="group" aria-label="Game mode">
+                    <button type="button" data-mode="survival">Survival</button>
+                    <button type="button" data-mode="creative">Creative</button>
+                    <button type="button" data-mode="adventure">Adventure</button>
+                    <button type="button" data-mode="spectator">Spectator</button>
+                  </div>
+                </div>
+                <div class="lv-action-row"><span>Health</span>
+                  <button class="btn" type="button" data-act="heal">Heal</button>
+                  <button class="btn" type="button" data-act="feed">Feed</button>
+                  <button class="btn" type="button" data-act="clear-effects">Clear effects</button>
+                </div>
+                <div class="lv-action-row"><span>Remove</span>
+                  <button class="btn lv-danger" type="button" data-act="kick">Kick</button>
+                  <button class="btn lv-danger" type="button" data-act="kill">Kill</button>
+                  <button class="btn lv-danger" type="button" data-act="clear-inv">Clear inventory</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Log -->
+        <div data-view="log" hidden>
+          <section class="card">
+            <div class="card-head">
+              <div class="card-title"><h2>Activity log</h2><span class="card-sub">since you opened Liveview</span></div>
+              <div class="seg" id="lv-log-filter" role="group" aria-label="Show">
+                <button type="button" data-filter="all">All</button>
+                <button type="button" data-filter="chat">Chat</button>
+                <button type="button" data-filter="blocks">Blocks</button>
+                <button type="button" data-filter="combat">Combat</button>
+                <button type="button" data-filter="joins">Joins</button>
+              </div>
+            </div>
+            <div class="lv-log" id="lv-log-table"></div>
+          </section>
+        </div>
+
+        <!-- Console -->
+        <div data-view="console" hidden>
+          <section class="card">
+            <div class="card-head"><div class="card-title"><h2>Console</h2><span class="card-sub">runs commands as the server console, with every permission</span></div></div>
+            <div class="lv-locked">
+              <p>You’re only watching, so commands can’t be run from here.</p>
+              <button type="button" class="btn" data-controls-on>Turn on controls</button>
+            </div>
+            <div class="lv-unlocked">
+              <div class="lv-console" id="lv-console-out" aria-live="polite"><div class="lv-console-hint">Type a command without the slash, like <code>list</code> or <code>weather clear</code>. The up and down arrows bring back earlier commands.</div></div>
+              <form class="adm-form lv-cmd-form" id="lv-cmd-form">
+                <input class="adm-input" id="lv-cmd" autocomplete="off" spellcheck="false" placeholder="gamemode creative Steve" aria-label="Command">
+                <button class="btn btn-primary" type="submit">Run</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <dialog class="lv-dialog" id="lv-unlock">
+        <form id="lv-unlock-form" autocomplete="off">
+          <h2>Enter the control key</h2>
+          <p>Controls run commands as the server console and move items, so they have a key of their own. An operator gets it in game with <code>/liveview key control</code>. You enter it once; after that you turn controls on from this page whenever you need them.</p>
+          <label class="sr-only" for="lv-control-key">Control key</label>
+          <input class="adm-input" id="lv-control-key" type="password" autocomplete="off" spellcheck="false" placeholder="Control key" maxlength="256">
+          <div class="lv-gate-error" id="lv-unlock-error" role="status"></div>
+          <div class="range-actions"><button class="btn" type="button" id="lv-unlock-cancel">Cancel</button><button class="btn btn-primary" type="submit" id="lv-unlock-enter">Turn on controls</button></div>
+        </form>
+      </dialog>
+      <div class="toast lv-toast" id="lv-toast" role="status" hidden></div>
+    </section>
+
+    <!-- Chat log -->
+    <section id="view-chat" hidden>
+      <section class="card cg" id="cg">
+        <div class="cg-main">
+          <div class="cg-head">
+            <button type="button" class="cg-toggle" id="cg-toggle" aria-expanded="true" aria-controls="cg-body">
+              <svg class="cg-chev" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+              <h2>Players<span class="hide-xs"> online</span></h2>
+            </button>
+            <span class="cg-time" id="cg-time" aria-live="polite">–</span>
+            <span class="cg-count card-sub" id="cg-count"></span>
+            <span class="cg-label card-sub" id="cg-label"></span>
+            <div class="range-ctl cg-pager">
+              <button type="button" class="icon-btn" id="cg-prev" aria-label="Earlier day" title="Earlier day"></button>
+              <button type="button" class="icon-btn" id="cg-next" aria-label="Later" title="Later"></button>
+            </div>
+          </div>
+          <div class="cg-body" id="cg-body">
+            <div class="cg-chart-wrap">
+              <div id="chat-chart" class="chart"></div>
+              <div class="cg-cursor" id="cg-cursor" aria-hidden="true"><span class="cg-dot"></span></div>
+            </div>
+          </div>
+        </div>
+        <aside class="cg-online" aria-label="Online at this time">
+          <div class="cg-online-title">Online then <span id="cg-online-n" class="muted"></span></div>
+          <div class="cg-online-list" id="cg-online-list"></div>
+        </aside>
+      </section>
+
+      <section class="card chat-card">
+        <div class="chat-scroll" id="chat-scroll" role="log" aria-label="Chat log" tabindex="0">
+          <div class="chat-edge" id="chat-top"></div>
+          <div id="chat-list"></div>
+          <div class="chat-jump-wrap"><button type="button" class="chat-jump" id="chat-jump" hidden></button></div>
+        </div>
+        <form class="chat-compose" id="chat-compose" autocomplete="off" hidden>
+          <div class="chat-compose-err" id="chat-compose-err" role="alert" hidden></div>
+          <span class="chat-compose-me" id="chat-compose-me" aria-hidden="true"></span>
+          <input type="text" id="chat-input" maxlength="256" enterkeyhint="send" spellcheck="true" aria-label="Message the server">
+          <span class="chat-count" id="chat-count" aria-hidden="true"></span>
+          <button type="submit" class="chat-send" id="chat-send" aria-label="Send" title="Send (Enter)">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3.5M3.8 7.5 8 3.2l4.2 4.3"/></svg>
+          </button>
+        </form>
+        <div class="chat-online" id="chat-online">
+          <div class="chips chat-chips" id="chat-chips"></div>
+          <div class="chat-online-empty muted" id="chat-online-empty" hidden></div>
+          <button type="button" class="icon-btn chat-online-close" id="chat-online-close" aria-label="Hide who's online" title="Hide who's online">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+          <button type="button" class="online-pill" id="chat-online-pill" aria-label="Show who's online" hidden><span class="dot"></span><span id="chat-online-pill-text"></span></button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="foot" id="foot"></footer>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+</body>
+</html>

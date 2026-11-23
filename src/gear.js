@@ -1,8 +1,8 @@
 // What each player last wore and carried, reported by the server mod (POST /api/ingest/gear) for the
 // 3D model on their page. Only the fields the dashboard uses are kept; everything is re-checked here.
 
-import { cleanTooltip, sameSecret } from './chat.js';
-import { json, UUID_RE } from './util.js';
+import { cleanTooltip } from './chat.js';
+import { json, UUID_RE, ingestDenied } from './util.js';
 
 const MAX_BODY = 1024 * 1024; // weapons and tools carry their tooltips (mod 1.9.0)
 const MAX_PLAYERS = 100;
@@ -58,10 +58,9 @@ function cleanReport(p) {
 }
 
 export async function ingestGear(request, env) {
-  const secret = env.CHAT_INGEST_TOKEN || '';
-  if (secret.length < 32) return json({ error: 'ingest is not set up (no CHAT_INGEST_TOKEN secret)' }, 503);
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ') || !(await sameSecret(auth.slice(7), secret))) return json({ error: 'unauthorized' }, 401);
+  // the mod's key for this server was checked before the request got here (src/tenant.js)
+  const denied = ingestDenied(env);
+  if (denied) return denied;
 
   const raw = await request.text();
   if (raw.length > MAX_BODY) return json({ error: 'too large' }, 413);

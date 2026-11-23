@@ -1,77 +1,10 @@
-// Verifies the JWT that Cloudflare Access attaches to every request it lets through.
-// Fails closed: if Access isn't configured yet, nobody gets data.
-
-let keyCache = null;
-let keyCacheAt = 0;
-
-function b64urlBytes(s) {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=');
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
-
-function b64urlJson(s) {
-  return JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
-}
-
-async function loadKeys(teamDomain, force) {
-  if (keyCache && !force && Date.now() - keyCacheAt < 3600_000) return keyCache;
-  const res = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
-  if (!res.ok) throw new Error(`Access certs fetch failed: ${res.status}`);
-  const { keys } = await res.json();
-  const map = new Map();
-  for (const jwk of keys) {
-    const key = await crypto.subtle.importKey(
-      'jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']
-    );
-    map.set(jwk.kid, key);
-  }
-  keyCache = map;
-  keyCacheAt = Date.now();
-  return map;
-}
-
-// Who's signed in: { email } (email is null for local development without DEV_EMAIL), or null if
-// nobody is (or it's a service token, which may only post chat, not read the dashboard).
-export async function signedIn(request, env, url) {
-  // Local development only: .dev.vars is never uploaded by `wrangler deploy`.
-  if (env.DEV_NO_AUTH === '1' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
-    return { email: env.DEV_EMAIL || null };
-  }
-  const payload = await accessToken(request, env);
-  return payload && typeof payload.email === 'string' && payload.email ? { email: payload.email.toLowerCase() } : null;
-}
-
-// The verified Access token's claims, or null.
-async function accessToken(request, env) {
-  const team = env.ACCESS_TEAM_DOMAIN;
-  const aud = env.ACCESS_AUD;
-  if (!team || !aud) return null;
-
-  const token = request.headers.get('Cf-Access-Jwt-Assertion');
-  if (!token) return null;
-
-  try {
-    const [h, p, s] = token.split('.');
-    const header = b64urlJson(h);
-    const payload = b64urlJson(p);
-    if (header.alg !== 'RS256') return null;
-
-    let keys = await loadKeys(team, false);
-    if (!keys.has(header.kid)) keys = await loadKeys(team, true);
-    const key = keys.get(header.kid);
-    if (!key) return null;
-
-    const valid = await crypto.subtle.verify(
-      'RSASSA-PKCS1-v1_5', key, b64urlBytes(s), new TextEncoder().encode(`${h}.${p}`)
-    );
-    if (!valid) return null;
-
-    const now = Math.floor(Date.now() / 1000);
-    const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-    if (!(auds.includes(aud) && payload.iss === `https://${team}` && payload.exp > now)) return null;
-    return payload;
-  } catch (err) {
-    console.error('Access token check failed:', err.message);
-    return null;
-  }
+// Who's asking, on one server's page. The Worker (src/index.js) checks the cookies before a request reaches
+// the server: the viewer cookie from joining with the server's password, and the sign-in cookie from an
+// email code (src/session.js). The server's Tenant object then decides what they amount to there
+// (src/tenant.js, access()) and puts it on env.WHO:
+//   { email }        signed in, and a member of this server (roles: src/roles.js)
+//   { email: null }  can look (joined with the password, or the server is public), nothing more
+// No env.WHO means not let in at all: the API answers 401 and the page goes to /join.
+export async function signedIn(request, env) {
+  return env.WHO ?? null;
 }
