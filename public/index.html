@@ -306,10 +306,13 @@
         <div class="seg adm-tabs" role="tablist" aria-label="Admin sections">
           <a role="tab" href="#/admin" id="adm-tab-settings">Settings</a>
           <a role="tab" href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
+          <!-- super admins only (app.js shows it once /api/me says so) -->
+          <a role="tab" href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
         </div>
       </div>
       <div id="admin"></div>
       <div id="analytics" hidden></div>
+      <div id="roles" hidden></div>
     </section>
 
     <!-- Liveview: admins watching the world live (public/liveview.js, loaded when this is first opened).

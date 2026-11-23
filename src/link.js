@@ -122,9 +122,11 @@ async function gameName(env, ign) {
 
 // GET /api/chat/me: who you'd be sending as, and whether the server is connected.
 export async function webChatMe(env, who) {
-  const player = await playerFor(env, who.email);
+  // someone a super admin has stopped from chatting (src/roles.js) is told so, rather than "not on the roster"
+  const blocked = who.perms ? !who.perms.chat : false;
+  const player = blocked ? null : await playerFor(env, who.email);
   const linked = player ? (await linkUp(env)) === true : false;
-  return json({ email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, linked, max: MAX_WEB_CHAT });
+  return json({ email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, linked, max: MAX_WEB_CHAT, blocked });
 }
 
 // POST /api/chat/send { text }
@@ -134,6 +136,7 @@ export async function sendWebChat(request, env, url, who) {
   if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return json({ error: 'expected JSON' }, 415);
 
+  if (who.perms && !who.perms.chat) return json({ error: 'This account isn’t allowed to send chat from the dashboard.' }, 403);
   const player = await playerFor(env, who.email);
   if (!player) {
     return json({ error: who.email ? `${who.email} isn't on this season's roster, so it can't send chat` : 'not signed in with an email' }, 403);
@@ -187,9 +190,15 @@ export class ServerLink extends DurableObject {
     this.sent = new Map(); // player -> times of their recent messages
     this.web = null; // roster players with the dashboard open (src/presence.js), for whispers typed in game
     this.keyTries = new Map(); // account -> times of its recent Liveview key tries
+    this.access = null; // the server's list of accounts that may use Liveview (kept in storage)
     this.started = Date.now();
     this.log = null; // recent connects and closes, kept in storage: [{ at, what }]
     ctx.setWebSocketAutoResponse(); // no automatic reply: pings are answered in webSocketMessage
+  }
+
+  async liveAccess() {
+    this.access ??= (await this.ctx.storage.get('liveview_access')) ?? {};
+    return this.access;
   }
 
   async webList() {
@@ -370,7 +379,8 @@ export class ServerLink extends DurableObject {
       this.log ??= (await this.ctx.storage.get('log')) ?? [];
       return json({
         linked: !!ws, sockets: this.ctx.getWebSockets().length, version: a.version ?? null,
-        liveview: a.live ?? null, // what the mod said about Liveview: { enabled, control, viewer_key, control_key }
+        // what the mod said about Liveview: { enabled, control, viewer_key, control_key, access: { email: 'viewer' | 'control' } }
+        liveview: a.live ? { ...a.live, access: await this.liveAccess() } : null,
         connected_ago: ago(a.at), heard_ago: ago(a.heard), started_ago: ago(this.started),
         log: this.log.slice(-12).map((e) => ({ ago: ago(e.at), what: e.what })),
       });
@@ -447,6 +457,16 @@ export class ServerLink extends DurableObject {
       ws.serializeAttachment({
         ...a, live: { enabled: m.enabled === true, control: m.control === true, viewer_key: id(m.viewer_key), control_key: id(m.control_key) },
       });
+      // The accounts the server lets in. It's the server's list: this side only keeps a copy (in storage,
+      // as it can outgrow what a connection can carry) and never adds to it.
+      const access = {};
+      if (m.access && typeof m.access === 'object') {
+        for (const [email, level] of Object.entries(m.access).slice(0, 500)) {
+          if (typeof email === 'string' && email.length <= 120 && (level === 'viewer' || level === 'control')) access[email.toLowerCase()] = level;
+        }
+      }
+      this.access = access;
+      await this.ctx.storage.put('liveview_access', access);
     }
     // typed in game to a player who's only on the website (mod 1.8.0): { id, from, to, text }
     if (m?.type === 'whisper' && typeof m.id === 'string') {

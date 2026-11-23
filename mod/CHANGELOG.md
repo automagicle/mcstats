@@ -26,8 +26,13 @@ passwords; from this version it lives here and shows in the dashboard's **Livevi
   `/liveview key control` makes the one that lets it also run commands as the server console and move
   items in containers. An operator runs the command, the key is shown once (click to copy), and an admin
   enters it on the dashboard once per account. Only the keys' hashes are kept, in
-  `config/mcstats-liveview.json`. Making a new key ends every account's access under the old one, and
-  disconnects everyone watching (viewer key) or locks their controls (control key).
+  `config/mcstats-liveview.json`. A new viewer key empties the access list and disconnects everyone watching;
+  a new control key puts everyone back to watching only.
+- **The server decides who gets in.** The mod keeps its own list of the dashboard accounts it lets watch or
+  control, checks it whenever a page connects or asks for controls, and only tells the dashboard what's on it.
+  Entering a key puts an account on the list; `/liveview access viewer <email>` and
+  `/liveview access control <email>` do it by name, `/liveview access remove <email>` takes an account off (and
+  disconnects it), and `/liveview access` lists them.
 - `/liveview who` (operators): which dashboard accounts are watching right now, and which have controls on.
 - `/liveview optout` and `/liveview optin` (any player): hide yourself from Liveview, or come back.
 - Every command and item move made from the dashboard is written to the server log with the account
@@ -56,8 +61,8 @@ are not carried over: make the two keys with the commands above. Players who had
 `/liveview optout` again. `config/liveview.json`, `config/liveview-secrets.json` and
 `config/liveview-cache` can be deleted, and the extra port it used can be closed.
 
-Needs a dashboard deployed from this version or newer (the `liveview_access` table and the `LiveRelay`
-Durable Object).
+Needs a dashboard deployed from this version or newer (the `LiveRelay` Durable Object, and the Liveview
+permissions on its Roles page).
 
 ## 1.9.0 (2026-11-20)
 

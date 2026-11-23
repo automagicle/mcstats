@@ -4048,7 +4048,8 @@ function renderComposer() {
   // without the server, whispers can still reach people who have the dashboard open
   const can = !!(me.ign || me.admin);
   chatInput.disabled = !can;
-  chatInput.placeholder = !me.ign && !me.admin
+  chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
+    : !me.ign && !me.admin
     ? (me.email ? `${me.email} isn't on the roster, so it can't send messages` : 'Sign in with your roster email to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"
     : `Message the server as ${me.admin ? 'Admin' : shownName(me.ign)} · /w to whisper`;
@@ -6167,11 +6168,22 @@ syncNameToggle();
 /* ---------- admin: the admin page, and right-click on chat and deaths ---------- */
 
 // Whether the signed-in email is an admin (the ADMIN_EMAIL secret). /api/me needs no database.
-const site = { admin: false };
+// What the signed-in email may do (src/roles.js): admin (the admin page), super (it can also set
+// everyone's permissions, on Admin → Roles) and perms (view, chat, admin, liveview, liveview_op).
+// /api/me needs no database.
+const site = { admin: false, super: false, perms: null };
+function setMe(r) {
+  site.admin = !!r?.admin;
+  site.super = !!r?.super;
+  site.perms = r?.perms ?? null;
+  syncLiveTab();
+  $('#adm-tab-roles').hidden = !site.super;
+  // someone a super admin has switched "view" off for: every other request is refused, so say why
+  if (site.perms && !site.perms.view) showError(`This account (${r.email}) doesn’t have access to the dashboard. Ask an admin to allow it.`);
+}
 if (!DUMMY) {
   api('/api/me').then((r) => {
-    site.admin = !!r.admin;
-    syncLiveTab();
+    setMe(r);
     if (site.admin && state.status) renderLive();
   }).catch(() => {});
 }
@@ -6181,7 +6193,7 @@ if (!DUMMY) {
 // The Liveview tab is only there for admins. The page itself is public/liveview.js (the 3D view, its
 // connection and its keys), loaded the first time the tab is opened, like the 3D player model.
 function syncLiveTab() {
-  $('#tab-live').hidden = !site.admin;
+  $('#tab-live').hidden = !site.perms?.liveview;
 }
 const onLive = () => location.hash === '#/live' || location.hash.startsWith('#/live/');
 let liveLoad = null;
@@ -6189,15 +6201,14 @@ let liveMod = null;
 async function showLive() {
   showView('live');
   document.title = `Liveview · ${SITE}`;
-  if (!site.admin) {
+  if (!site.perms) {
     // the check may still be on its way
     const r = DUMMY ? null : await api('/api/me').catch(() => null);
-    site.admin = !!r?.admin;
-    syncLiveTab();
+    if (r) setMe(r);
   }
   const say = (title, text) => { $('#lv-gate-title').textContent = title; $('#lv-gate-text').textContent = text; };
-  if (!site.admin) {
-    say('Liveview is for admins', DUMMY ? 'It isn’t part of the sample data.' : 'This account isn’t one of the dashboard’s admins.');
+  if (!site.perms?.liveview) {
+    say('This account can’t use Liveview', DUMMY ? 'It isn’t part of the sample data.' : 'A super admin can allow it under Admin, then Roles.');
     return;
   }
   if (!state.status) loadStatus().catch(() => {}); // the pill at the top of every page
@@ -6333,7 +6344,9 @@ window.addEventListener('beforeunload', (e) => {
 function adminTab(name) {
   $('#admin').hidden = name !== 'settings';
   $('#analytics').hidden = name !== 'analytics';
-  for (const t of ['settings', 'analytics']) $(`#adm-tab-${t}`).setAttribute('aria-selected', String(t === name));
+  $('#roles').hidden = name !== 'roles';
+  $('#adm-tab-roles').hidden = !site.super;
+  for (const t of ['settings', 'analytics', 'roles']) $(`#adm-tab-${t}`).setAttribute('aria-selected', String(t === name));
 }
 
 async function showAdmin() {
@@ -6344,7 +6357,7 @@ async function showAdmin() {
   if (!site.admin) {
     // the check may still be on its way
     const r = DUMMY ? null : await api('/api/me').catch(() => null);
-    site.admin = !!r?.admin;
+    if (r) setMe(r);
   }
   if (!site.admin) {
     root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for admins.' }));
@@ -6365,7 +6378,7 @@ const analyticsPage = () => {
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   if (m) return `player:${m[1].toLowerCase()}`;
   if (onLive()) return 'live';
-  return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/analytics': 'admin' }[location.hash] || 'home';
+  return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/analytics': 'admin', '#/admin/roles': 'admin' }[location.hash] || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
 function sendHit(beat) {
@@ -6384,6 +6397,123 @@ setInterval(() => { if (document.visibilityState === 'visible' && lastView) send
 
 const stats = { days: 30, data: null, noAdmins: true };
 
+/* ---------- roles: what each sign-in may do (super admins only) ---------- */
+
+// One row per person the site knows about, one checkbox per permission; a change is saved at once
+// (POST /api/admin/roles, src/roles.js). The two Liveview permissions are only the dashboard's half:
+// the Minecraft server keeps its own list of who it lets in, shown in the last column.
+const ROLE_PERMS = [
+  ['view', 'View', 'See the dashboard: Activity, Combat, the Chat log and player pages'],
+  ['chat', 'Chat', 'Send chat and whispers from the Chat log (their email also has to be on the roster)'],
+  ['admin', 'Admin page', 'Settings and Analytics on the admin page (not Roles)'],
+  ['liveview', 'Liveview', 'Watch the world live. The Minecraft server also has to let the account in'],
+  ['liveview_op', 'Liveview controls', 'Run commands and move items from Liveview. The Minecraft server also has to allow it'],
+];
+const roles = { data: null, busy: false };
+
+async function rolesPost(body) {
+  const res = await fetch('/api/admin/roles', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const r = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(r?.error || `the server answered ${res.status}`);
+  return r;
+}
+
+async function showRoles() {
+  showView('admin');
+  document.title = `Roles · ${SITE}`;
+  const root = $('#roles');
+  if (!site.perms) {
+    const r = DUMMY ? null : await api('/api/me').catch(() => null);
+    if (r) setMe(r);
+  }
+  adminTab('roles');
+  if (!site.super) {
+    root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for super admins.' }));
+    return;
+  }
+  if (!roles.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
+  roles.data = await api('/api/admin/roles');
+  renderRoles();
+}
+
+function renderRoles() {
+  const d = roles.data;
+  if (!d) return;
+  const root = $('#roles');
+  const save = async (body, undo) => {
+    if (roles.busy) return;
+    roles.busy = true;
+    root.classList.add('adm-busy');
+    try {
+      roles.data = await rolesPost(body);
+    } catch (err) {
+      undo?.();
+      toast(`That wasn’t saved: ${err.message}`, { error: true, ms: 5000 });
+    } finally {
+      roles.busy = false;
+      root.classList.remove('adm-busy');
+      renderRoles();
+    }
+  };
+  const serverCell = (u) => {
+    if (!d.linked) return el('span', { class: 'muted', text: 'server off' });
+    if (u.server === 'control') return el('span', { class: 'role-server control', text: 'Watch and control', title: 'The Minecraft server lets this account watch and use controls' });
+    if (u.server === 'viewer') return el('span', { class: 'role-server', text: 'Watch', title: 'The Minecraft server lets this account watch' });
+    return el('span', { class: 'muted', text: 'Not let in', title: 'They enter the viewer key in the Liveview tab, or an operator runs /liveview access viewer with their email in game' });
+  };
+  const ago = (ts) => { const s = nowSec() - ts; return s < 120 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : fmt(ts, { month: 'short', day: 'numeric' }); };
+  const body = d.users.map((u) => {
+    const boxes = ROLE_PERMS.map(([key, label]) => {
+      const box = el('input', { type: 'checkbox', 'aria-label': `${label} for ${u.email}` });
+      box.checked = !!u.perms[key];
+      box.disabled = u.super;
+      box.addEventListener('change', () => save({ email: u.email, perms: { ...u.perms, [key]: box.checked } }, () => { box.checked = !box.checked; }));
+      return el('td', { class: 'role-box' }, box);
+    });
+    return el('tr', { class: u.super ? 'role-super' : '' },
+      el('td', {},
+        el('div', { class: 'role-who' }, el('span', { class: 'adm-ign', text: u.email }),
+          u.super ? el('span', { class: 'an-tag', text: 'Super admin' }) : u.custom ? el('span', { class: 'an-tag', text: 'Changed' }) : null),
+        el('div', { class: 'role-sub muted', text: [u.name, u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site'].filter(Boolean).join(', ') })),
+      ...boxes,
+      el('td', {}, serverCell(u)),
+      el('td', { class: 'adm-act' }, u.custom && !u.super
+        ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to the defaults' }, ) : null));
+  });
+  for (const [i, tr] of body.entries()) {
+    const u = d.users[i];
+    tr.querySelector('.btn-quiet')?.addEventListener('click', () => save({ email: u.email, reset: true }));
+  }
+  const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
+  const add = el('form', { class: 'adm-form role-add' }, email, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
+  add.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = email.value.trim().toLowerCase();
+    if (!v) return;
+    const known = d.users.find((u) => u.email === v);
+    if (known) { toast(`${v} is already in the table.`); return; }
+    // listed with what anyone gets by default; the checkboxes take it from there
+    save({ email: v, perms: { view: true, chat: true, admin: false, liveview: false, liveview_op: false } });
+  });
+  root.replaceChildren(
+    el('section', { class: 'card adm-card' },
+      el('div', { class: 'card-head' }, el('h2', { text: 'Roles' }), el('span', { class: 'card-sub', text: 'what each sign-in may do; a change is saved at once' })),
+      el('p', { class: 'adm-note', text: 'Everyone who has opened the site, is on the roster, or was added here. Someone not marked “Changed” has the defaults: View and Chat for anyone the login lets in, and everything for the admin emails. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
+      el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table role-table' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: 'Sign-in' }),
+          ...ROLE_PERMS.map(([, label, title]) => el('th', { class: 'role-box', text: label, title })),
+          el('th', { text: 'Minecraft server', title: 'What the server itself lets this account do in Liveview' }),
+          el('th', {}))),
+        el('tbody', {}, ...body))),
+      el('p', { class: 'adm-note', text: 'Add someone before they’ve visited, to set what they can do when they do:' }),
+      add));
+}
+
 async function showAnalytics({ refresh = false } = {}) {
   showView('admin');
   adminTab('analytics');
@@ -6391,7 +6521,7 @@ async function showAnalytics({ refresh = false } = {}) {
   const root = $('#analytics');
   if (!site.admin) {
     const r = DUMMY ? null : await api('/api/me').catch(() => null);
-    site.admin = !!r?.admin;
+    if (r) setMe(r);
   }
   if (!site.admin) {
     root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for admins.' }));
@@ -7205,6 +7335,7 @@ async function route() {
     else if (location.hash === '#/combat') await showCombat();
     else if (location.hash === '#/admin') await showAdmin();
     else if (location.hash === '#/admin/analytics') await showAnalytics();
+    else if (location.hash === '#/admin/roles') await showRoles();
     else if (onLive()) await showLive();
     else await showHome();
     renderUnread();
@@ -7548,6 +7679,7 @@ async function refresh() {
     else if (location.hash === '#/combat') await showCombat({ refresh: true });
     else if (location.hash === '#/admin') { /* the admin page reloads only on a change */ }
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
+    else if (location.hash === '#/admin/roles') { /* the roles page reloads only on a change */ }
     else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
     else await showHome();
     renderUnread();

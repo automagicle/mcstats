@@ -155,6 +155,16 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 		keyId(out, store, KeyStore.Level.VIEWER);
 		out.append(",\"control_key\":");
 		keyId(out, store, KeyStore.Level.CONTROL);
+		// who the server lets in: the dashboard shows and obeys this list, and can't add to it
+		out.append(",\"access\":{");
+		if (store != null) {
+			boolean first = true;
+			for (var entry : store.accessList().entrySet()) {
+				out.append(first ? "" : ",").append('"').append(entry.getKey()).append("\":\"").append(entry.getValue().id).append('"');
+				first = false;
+			}
+		}
+		out.append('}');
 		return out.append('}').toString();
 	}
 
@@ -225,6 +235,21 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 				if (ok) {
 					limiter.success(account);
 					LogOnce.logger().info("Liveview: {} entered the {} key", account, which.id);
+					try {
+						// the server's own list is what lets an account in; entering the key is one way onto it
+						if (KeyStore.account(account) == null) {
+							done.accept(Verified.failed("off"));
+							return;
+						}
+						synchronized (keysFile) {
+							store.allow(account, which, which == KeyStore.Level.VIEWER);
+						}
+						keysChanged.run();
+					} catch (Throwable thrown) {
+						LogOnce.logger().warn("Liveview could not save who entered a key", thrown);
+						done.accept(Verified.failed("off"));
+						return;
+					}
 					done.accept(new Verified(true, null, store.id(which)));
 				} else {
 					limiter.failure(account);
@@ -235,6 +260,73 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 			});
 		} catch (RuntimeException stopping) {
 			done.accept(Verified.failed("off"));
+		}
+	}
+
+	/** Whether the server lets this dashboard account watch. */
+	public boolean mayWatch(String who) {
+		KeyStore store = keys;
+		return store != null && store.access(who) != null;
+	}
+
+	/** Whether the server lets this dashboard account run commands and move items. */
+	public boolean mayControl(String who) {
+		KeyStore store = keys;
+		return controlAllowed() && store != null && store.access(who) == KeyStore.Level.CONTROL;
+	}
+
+	@Override
+	public java.util.Map<String, KeyStore.Level> accessList() {
+		KeyStore store = keys;
+		return store == null ? Map.of() : store.accessList();
+	}
+
+	@Override
+	public void setAccess(String who, KeyStore.Level level, Consumer<String> done) {
+		KeyStore store = keys;
+		String account = KeyStore.account(who);
+		if (store == null) {
+			done.accept("Liveview has no keys file yet. Make a viewer key first: /liveview key viewer");
+			return;
+		}
+		if (account == null) {
+			done.accept("That doesn't look like a dashboard account (a sign-in email).");
+			return;
+		}
+		try {
+			tasks.submit(() -> {
+				String answer;
+				try {
+					boolean changed;
+					synchronized (keysFile) {
+						changed = level == null ? store.remove(account) : store.allow(account, level, false);
+					}
+					RelayLink current = relay;
+					if (level == null) {
+						if (current != null) {
+							current.dropAccount(account, "the server took this account off its list");
+						}
+						answer = changed ? account + " can no longer use Liveview." : account + " wasn't on the list.";
+					} else if (level == KeyStore.Level.VIEWER) {
+						if (current != null) {
+							current.lockControls(account);
+						}
+						answer = changed ? account + " may watch through Liveview (no controls)." : account + " could already watch, and nothing more.";
+					} else {
+						answer = changed ? account + " may watch and use controls through Liveview." : account + " already had controls.";
+					}
+					if (changed) {
+						LogOnce.logger().info("Liveview access: {}", answer);
+						keysChanged.run();
+					}
+				} catch (Throwable thrown) {
+					LogOnce.logger().warn("Liveview could not change who has access", thrown);
+					answer = "Liveview could not write config/" + KeyStore.FILE_NAME + ". See the server log.";
+				}
+				done.accept(answer);
+			});
+		} catch (RuntimeException stopping) {
+			done.accept("The server is shutting down.");
 		}
 	}
 

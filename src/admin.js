@@ -24,13 +24,18 @@ const MAX_ROSTER = 500;
 const MAX_PERIODS = 2000;
 const MAX_BODY = 4096, MAX_CONFIG_BODY = 512 * 1024;
 
+// Whether this sign-in may use the admin page. Once its permissions are loaded (src/roles.js, which every
+// /api/ request does first) that is its "admin" permission; ADMIN_EMAIL is only the default for someone
+// whose permissions were never changed.
 export const isAdmin = (env, who) => {
+  if (who?.perms) return !!who.perms.admin;
   const email = who?.email?.toLowerCase();
   if (!email) return false;
   return String(env.ADMIN_EMAIL || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean).includes(email);
 };
 
-export const me = (env, who) => json({ email: who.email, admin: isAdmin(env, who) });
+// GET /api/me: who's signed in and what they may do (the page shows or hides things by it).
+export const me = (env, who) => json({ email: who.email, admin: isAdmin(env, who), super: !!who.perms?.super, perms: who.perms ?? null });
 
 export async function adminState(env, season) {
   if (!season.n) return json({ error: 'pick a season' }, 400);

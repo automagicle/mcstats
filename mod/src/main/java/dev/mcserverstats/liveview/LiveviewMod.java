@@ -288,5 +288,21 @@ public final class LiveviewMod {
 			}
 			current.resetKey(level, done);
 		}
+
+		@Override
+		public java.util.Map<String, KeyStore.Level> accessList() {
+			LiveviewRuntime current = runtime;
+			return current == null ? java.util.Map.of() : current.accessList();
+		}
+
+		@Override
+		public void setAccess(String account, KeyStore.Level level, Consumer<String> done) {
+			LiveviewRuntime current = runtime;
+			if (current == null) {
+				done.accept("Liveview is not running on this server.");
+				return;
+			}
+			current.setAccess(account, level, done);
+		}
 	}
 }

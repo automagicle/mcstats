@@ -17,7 +17,8 @@ import { cached } from './cache.js';
 import { presence } from './presence.js';
 import { teamRows } from './teams.js';
 import { analytics, recordHit } from './analytics.js';
-import { connectLiveview, handleLiveview } from './liveview.js';
+import { connectLiveview, handleLiveview, serverAccess } from './liveview.js';
+import { handleRoles, loadPerms } from './roles.js';
 
 const DAY = 86400;
 
@@ -82,13 +83,19 @@ export async function handleApi(request, env, url, ctx) {
 
   const who = await signedIn(request, env, url);
   if (!who) return json({ error: 'unauthorized' }, 401);
+  // What this sign-in may do (src/roles.js). Being let in by Access isn't enough any more if a super
+  // admin has switched "view" off for it: then only /api/me answers, so the page can say so.
+  who.perms = await loadPerms(env, who);
+  if (url.pathname === '/api/me') return me(env, who);
+  if (!who.perms.view) return json({ error: 'no_access' }, 403);
+  // Roles: super admins set everyone's permissions.
+  if (url.pathname === '/api/admin/roles') return handleRoles(request, env, url, who, () => serverAccess(env));
 
   // Chat from the dashboard, for players whose login email is on the roster.
   if (url.pathname === '/api/chat/send') {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
     return sendWebChat(request, env, url, who);
   }
-  if (url.pathname === '/api/me') return me(env, who);
   // Liveview: admins watching the world live, behind the server's own keys (src/liveview.js).
   if (url.pathname === '/api/liveview' || url.pathname.startsWith('/api/liveview/')) return handleLiveview(request, env, url, who, ctx);
   // Website analytics (src/analytics.js): the page reports views, and admins read them.

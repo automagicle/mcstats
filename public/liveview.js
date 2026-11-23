@@ -9,9 +9,12 @@
 // section. Nothing here talks to the Minecraft server directly.
 //
 // Two tiers, kept apart on purpose:
-//   watching   needs the server's viewer key, entered once per account (the gate card asks for it);
-//   controls   running commands and moving items. Needs the control key, entered once per account, and
-//              is off every time the page opens until it's switched on with the button at the top.
+//   watching   needs the "liveview" permission here and the server to let the account in: it does once the
+//              account has entered the server's viewer key (the gate card asks for it), or an operator
+//              has allowed it by name in game;
+//   controls   running commands and moving items. Needs the "liveview_op" permission and the server's say
+//              (the control key, or an operator), and is off every time the page opens until it's switched
+//              on with the button at the top.
 // Watching never changes the world.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
 
@@ -3350,7 +3353,7 @@ const code = (text) => Object.assign(document.createElement('code'), { textConte
 // What the card says for each thing that can be in the way. `text` is a list of strings and nodes.
 const GATES = {
   checking: { title: 'Liveview', text: ['Checking the server…'] },
-  forbidden: { title: 'Liveview is for admins', text: ['This account isn’t one of the dashboard’s admins.'] },
+  forbidden: { title: 'This account can’t use Liveview', text: ['A super admin can allow it on the dashboard, under Admin, then Roles.'] },
   signedOut: { title: 'Your login expired', text: ['Reload the page to sign in again.'] },
   unreachable: { title: 'The dashboard didn’t answer', text: ['This page tries again by itself.'], retry: true },
   offline: {
@@ -3375,7 +3378,7 @@ const GATES = {
   },
   key: {
     title: 'Enter the viewer key',
-    text: ['An operator gets it in game with ', code('/liveview key viewer'), '. You enter it once: after that this account can watch, until a new key is made.'],
+    text: ['The Minecraft server decides who may watch. An operator gets the key in game with ', code('/liveview key viewer'), ' and you enter it once, or they let this account in themselves with ', code('/liveview access viewer'), ' and its email.'],
     form: true
   }
 };
@@ -3465,7 +3468,8 @@ const KEY_ERRORS = {
   not_set: 'That key hasn’t been made yet.',
   off: 'The server has this turned off.',
   offline: 'The server isn’t connected right now.',
-  locked: 'Enter the viewer key first.'
+  locked: 'Enter the viewer key first.',
+  not_allowed: 'This account isn’t allowed controls on the dashboard.'
 };
 // POST /api/liveview/unlock: the mod checks the key; the dashboard then remembers this account.
 async function enterKey(level, key) {
@@ -4146,6 +4150,10 @@ async function turnOnControls() {
     const fresh = await fetchAccess();
     if (fresh && fresh.server) access = fresh;
   } catch (error) { /* what was known before will do */ }
+  if (access && access.may_control === false) {
+    toast('This account isn’t allowed controls. A super admin can allow them under Admin, then Roles.', true);
+    return false;
+  }
   if (lastStatus && lastStatus.controlAllowed === false) {
     toast('Controls are turned off on the server (liveview_control=false in the mod’s settings).', true);
     return false;
@@ -4158,6 +4166,7 @@ async function turnOnControls() {
       toast('Controls are on. Commands and item moves now change the world.');
       return true;
     }
+    if (r.reason === 'not_allowed') { toast('This account isn’t allowed controls. A super admin can allow them under Admin, then Roles.', true); return false; }
     if (r.reason !== 'locked') { toast('Controls couldn’t be turned on: the server didn’t answer.', true); return false; }
     access.control = false; // the control key was replaced since this account entered it
   }

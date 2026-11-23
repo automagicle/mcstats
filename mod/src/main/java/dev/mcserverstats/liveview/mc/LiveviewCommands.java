@@ -38,6 +38,17 @@ public final class LiveviewCommands {
 						.then(Commands.literal("who")
 								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
 								.executes(context -> who(context.getSource(), watchers)))
+						// Who may use Liveview is the server's call: this list names every dashboard account that may.
+						.then(Commands.literal("access")
+								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
+								.executes(context -> access(context.getSource(), keys))
+								.then(Commands.literal("list").executes(context -> access(context.getSource(), keys)))
+								.then(Commands.literal("viewer").then(Commands.argument("account", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+										.executes(context -> setAccess(context.getSource(), keys, com.mojang.brigadier.arguments.StringArgumentType.getString(context, "account"), KeyStore.Level.VIEWER))))
+								.then(Commands.literal("control").then(Commands.argument("account", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+										.executes(context -> setAccess(context.getSource(), keys, com.mojang.brigadier.arguments.StringArgumentType.getString(context, "account"), KeyStore.Level.CONTROL))))
+								.then(Commands.literal("remove").then(Commands.argument("account", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+										.executes(context -> setAccess(context.getSource(), keys, com.mojang.brigadier.arguments.StringArgumentType.getString(context, "account"), null)))))
 						.then(Commands.literal("key")
 								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
 								.then(Commands.literal("viewer").executes(context -> reset(context.getSource(), keys, KeyStore.Level.VIEWER)))
@@ -59,6 +70,46 @@ public final class LiveviewCommands {
 			return 1;
 		} catch (Throwable thrown) {
 			LogOnce.warn("command-liveview", "Liveview command failed", thrown);
+			return 0;
+		}
+	}
+
+	private static int access(CommandSourceStack source, KeyController keys) {
+		try {
+			var list = keys.accessList();
+			if (list.isEmpty()) {
+				source.sendSuccess(() -> Component.literal("No dashboard account may use Liveview yet. One gets on the list by entering the viewer key, or with /liveview access viewer <account>."), false);
+				return 1;
+			}
+			source.sendSuccess(() -> Component.literal(list.size() == 1 ? "1 dashboard account may use Liveview:" : list.size() + " dashboard accounts may use Liveview:"), false);
+			for (var entry : list.entrySet()) {
+				boolean control = entry.getValue() == KeyStore.Level.CONTROL;
+				Component line = Component.literal("  " + entry.getKey())
+						.append(Component.literal(control ? "  watching and controls" : "  watching only").withStyle(control ? ChatFormatting.GOLD : ChatFormatting.GRAY));
+				source.sendSuccess(() -> line, false);
+			}
+			return list.size();
+		} catch (Throwable thrown) {
+			LogOnce.warn("command-access", "Liveview could not list who has access", thrown);
+			return 0;
+		}
+	}
+
+	// The file write runs on a worker; like the key commands, this waits for it briefly so RCON sees the answer.
+	private static int setAccess(CommandSourceStack source, KeyController keys, String account, KeyStore.Level level) {
+		try {
+			MinecraftServer server = source.getServer();
+			java.util.concurrent.CompletableFuture<String> done = new java.util.concurrent.CompletableFuture<>();
+			keys.setAccess(account, level, done::complete);
+			try {
+				String answer = done.get(2, java.util.concurrent.TimeUnit.SECONDS);
+				source.sendSuccess(() -> Component.literal(answer), false);
+			} catch (java.util.concurrent.TimeoutException slow) {
+				done.thenAccept(answer -> server.execute(() -> source.sendSuccess(() -> Component.literal(answer), false)));
+			}
+			return 1;
+		} catch (Throwable thrown) {
+			LogOnce.warn("command-access-set", "Liveview could not change who has access", thrown);
 			return 0;
 		}
 	}

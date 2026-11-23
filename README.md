@@ -117,7 +117,35 @@ the season in the teams' colors: move the moment a stretch ended (to the minute)
 they were on in it, add a stretch, or remove one. Removing the earlier team makes the new one count for everything.
 The web chat connection card shows the server mod's link and tests it.
 
-Admins are the sign-in emails in the `ADMIN_EMAIL` secret (comma-separated), so they stay out of this repository:
+### Roles (who may do what)
+
+`#/admin/roles` (the **Roles** tab, super admins only) is a table of everyone the site knows about (whoever has
+opened it, is on the roster, or was added there by email) with five permissions each, ticked independently and
+saved at once (table `user_perms`, `src/roles.js`):
+
+| Permission | Lets them |
+| --- | --- |
+| **View** | See the dashboard at all. Without it every page says the account has no access. |
+| **Chat** | Send chat and whispers from the Chat log (their email still has to be on the roster). |
+| **Admin page** | Settings and Analytics on the admin page. Not Roles. |
+| **Liveview** | Watch through Liveview, once the Minecraft server lets the account in. |
+| **Liveview controls** | Run commands and move items from Liveview, once the server allows that too. |
+
+Someone whose row was never touched has the defaults: View and Chat for anyone the login lets in, and all five
+for the `ADMIN_EMAIL` logins, which is how things were before this page existed. **Reset** puts a row back to
+them. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
+is only half of it, and that half can't be given from the dashboard.
+
+**Super admins** are the sign-in emails in the `SUPER_ADMIN_EMAIL` secret (comma-separated). They can do
+everything, can't be changed from the page, and are the only ones who see Roles:
+
+```bash
+npx wrangler secret put SUPER_ADMIN_EMAIL
+```
+
+For local development, add `SUPER_ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`.
+
+Admins by default are the sign-in emails in the `ADMIN_EMAIL` secret (comma-separated), so they stay out of this repository:
 
 ```bash
 npx wrangler secret put ADMIN_EMAIL
@@ -139,15 +167,16 @@ time and when they were last on. **Leave out admins** (on by default) hides the 
 
 ## Liveview
 
-`#/live`, the **Liveview** tab, is only there for admins (the `ADMIN_EMAIL` logins). It shows the Minecraft world
+`#/live`, the **Liveview** tab, is only there for accounts with the **Liveview** permission (see
+[Roles](#roles-who-may-do-what); by default, the `ADMIN_EMAIL` logins). It shows the Minecraft world
 live: the terrain around your camera with the game's own textures, every online player, the mobs around them, and
 a feed of what happens. The server mod (2.0.0 or newer) does the work; nothing about the world is stored here.
 It used to be a separate mod with its own web page and passwords, and is now part of this one.
 
 **Turning it on**:
 
-1. Update the dashboard: `npm run db:migrate:remote` (adds the `liveview_access` table), then `npm run deploy`
-   (adds the `LiveRelay` Durable Object).
+1. Update the dashboard: `npm run db:migrate:remote` (adds the `user_perms` table), `npx wrangler secret put
+   SUPER_ADMIN_EMAIL`, then `npm run deploy` (adds the `LiveRelay` Durable Object).
 2. Put `mcstats-chat-2.0.0.jar` in the server's `mods` folder in place of the older jar, and restart the server. If
    the standalone Liveview mod was installed, remove it (see [mod/CHANGELOG.md](mod/CHANGELOG.md)).
 3. In game, as an operator, run `/liveview key viewer`, open the Liveview tab and enter the key. For controls,
@@ -165,20 +194,28 @@ It used to be a separate mod with its own web page and passwords, and is now par
 - T or Enter types a chat message, sent the same way as from the Chat log (`[Web] <you> message`).
 - Watching never changes the world. A player can hide from it in game with `/liveview optout`.
 
-**Two keys, kept on the Minecraft server.** Being an admin isn't enough to watch: the first time, the page asks for
-the **viewer key**. An operator makes it in game with `/liveview key viewer`; the game shows it once (click to
-copy). The mod checks what you type, and the dashboard then remembers that this account entered it (table
-`liveview_access`, by the key's id, never the key), so it's asked once per account.
+**The Minecraft server decides who gets in.** The Liveview permission isn't enough to watch: the server keeps its
+own list of dashboard accounts it lets in (in the mod's `config/mcstats-liveview.json`), and the dashboard can
+read that list but not add to it. An account gets on it in one of two ways:
+
+- **With the viewer key.** The first time, the page asks for it. An operator makes it in game with
+  `/liveview key viewer`; the game shows it once (click to copy). The mod checks what you type and puts the
+  account on its list, so it's asked once per account.
+- **By name.** An operator runs `/liveview access viewer <email>` (or `/liveview access control <email>`) in game.
+
+`/liveview access` lists who's on it, and `/liveview access remove <email>` takes an account off, disconnecting
+it if it's watching.
 
 **Controls** (running commands as the server console from the Console section or the in-view chat with `/`,
 moving items in an open chest, and the buttons that change a player: game mode, heal, teleport, kick…) are a
-second step with a second key, the **control key** (`/liveview key control`), also entered once per account. Even
+second step: the **Liveview controls** permission here, and the server's say, which is the **control key**
+(`/liveview key control`) entered once per account, or `/liveview access control <email>` in game. Even
 then controls are off every time the page opens: the button at the top says **Watching only** until you switch it
 to **Controls on** (amber), and nothing switches it on for you. Without controls the page can't change anything:
 the Worker and the mod both refuse.
 
-- Running either command again makes a new key and the old one stops working at once: everyone watching is sent
-  back to the key prompt (viewer key), or goes back to watching only (control key). That's how access is taken away.
+- Making a new viewer key empties the server's list: everyone watching is sent back to the key prompt. A new
+  control key puts everyone back to watching only. Either way the old key stops working at once.
 - `/liveview who` (operators) lists the accounts watching and which have controls on. Every command and item move
   from the dashboard is written to the server log with the account that made it.
 - On the server, `liveview=false` in `config/mcstats-chat.properties` turns it all off, and
@@ -300,7 +337,7 @@ npm run seed:local        # optional: 200 days of fake data, plus two weeks of f
 npm run dev               # http://localhost:8787, trigger a check at /__scheduled
 ```
 
-**Liveview locally**: add `ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`, then run the mod against the local
+**Liveview locally**: add `ADMIN_EMAIL=` and `SUPER_ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`, then run the mod against the local
 dashboard: in `mod/run/config/mcstats-chat.properties` set `url=http://localhost:8787/api/ingest/chat` and `token=`
 to the `CHAT_INGEST_TOKEN` above, accept the EULA in `mod/run/eula.txt`, and `cd mod && ./gradlew runServer`. Type
 `liveview key viewer` in the server console and enter the key on `http://localhost:8787/#/live`. Set

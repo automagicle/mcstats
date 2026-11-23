@@ -42,18 +42,22 @@ Pages ignore unknown `type` values, and so does the mod (with one log line per t
 
 ## Keys and who may do what
 
-Nothing here is a login: the dashboard has already signed the person in (Cloudflare Access) and checked they're
-one of its admins. On top of that:
+Nothing here is a login: the dashboard has already signed the person in (Cloudflare Access) and checked the
+account has its Liveview permission (and, for controls, its Liveview controls permission). On top of that, the
+mod keeps its own list of accounts it lets in, and that list is what counts: it is sent to the dashboard as
+`access` in `{"type":"liveview","enabled","control","viewer_key","control_key","access":{"a@b.c":"viewer"|"control"}}`
+(when the web chat connection opens and whenever anything in it changes), the dashboard never adds to it, and
+the mod checks it again itself: a viewer whose account isn't on it is dropped with `x…"code":"denied"` (close
+code 4403), and `c` only switches controls on for an account listed as `control`. Accounts get on the list by
+entering a key, or by an operator's `/liveview access` command.
 
 - **Watching** needs the viewer key. `POST /api/liveview/unlock {"level":"viewer","key":"…"}` sends the key down
   the web chat connection (`{"type":"liveview_key","id","level","key","who"}`); the mod checks it against the
-  hash in `config/mcstats-liveview.json` and answers `{"type":"ack","id","ok","key_id"?,"error"?}` with `error`
-  one of `wrong`, `not_set`, `limited` (5 wrong tries a minute per account), `off`. The dashboard stores
-  `key_id` for the account. It lets the account watch while that is still the id the mod reports
-  (`{"type":"liveview","enabled","control","viewer_key","control_key"}`, sent when the web chat connection opens
-  and whenever a key or setting changes).
+  hash in `config/mcstats-liveview.json`, puts the account on its list if it's right, sends the new list, and
+  answers `{"type":"ack","id","ok","error"?}` with `error` one of `wrong`, `not_set`, `limited` (5 wrong tries a
+  minute per account), `off`.
 - **Controls** need the control key, entered the same way with `"level":"control"`, and then have to be switched
-  on for each connection: the page sends `arm`, the relay checks the account's control key is current, and tells
+  on for each connection: the page sends `arm`, the relay checks the account may use controls (both halves), and tells
   the mod with `c`. The mod only then accepts `command` and `container_move` from that viewer, and reports
   `control` in every `status`. A new connection always starts with controls off.
 

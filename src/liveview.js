@@ -3,12 +3,14 @@
 // The server mod (2.0.0) does the work: it samples players, mobs and terrain and builds the messages the
 // page draws from. Nothing about the world is stored here. This file is the door and the pipe:
 //
-//   The door. Only admins (ADMIN_EMAIL) get anywhere. On top of that, an account has to have entered the
-//   server's viewer key once: an operator makes it in game (/liveview key viewer), the admin types it on
-//   the page, the mod checks it, and the account is remembered in liveview_access (migrations/0023) by
-//   the id of the key it entered. A second key, the control key (/liveview key control), does the same
-//   for running commands and moving items. Making a new key in game ends everyone's access under the
-//   old one. Controls are also off each time the page opens, until they're switched on.
+//   The door. Two locks, and it takes both. The dashboard's: the account's "liveview" permission, and
+//   "liveview_op" for controls, which a super admin sets on Admin → Roles (src/roles.js). The server's:
+//   the mod keeps its own list of accounts it lets in, and tells this side what's on it. An account gets
+//   on by entering the viewer key (an operator makes it in game with /liveview key viewer; the mod checks
+//   it), or the control key for controls, or by an operator naming it (/liveview access viewer <email>).
+//   Only the server can change that list: /liveview access remove <email> takes an account off, and a new
+//   key empties it. The mod checks the list again itself when a page connects. Controls are also off
+//   each time the page opens, until they're switched on.
 //
 //   The pipe. The mod can't be reached from the internet (no open port, no certificate), so, as with
 //   web chat, it dials out: one WebSocket to /api/ingest/liveview, opened only while someone watches
@@ -28,7 +30,7 @@
 // (20 frames count as one request): about 3,600 requests an hour of watching, however many watch.
 
 import { DurableObject } from 'cloudflare:workers';
-import { isAdmin } from './admin.js';
+import { loadPerms } from './roles.js';
 import { sameSecret } from './chat.js';
 import { json } from './util.js';
 
@@ -58,24 +60,32 @@ async function serverState(env) {
   }
 }
 
-// What this account may do right now: { view, control }. Both depend on the server's current keys, so
-// neither holds while the server isn't connected.
-async function grants(env, email, live) {
-  if (!email || !live?.enabled) return { view: false, control: false };
-  const row = await env.DB.prepare('SELECT view_key, control_key FROM liveview_access WHERE email = ?').bind(email).first();
-  const view = !!(row?.view_key && live.viewer_key && row.view_key === live.viewer_key);
-  const control = view && !!live.control && !!(row?.control_key && live.control_key && row.control_key === live.control_key);
-  return { view, control };
+// What this account may do right now: { view, control }. Two locks, and it takes both:
+//   the dashboard's   the account's "liveview" and "liveview_op" permissions (src/roles.js), set by a super admin;
+//   the server's      its own list of accounts it lets in (live.access), which an account gets onto by entering
+//                     a key or by an operator naming it in game, and which only the server can change.
+// Neither holds while the server isn't connected.
+function grants(perms, email, live) {
+  if (!email || !live?.enabled || !perms?.liveview) return { view: false, control: false };
+  const level = live.access?.[email.toLowerCase()];
+  const view = level === 'viewer' || level === 'control';
+  return { view, control: view && level === 'control' && !!live.control && !!perms.liveview_op };
 }
 
-// GET /api/liveview: { server: { linked, version, liveview, control, keys: { viewer, control } }, view, control }
+// For the roles page: { linked, access: { email: 'viewer' | 'control' } } as the server has it.
+export async function serverAccess(env) {
+  const s = await serverState(env);
+  return { linked: s.linked, access: s.live?.access || {} };
+}
+
+// GET /api/liveview: { server: { linked, version, liveview, control, keys: { viewer, control } }, may_control, view, control }
 //   server.liveview  whether the server has Liveview at all (false: mod too old, or turned off)
 //   server.control   whether the server lets the dashboard run commands
 //   server.keys      which keys have been made in game
-//   view, control    whether this account has entered each one (and it's still the current one)
+//   may_control      whether the dashboard allows this account controls (its "liveview_op" permission)
+//   view, control    whether the server lets this account watch, and use controls
 async function liveviewState(env, who) {
   const s = await serverState(env);
-  const g = await grants(env, who.email, s.live);
   return json({
     server: {
       linked: s.linked,
@@ -85,11 +95,13 @@ async function liveviewState(env, who) {
       control: !!s.live?.control,
       keys: { viewer: !!s.live?.viewer_key, control: !!s.live?.control_key },
     },
-    ...g,
+    may_control: !!who.perms.liveview_op,
+    ...grants(who.perms, who.email, s.live),
   });
 }
 
-// POST /api/liveview/unlock { level, key }: checks the key with the mod and remembers this account.
+// POST /api/liveview/unlock { level, key }: the mod checks the key and, if it's right, puts this account on
+// the server's list.
 async function unlock(request, env, url, who) {
   const origin = request.headers.get('Origin');
   if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
@@ -106,12 +118,14 @@ async function unlock(request, env, url, who) {
   const key = typeof body?.key === 'string' ? body.key.trim() : '';
   if (!KEY_LEVELS.includes(level)) return json({ error: 'bad level' }, 400);
   if (!key || key.length > 256) return json({ error: 'wrong', reason: 'wrong' }, 403);
+  // the dashboard's own lock first: the control key is no use to an account that isn't allowed controls here
+  if (level === 'control' && !who.perms.liveview_op) return json({ error: 'not allowed', reason: 'not_allowed' }, 403);
 
   const s = await serverState(env);
   if (!s.linked) return json({ error: "The server isn't connected right now.", reason: 'offline' }, 503);
   if (!s.live?.enabled) return json({ error: 'Liveview is off on the server.', reason: 'off' }, 409);
   // the control key is a second step: watching comes first
-  if (level === 'control' && !(await grants(env, who.email, s.live)).view) return json({ error: 'Enter the viewer key first.', reason: 'locked' }, 403);
+  if (level === 'control' && !grants(who.perms, who.email, s.live).view) return json({ error: 'Enter the viewer key first.', reason: 'locked' }, 403);
 
   const res = await link(env).fetch('https://link/liveview/verify', {
     method: 'POST',
@@ -119,24 +133,15 @@ async function unlock(request, env, url, who) {
     body: JSON.stringify({ level, key, who: who.email }),
   });
   const r = await res.json().catch(() => ({}));
-  if (!r.ok || typeof r.key_id !== 'string') {
+  if (!r.ok) {
     const reason = r.reason || 'offline';
     const status = { wrong: 403, limited: 429, not_set: 409, off: 409 }[reason] ?? 503;
     console.log(`liveview: ${who.email} was refused the ${level} key (${reason})`);
     return json({ error: reason, reason }, status);
   }
-  const now = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(
-    level === 'viewer'
-      ? `INSERT INTO liveview_access (email, view_key, view_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(email) DO UPDATE SET view_key = excluded.view_key, view_at = excluded.view_at`
-      : `INSERT INTO liveview_access (email, control_key, control_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(email) DO UPDATE SET control_key = excluded.control_key, control_at = excluded.control_at`
-  ).bind(who.email, r.key_id, now).run();
   console.log(`liveview: ${who.email} entered the ${level} key`);
-  // the server's keys as they are now (the one just entered is by definition current)
-  const live = { ...s.live, [level === 'viewer' ? 'viewer_key' : 'control_key']: r.key_id };
-  return json({ ok: true, ...(await grants(env, who.email, live)) });
+  // the mod has put the account on its list and said so before answering
+  return json({ ok: true, ...grants(who.perms, who.email, (await serverState(env)).live) });
 }
 
 // GET /api/liveview/assets/<sha256>.<png|json>: the game's textures and models, and players' skins, as the
@@ -162,9 +167,9 @@ async function asset(request, env, url, ctx) {
   return out;
 }
 
-// Everything under /api/liveview, for a signed-in user. Admins only.
+// Everything under /api/liveview, for a signed-in user with the "liveview" permission.
 export async function handleLiveview(request, env, url, who, ctx) {
-  if (!isAdmin(env, who)) return json({ error: 'forbidden' }, 403);
+  if (!who.perms?.liveview) return json({ error: 'forbidden' }, 403);
   if (!env.LIVEVIEW) return json({ error: 'not set up' }, 503);
   const path = url.pathname;
 
@@ -185,7 +190,7 @@ export async function handleLiveview(request, env, url, who, ctx) {
 
   // the view itself: only for an account that entered the current viewer key
   const s = await serverState(env);
-  const g = await grants(env, who.email, s.live);
+  const g = grants(who.perms, who.email, s.live);
   if (!g.view) return json({ error: 'locked', reason: s.linked ? 'locked' : 'offline' }, s.linked ? 403 : 503);
 
   if (isAsset) {
@@ -220,6 +225,7 @@ export async function connectLiveview(request, env) {
 const CLOSE = {
   REPLACED: 4000, // a newer connection took this one's place
   BAD: 4400, // the page sent something the mod wouldn't take
+  DENIED: 4403, // the server doesn't have this account on its list (any more)
   FULL: 4429, // too many pages watching
   SERVER_GONE: 4502, // the mod's connection ended (server stopped, key replaced, Liveview turned off)
   NO_SERVER: 4503, // the server isn't connected to the dashboard at all
@@ -384,7 +390,8 @@ export class LiveRelay extends DurableObject {
         const page = this.pageSockets().get(m?.v);
         if (page) {
           this.pageSockets().delete(m.v);
-          try { page.close(m.code === 'off' ? CLOSE.SERVER_GONE : CLOSE.BAD, String(m.code || 'refused').slice(0, 60)); } catch {}
+          const code = m.code === 'off' ? CLOSE.SERVER_GONE : m.code === 'denied' ? CLOSE.DENIED : CLOSE.BAD;
+          try { page.close(code, String(m.code || 'refused').slice(0, 60)); } catch {}
         }
       }
       return;
@@ -436,10 +443,10 @@ export class LiveRelay extends DurableObject {
         let on = m.on === true;
         let reason = null;
         if (on) {
-          // Looked up every time, never remembered: the control key may have been entered since this page
-          // connected, or replaced in game, which takes controls away from everyone who had the old one.
-          const s = await serverState(this.env);
-          if (!(await grants(this.env, a.email, s.live)).control) { on = false; reason = 'locked'; }
+          // Looked up every time, never remembered: the account may have been allowed controls since this
+          // page connected, or lost them (on the server's list, or in its permissions here).
+          const [s, perms] = await Promise.all([serverState(this.env), loadPerms(this.env, { email: a.email })]);
+          if (!grants(perms, a.email, s.live).control) { on = false; reason = perms.liveview_op ? 'locked' : 'not_allowed'; }
         }
         a.armed = on;
         ws.serializeAttachment(a);

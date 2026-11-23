@@ -139,21 +139,28 @@ With a second key they can also run commands as the server console and move item
 [README](../README.md#liveview) describes the page; this is the server's side of it. What travels between the
 mod and the page, message by message, is in [PROTOCOL.md](PROTOCOL.md).
 
-**The two keys.** Nobody can watch until an operator has made the viewer key, and nobody can run a command
-until one has made the control key:
+**The server decides who gets in.** The dashboard has its own permissions (a super admin ticks Liveview and
+Liveview controls for an account there), but those are only half: the mod keeps its own list of dashboard
+accounts it lets in, checks it itself whenever a page connects or asks for controls, and only tells the dashboard
+what's on it. An account gets on the list by entering a key on the dashboard, or by an operator naming it here:
 
 | Command | Who | |
 | --- | --- | --- |
 | `/liveview key viewer` | operators | Makes a new viewer key and shows it once (click to copy). Admins enter it on the dashboard, once per account, to watch. |
 | `/liveview key control` | operators | The same for the control key: commands and item moves from the dashboard. |
+| `/liveview access` | operators | The accounts on the server's list, and which may use controls. |
+| `/liveview access viewer <email>` | operators | Lets that dashboard account watch, without a key (and takes controls away if it had them). |
+| `/liveview access control <email>` | operators | Lets it watch and use controls. |
+| `/liveview access remove <email>` | operators | Takes it off the list. If it's watching, it's disconnected. |
 | `/liveview who` | operators | The dashboard accounts watching right now, and which have controls on. |
 | `/liveview optout`, `/liveview optin` | any player | Hide yourself from Liveview (your marker, inventory and actions), or come back. |
 
 Run the key commands in game rather than from the console, so the key stays out of the server log. Only the
-keys' hashes are kept, with the opt-out list, in `config/mcstats-liveview.json`; don't publish that file, and
-don't delete it to get a new key (that also forgets who opted out): run the command again. A new key replaces
-the old one at once. Everyone watching is disconnected and has to enter the new viewer key, or, for the control
-key, goes back to watching only. That is also how you take access away from someone.
+keys' hashes are kept, with the access list and the opt-out list, in `config/mcstats-liveview.json`; don't
+publish that file, and don't delete it to get a new key (that also forgets who opted out): run the command
+again. A new key replaces the old one at once. A new viewer key also empties the access list: everyone watching
+is disconnected and has to enter it (or be allowed by name again). A new control key puts everyone back to
+watching only. To take access away from one person, use `/liveview access remove`.
 
 Give the control key only to people you'd make an operator: it runs anything the console can. The viewer key
 alone can never change the world. Every command and item move from the dashboard is logged with the account

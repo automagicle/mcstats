@@ -173,6 +173,26 @@ public final class RelayLink {
 		}
 	}
 
+	/** The server took controls away from one account. */
+	public void lockControls(String account) {
+		for (Viewer viewer : viewers.values()) {
+			if (viewer.who.equalsIgnoreCase(account) && viewer.control) {
+				viewer.control = false;
+				viewer.queue.enqueue(runtime.status(false), false);
+			}
+		}
+	}
+
+	/** The server took one account off its list: its pages are disconnected. */
+	public void dropAccount(String account, String why) {
+		for (Viewer viewer : List.copyOf(viewers.values())) {
+			if (viewer.who.equalsIgnoreCase(account)) {
+				text("x{\"v\":" + viewer.id + ",\"code\":\"denied\"}");
+				gone(viewer.id);
+			}
+		}
+	}
+
 	public List<Watcher> watchers() {
 		List<Watcher> out = new ArrayList<>();
 		for (Viewer viewer : viewers.values()) {
@@ -279,9 +299,15 @@ public final class RelayLink {
 			return;
 		}
 		String who = clean(obj.string("who"));
+		// The dashboard has its own checks, but the server's list is the one that counts.
+		if (!runtime.mayWatch(who)) {
+			text("x{\"v\":" + id + ",\"code\":\"denied\"}");
+			LogOnce.logger().info("Liveview: {} tried to watch but isn't on the server's list", who);
+			return;
+		}
 		gone(id); // a number reused before its "gone" arrived
 		Viewer viewer = new Viewer(id, who);
-		viewer.control = Boolean.TRUE.equals(obj.bool("control")) && runtime.controlAllowed();
+		viewer.control = Boolean.TRUE.equals(obj.bool("control")) && runtime.mayControl(who);
 		viewers.put(id, viewer);
 		lastViewerAt = System.currentTimeMillis();
 		runtime.ensureAssets();
@@ -306,7 +332,7 @@ public final class RelayLink {
 		if (viewer == null) {
 			return;
 		}
-		boolean next = on && runtime.controlAllowed();
+		boolean next = on && runtime.mayControl(viewer.who);
 		if (next != viewer.control) {
 			viewer.control = next;
 			LogOnce.logger().info("Liveview: {} switched controls {}", viewer.who, next ? "on" : "off");
@@ -413,7 +439,7 @@ public final class RelayLink {
 	private void command(Viewer viewer, Json.Obj obj) {
 		Double rawId = obj.number("id");
 		long id = rawId == null ? 0 : rawId.longValue();
-		if (!viewer.control || !runtime.controlAllowed()) {
+		if (!viewer.control || !runtime.mayControl(viewer.who)) {
 			viewer.queue.enqueue("{\"type\":\"command_result\",\"id\":" + id + ",\"ok\":false,\"locked\":true,\"lines\":[\"Controls are locked.\"]}", false);
 			return;
 		}
@@ -459,7 +485,7 @@ public final class RelayLink {
 		Double rawId = obj.number("id");
 		long id = rawId == null ? 0 : rawId.longValue();
 		Outbound out = viewer.queue;
-		if (!viewer.control || !runtime.controlAllowed()) {
+		if (!viewer.control || !runtime.mayControl(viewer.who)) {
 			out.enqueue("{\"type\":\"container_result\",\"id\":" + id + ",\"ok\":false,\"locked\":true,\"message\":\"Controls are locked.\"}", false);
 			return;
 		}
