@@ -40,19 +40,44 @@ const OFFHAND = [
   ['bucket', 'Bucket'], ['water_bucket', 'Water Bucket'], ['lava_bucket', 'Lava Bucket'], ['shears', 'Shears'],
   ['ender_pearl', 'Ender Pearl'], ['bread', 'Bread'], null,
 ];
+// What each kind of item can be enchanted with, as [name, level] in the order the game lists them.
+// An enchanted item rolls a few of these; groups in [] exclude each other (only one is picked).
+const ENCHANTS = {
+  helmet: [[['Protection', 4], ['Blast Protection', 4], ['Projectile Protection', 4]], ['Respiration', 3], ['Aqua Affinity', 1], ['Unbreaking', 3], ['Mending', 1]],
+  chestplate: [[['Protection', 4], ['Blast Protection', 4], ['Fire Protection', 4]], ['Thorns', 3], ['Unbreaking', 3], ['Mending', 1]],
+  leggings: [[['Protection', 4], ['Blast Protection', 4]], ['Swift Sneak', 3], ['Unbreaking', 3], ['Mending', 1]],
+  boots: [[['Protection', 4], ['Fire Protection', 4]], ['Feather Falling', 4], [['Depth Strider', 3], ['Frost Walker', 2]], ['Soul Speed', 3], ['Unbreaking', 3], ['Mending', 1]],
+  sword: [['Sharpness', 5], ['Looting', 3], ['Fire Aspect', 2], ['Sweeping Edge', 3], ['Knockback', 2], ['Unbreaking', 3], ['Mending', 1]],
+  axe: [['Sharpness', 5], ['Efficiency', 5], ['Unbreaking', 3], ['Mending', 1]],
+  pickaxe: [['Efficiency', 5], [['Fortune', 3], ['Silk Touch', 1]], ['Unbreaking', 3], ['Mending', 1]],
+  spear: [['Sharpness', 5], ['Lunge', 3], ['Knockback', 2], ['Unbreaking', 3], ['Mending', 1]],
+  mace: [[['Density', 5], ['Breach', 4]], ['Wind Burst', 3], ['Fire Aspect', 2], ['Unbreaking', 3], ['Mending', 1]],
+  shield: [['Unbreaking', 3], ['Mending', 1]],
+};
+function rollEnchants(r, kind) {
+  const pool = ENCHANTS[kind];
+  if (!pool) return [];
+  const out = pool.map((e) => (Array.isArray(e[0]) ? pick(r, e) : e)).filter(() => r() < 0.7);
+  return out.length ? out : [pool.map((e) => (Array.isArray(e[0]) ? e[0] : e))[0]];
+}
+// the game's name colors by rarity: common white, uncommon yellow, rare aqua, epic magenta.
+// Enchanting a common or uncommon item makes it rare.
+const RARITY = { totem_of_undying: 'uncommon', golden_apple: 'rare', enchanted_golden_apple: 'epic', mace: 'epic' };
+
 const title = (s) => s.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 
 // A random outfit, the same for the same seed: { armor: { head, chest, legs, feet }, mainhand, offhand }
 export function rollGear(seed) {
   const r = rng(seed);
-  const material = () => MATERIALS[pick(r, [0, 0, 1, 2, 2, 2, 3, 4, 4, 5])];
+  // mostly late-game sets: diamond and netherite, some iron, the odd golden or chainmail piece
+  const material = () => MATERIALS[pick(r, [1, 2, 2, 3, 4, 4, 4, 4, 5, 5, 5, 5])];
   const armor = {};
   // one trim for the whole set, as players tend to do; not every piece gets it
   const trim = r() < 0.6 ? { pattern: pick(r, TRIM_PATTERNS), palette: pick(r, TRIM_PALETTES) } : null;
   for (const [slot, kind] of Object.entries(PIECES)) {
-    if (r() >= 0.8) continue;
+    if (r() >= 0.95) continue;
     const [prefix, asset, label] = material();
-    const piece = { id: `${prefix}_${kind}`, asset, kind, glint: r() < 0.45, name: `${label} ${prefix === 'leather' ? LEATHER_NAMES[kind] : title(kind)}` };
+    const piece = { id: `${prefix}_${kind}`, asset, kind, glint: r() < 0.7, name: `${label} ${prefix === 'leather' ? LEATHER_NAMES[kind] : title(kind)}` };
     // a trim the same color as its armor would vanish, so the game uses a darker shade there
     if (trim && r() < 0.85) piece.trim = { pattern: trim.pattern, palette: trim.palette === asset ? `${asset}_darker` : trim.palette };
     if (asset === 'leather') piece.dye = pick(r, [0xa06540, 0x3c44aa, 0xb02e26, 0x5e7c16, 0xf9801d, 0x1d1d21]);
@@ -62,13 +87,19 @@ export function rollGear(seed) {
   let mainhand;
   if (kind === 'mace') mainhand = { id: 'mace', kind, glint: r() < 0.6, name: 'Mace' };
   else {
-    const tier = pick(r, [0, 1, 2, 2, 3, 4, 4, 5].map((i) => TOOLS[i]));
+    const tier = pick(r, [2, 3, 4, 4, 4, 5, 5, 5].map((i) => TOOLS[i]));
     mainhand = { id: `${tier}_${kind}`, kind, glint: r() < 0.5, name: `${title(tier)} ${title(kind)}` };
   }
   const off = pick(r, OFFHAND);
   let offhand = off && { id: off[0], kind: off[0], glint: false, name: off[1], ...off[2] };
   if (off?.[0] === 'golden_apple' && r() < 0.3) offhand = { id: 'enchanted_golden_apple', model: 'golden_apple', kind: 'golden_apple', glint: true, name: 'Enchanted Golden Apple' };
   if (off?.[0] === 'shield' && r() < 0.3) offhand.glint = true;
+  for (const item of [...Object.values(armor), mainhand, offhand]) {
+    if (!item) continue;
+    if (item.glint && item.id !== 'enchanted_golden_apple') item.enchants = rollEnchants(r, item.kind);
+    const base = RARITY[item.id] ?? 'common';
+    item.rarity = item.enchants?.length && (base === 'common' || base === 'uncommon') ? 'rare' : base;
+  }
   return { armor, mainhand, offhand };
 }
 
@@ -92,6 +123,7 @@ export function mountPlayer(container) {
       current?.dispose(); // the new one is already drawn on top, so there's no gap
       current = next;
     },
+    pick: (x, y) => current?.pick(x, y) ?? null,
     dispose() { token++; current?.dispose(); current = null; },
   };
 }

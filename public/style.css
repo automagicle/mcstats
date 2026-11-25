@@ -863,6 +863,7 @@ body.chat-mode .foot { display: none; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden; /* long lines wrap; the log never scrolls sideways */
   overscroll-behavior: contain;
   overflow-anchor: none;
   padding: 0 0 10px;
@@ -2303,18 +2304,32 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
 html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: 24px; }
 @media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
 
-.home-hero { padding: 72px 0 44px; text-align: center; }
+.home-hero { position: relative; isolation: isolate; padding: 104px 0 64px; text-align: center; touch-action: pan-y; }
+html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
+
+/* the sky behind the hero: a day and a night gradient, cross-faded when the theme changes, with the
+   clouds, sun, moon, stars and rain on a canvas above (public/home.js) */
+.home-sky {
+  position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden;
+  --sky-day: linear-gradient(to bottom, #6aa0e6, #a6c6ef 62%, #e3e5e8);
+  --sky-night: linear-gradient(to bottom, #081228, #121d36 62%, #111315);
+  background: var(--sky-day);
+}
+.home-sky::before { content: ""; position: absolute; inset: 0; background: var(--sky-night); opacity: 0; transition: opacity 2.6s ease-in-out; } /* as long as the sky's half turn */
+.home-sky.night::before { opacity: 1; }
+.home-sky[style*="transition: none"]::before { transition: none; }
+@media (prefers-reduced-motion: reduce) { .home-sky::before { transition: none; } }
+.home-sky canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+:root:not([data-theme="dark"]) .home-hero .home-lede { color: var(--ink); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .home-hero .home-lede { color: var(--ink-2); } }
 .home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 14px; font: 400 50px/1 var(--px-50); }
 .home-title { font: inherit; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
 .home-lede { margin: 0 auto 26px; font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 44ch; text-wrap: balance; }
 .home-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
 
-/* the dashboard, framed like a window on a backdrop of stepped hills */
+/* the dashboard, framed like a window */
 .home-shot { position: relative; overflow: hidden; padding: 64px 56px 56px; background: var(--stage); }
-.home-land { position: absolute; left: 0; bottom: 0; image-rendering: pixelated; pointer-events: none; }
-:root[data-theme="dark"] .home-land { filter: brightness(0.5) saturate(0.85); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .home-land { filter: brightness(0.5) saturate(0.85); } }
 .home-window { position: relative; background: var(--page); box-shadow: var(--frame), var(--lift); }
 .home-wbar { display: flex; align-items: center; gap: 16px; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--edge); }
 .home-wbrand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); white-space: nowrap; }
@@ -2368,6 +2383,7 @@ html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: 24px; }
 .home-chat-head { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); overflow-x: auto; scrollbar-width: none; }
 .home-chat .msg-name { cursor: pointer; }
 .home-adv { color: var(--series-3); font-weight: 600; }
+.home-adv-ch { color: #a855c7; } /* challenges are purple in the game's chat */
 
 /* smaller things, side by side */
 .home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 96px 0 0; }
@@ -2438,6 +2454,23 @@ body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --pi
 .home-pick .chip[aria-pressed="true"] { --pc: var(--picked); background: var(--picked); color: var(--ink); box-shadow: var(--pixel), var(--picked-line), var(--drop-sm); }
 .home .chat-send, .home .chat-send:not(:disabled) { --pc: var(--edge); background: var(--raise); color: var(--ink); box-shadow: var(--frame); }
 .home .chat-send:disabled { background: var(--surface-2); color: var(--muted); }
+
+/* the game's item tooltip, over the model's gear: near-black purple box, two-tone purple border, the
+   game's font with its flat shadow; the name colored by rarity, enchantments grey */
+.home-mctip {
+  position: fixed; z-index: 50; max-width: 260px; padding: 5px 8px 6px;
+  background: rgba(16, 0, 16, 0.94);
+  box-shadow: 0 0 0 2px rgba(16, 0, 16, 0.94), inset 0 0 0 2px #2c0a5e, inset 0 2px 0 2px #5000a0;
+  font: 400 20px/1.05 var(--px-20); color: #aaaaaa; text-shadow: 2px 2px 0 #2a2a2a; pointer-events: none;
+}
+.home-mctip[hidden] { display: none; }
+.home-mctip b { display: block; margin-bottom: 3px; font-weight: 400; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; }
+.home-mctip b.r-uncommon { color: #ffff55; text-shadow: 2px 2px 0 #3f3f15; }
+.home-mctip b.r-rare { color: #55ffff; text-shadow: 2px 2px 0 #153f3f; }
+.home-mctip b.r-epic { color: #ff55ff; text-shadow: 2px 2px 0 #3f153f; }
+.home-mctip span { display: block; }
+.home-mctip .mctip-trim { margin-top: 3px; }
+.home-mctip .mctip-trim i { display: block; padding-left: 8px; font-style: normal; }
 
 /* the profile: model and inventory beside the numbers */
 .home-profile { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px 18px; align-items: start; }
@@ -2525,3 +2558,12 @@ body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --pi
   .wiz-check-head input:checked { animation: wiz-tick 0.25s cubic-bezier(0.2, 0.8, 0.3, 1.2); }
 }
 @keyframes wiz-tick { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
+
+/* hero text stays readable over a passing cloud: a soft halo in the sky's own color */
+.home-hero .home-lede { text-shadow: 0 0 6px var(--halo), 0 0 12px var(--halo), 0 0 2px var(--halo); }
+body.site { --halo: #a6c6ef; }
+:root[data-theme="dark"] body.site { --halo: #121d36; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --halo: #121d36; } }
+
+/* switching themes cross-fades the whole page (public/site.js) */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.8s; animation-timing-function: ease-in-out; }

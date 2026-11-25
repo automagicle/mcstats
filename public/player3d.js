@@ -292,9 +292,12 @@ const HELD = {
   generated: { rot: [0, 0, 0], move: [0, 3, 1], scale: 0.55 }, // eggs and other plain items: flat on the hand, face up
   handheld: { rot: [0, -90, 55], move: [0, 4, 0.5], scale: 0.85 }, // swords and tools: blade forward
   mace: { rot: [0, -90, 55], move: [0, 4, 1], scale: 1 },
+  // spears are drawn in the hand from their own *_in_hand picture, long and thin (spear_in_hand.json)
+  spear: { rot: [5, 270, -40], move: [0, 2, 2], scale: [1.7, 1.7, 0.85] },
 };
-const HANDHELD_RE = /_(sword|axe|pickaxe|shovel|hoe|spear)$|^(stick|bone|blaze_rod|breeze_rod|fishing_rod|trident)$/;
-const displayOf = (id) => (id === 'mace' ? HELD.mace : HANDHELD_RE.test(id) ? HELD.handheld : HELD.generated);
+const HANDHELD_RE = /_(sword|axe|pickaxe|shovel|hoe)$|^(stick|bone|blaze_rod|breeze_rod|fishing_rod|trident)$/;
+const SPEAR_RE = /_spear$/;
+const displayOf = (id) => (id === 'mace' ? HELD.mace : SPEAR_RE.test(id) ? HELD.spear : HANDHELD_RE.test(id) ? HELD.handheld : HELD.generated);
 
 // The game's model space has y pointing down and the player facing -z; here y is up and the
 // player faces +z. Turning half way round the x axis takes one to the other.
@@ -313,8 +316,9 @@ function heldMatrix(display, right, size, slim) {
   mul(T(side, 2, -10));
   mul(T(side * display.move[0], display.move[1], display.move[2]));
   mul(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rad(display.rot[0]), rad(display.rot[1]), rad(display.rot[2]), 'XYZ')));
-  const k = (display.scale * 16) / size;
-  mul(new THREE.Matrix4().makeScale(k, k, k));
+  const [sx, sy, sz] = Array.isArray(display.scale) ? display.scale : [display.scale, display.scale, display.scale];
+  const k = 16 / size;
+  mul(new THREE.Matrix4().makeScale(sx * k, sy * k, sz * k));
   return m;
 }
 
@@ -580,6 +584,7 @@ export async function buildModel(spec, keep, cancelled = () => spec.signal?.abor
     if (gmat) glints.push(gmat);
     for (const [name, w, h, d, u, v, inflate, mirror] of boxes) {
       const m = add(name, w, h, d, u, v, inflate, mirror, mat, c.width, c.height);
+      m.userData.slot = slot; // for pick(): which piece the pointer is on
       if (gmat) {
         const shine = new THREE.Mesh(m.geometry, gmat);
         shine.position.copy(m.position);
@@ -596,7 +601,8 @@ export async function buildModel(spec, keep, cancelled = () => spec.signal?.abor
     const id = item && (item.model || item.id);
     if (!id || !ID_RE.test(id)) return null;
     // a few items are drawn from a block's picture (leaves), given as texture: 'block/…'
-    const path = typeof item.texture === 'string' && /^(item|block)\/[a-z0-9_]+$/.test(item.texture) ? item.texture : `item/${id}`;
+    const path = typeof item.texture === 'string' && /^(item|block)\/[a-z0-9_]+$/.test(item.texture) ? item.texture
+      : SPEAR_RE.test(id) ? `item/${id}_in_hand` : `item/${id}`;
     const img = await loadImage(TEX(path));
     if (!img || cancelled()) return null;
     const { geo, canvas: c, size } = itemGeometry(img);
@@ -644,6 +650,7 @@ export async function buildModel(spec, keep, cancelled = () => spec.signal?.abor
   const holdItem = async (item, arm) => {
     const holder = await itemHolder(item, arm);
     if (!holder) return false;
+    holder.traverse((o) => { o.userData.slot = arm === 'rightArm' ? 'mainhand' : 'offhand'; });
     parts[arm].add(holder);
     held[arm] = holder;
     return true;
@@ -729,15 +736,18 @@ export async function mountPlayer(container, spec) {
   document.addEventListener('pointerout', onLeave);
 
   // Dragging turns the model all the way round, on top of the small turn toward the pointer. It
-  // stays where it is left, keeps a little momentum on release, and a double click faces it front again.
+  // keeps a little momentum on release, then a moment later turns back to face the front by itself
+  // (a double click does that at once).
   const canvas = renderer.domElement;
   const TURN = 0.012; // radians per pixel dragged: about half a turn across the card
-  let spin = 0, spinSpeed = 0, spinHome = false, drag = null;
+  const SETTLE_MS = 2500; // how long a turned model stays turned before facing front again
+  let spin = 0, spinSpeed = 0, spinHome = false, drag = null, settle = 0;
   const onDown = (e) => {
     if (e.button) return;
     drag = { id: e.pointerId, x: e.clientX, t: performance.now() };
     spinSpeed = 0;
     spinHome = false;
+    clearTimeout(settle);
     try { canvas.setPointerCapture(e.pointerId); } catch {}
     canvas.classList.add('dragging');
     e.preventDefault(); // no text selection while dragging
@@ -758,6 +768,8 @@ export async function mountPlayer(container, spec) {
     spinSpeed = Math.max(-12, Math.min(12, spinSpeed));
     drag = null;
     canvas.classList.remove('dragging');
+    clearTimeout(settle);
+    settle = setTimeout(() => { if (!drag && !disposed) onHome(); }, SETTLE_MS);
     wake();
   };
   const onHome = () => {
@@ -841,7 +853,17 @@ export async function mountPlayer(container, spec) {
   renderer.render(scene, camera);
 
   let swapping = 0;
+  const ray = new THREE.Raycaster();
   return {
+    // The armor slot or hand ('head' … 'feet', 'mainhand', 'offhand') under a point on the page, or
+    // null: whatever the pointer meets first, so skin in front of a piece hides it.
+    pick(x, y) {
+      const r = canvas.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+      ray.setFromCamera(new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), camera);
+      const hit = ray.intersectObject(root, true).find((h) => !(h.object.material instanceof THREE.ShaderMaterial));
+      return hit?.object.userData.slot ?? null;
+    },
     // Puts another item in their right hand (or none), without building the rest again.
     async setMainhand(item) {
       const mine = ++swapping;
@@ -853,6 +875,7 @@ export async function mountPlayer(container, spec) {
         if (old.userData.glint) glints.splice(glints.indexOf(old.userData.glint), 1);
       }
       held.rightArm = holder;
+      holder?.traverse((o) => { o.userData.slot = 'mainhand'; });
       if (holder) parts.rightArm.add(holder);
       hasWeapon = !!holder;
       pose(performance.now() / 1000);
@@ -861,6 +884,7 @@ export async function mountPlayer(container, spec) {
     },
     dispose() {
       disposed = true;
+      clearTimeout(settle);
       cancelAnimationFrame(frame);
       removeEventListener('pointermove', onPointer);
       document.removeEventListener('pointerout', onLeave);

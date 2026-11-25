@@ -10,7 +10,7 @@
 import { json } from './util.js';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
-const TEXTURE_RE = /^textures\/(item|block|misc|particle|gui\/sprites\/advancements|gui\/advancements\/backgrounds|entity|entity\/(chest|bed|skeleton|zombie|creeper|piglin|enderdragon|decorated_pot|banner|shield)|entity\/player\/(wide|slim)|entity\/equipment\/humanoid(_leggings)?|trims\/entity\/humanoid(_leggings)?|trims\/color_palettes)\/[a-z0-9_]{1,64}\.png$/;
+const TEXTURE_RE = /^textures\/(item|block|misc|particle|gui\/sprites\/advancements|gui\/advancements\/backgrounds|entity|entity\/(chest|bed|skeleton|zombie|creeper|piglin|enderdragon|decorated_pot|banner|shield)|entity\/player\/(wide|slim)|entity\/equipment\/humanoid(_leggings)?|trims\/entity\/humanoid(_leggings)?|trims\/color_palettes|environment|environment\/celestial|environment\/celestial\/moon)\/[a-z0-9_]{1,64}\.png$/;
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
 const WEEK = 7 * 86400;
 
@@ -126,8 +126,8 @@ const HOME_PALETTES = 'trim_palette|(amethyst|copper|diamond|emerald|gold|iron|l
 const HOME_TEXTURE_RE = new RegExp(
   `^textures/(entity/player/(wide|slim)/(${HOME_SKINS})|entity/equipment/humanoid(_leggings)?/(${HOME_ARMOR}|leather_overlay)|misc/enchanted_glint_armor`
   + `|trims/entity/humanoid(_leggings)?/(${HOME_TRIMS})|trims/color_palettes/(${HOME_PALETTES})`
-  + `|block/(flowering_)?azalea_leaves|entity/shield/shield_base_nopattern)\\.png$`);
-const HOME_ITEM_TEXTURE_RE = /^textures\/item\/([a-z_]+?)(_overlay)?\.png$/;
+  + `|block/(flowering_)?azalea_leaves|entity/shield/shield_base_nopattern|environment/(clouds|celestial/sun|celestial/moon/full_moon))\\.png$`);
+const HOME_ITEM_TEXTURE_RE = /^textures\/item\/([a-z_]+?)(_overlay|_in_hand)?\.png$/;
 
 // GET /api/mc/… outside any server: only what the landing page uses
 export function serveHomeAsset(env, path) {

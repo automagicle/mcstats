@@ -63,9 +63,14 @@
     sync();
     toggle.addEventListener('click', () => {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = next;
-      try { localStorage.setItem('theme', next); } catch {}
-      sync();
+      const apply = () => {
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem('theme', next); } catch {}
+        sync();
+      };
+      // the whole page cross-fades into the other theme (the home page's sky plays its own sunset or sunrise)
+      if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(apply);
+      else apply();
     });
   }
 
