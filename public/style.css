@@ -2336,13 +2336,18 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
 html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: 24px; }
 @media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
 
-.home-hero { position: relative; isolation: isolate; padding: 104px 0 64px; text-align: center; touch-action: pan-y; }
+.home-hero { position: relative; isolation: isolate; padding: 104px 0 56px; text-align: center; touch-action: pan-y; }
 html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 
 /* the sky behind the hero: a day and a night gradient, cross-faded when the theme changes, with the
-   clouds, sun, moon, stars and rain on a canvas above (public/home.js) */
+   clouds, sun, moon, stars and rain on a canvas above (public/home.js). It runs on under the top of the
+   example below and the whole of it (rain included) fades out into the page there, so there's no edge
+   where the sky stops; the example's backdrop fades in over the same stretch. */
+.home-hero { --sky-under: 220px; }
 .home-sky {
-  position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden;
+  position: absolute; z-index: -1; top: 0; bottom: calc(-1 * var(--sky-under)); left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sky-under) - 110px), transparent calc(100% - 30px));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sky-under) - 110px), transparent calc(100% - 30px));
   --sky-day: linear-gradient(to bottom, #6aa0e6, #a6c6ef 62%, #e3e5e8);
   --sky-night: linear-gradient(to bottom, #081228, #121d36 62%, #111315);
   background: var(--sky-day);
@@ -2354,13 +2359,13 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-sky canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 16px; font: 400 60px/1 var(--px-40); } /* Jersey 20 at three times its size */
 .home-title { font: inherit; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
-/* the line under the title sits on the sky with no shadow: full-strength ink, a little heavier and larger than body text */
-.home-lede { margin: 0 auto 28px; font-size: 19px; font-weight: 550; line-height: 1.45; color: var(--ink); max-width: 44ch; text-wrap: balance; }
+/* the line under the title sits on the sky with no shadow: larger than body text, at regular weight, a step greyer than the title */
+.home-lede { margin: 0 auto 28px; font-size: 19px; font-weight: 400; line-height: 1.45; color: color-mix(in srgb, var(--ink) 62%, var(--ink-2)); max-width: 44ch; text-wrap: balance; }
 .home-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
 
 /* the dashboard, framed like a window */
-.home-shot { position: relative; overflow: hidden; padding: 64px 56px 56px; background: var(--stage); }
+.home-shot { position: relative; overflow: hidden; padding: 28px 56px 56px; background: linear-gradient(to bottom, transparent, var(--stage) 240px); }
 .home-window { position: relative; background: var(--page); box-shadow: var(--frame), var(--lift); }
 .home-wbar { display: flex; align-items: center; gap: 16px; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--edge); }
 .home-wbrand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); white-space: nowrap; }

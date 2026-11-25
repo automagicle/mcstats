@@ -1351,7 +1351,7 @@
      The clouds are the game's: one flat layer of see-through white slabs, laid out by the game's own
      cloud texture, seen from the ground and running off to the horizon, all drifting the same way. In
      the light theme it's day: a blue sky and the game's sun. In the dark theme it's night: the moon,
-     stars, darker and thinner clouds, and a light rain here and there. Switching themes turns the sky
+     stars, darker and thinner clouds, and now and then a spell of light rain over most of the sky. Switching themes turns the sky
      half way round: the sun sets as the moon rises and the wind races. The pointer only tilts the view
      a little. Drawn only while the hero is on screen. */
   {
@@ -1363,7 +1363,7 @@
     const lg = layer.getContext('2d');
     const still = reduced();
     const r = rng('sky');
-    let W = 0, H = 0, dpr = 1;
+    let W = 0, H = 0, HH = 0, dpr = 1;
     const dark = () => {
       const m = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
       return m ? (+m[0] + +m[1] + +m[2]) / 3 < 100 : false;
@@ -1395,7 +1395,7 @@
 
     // What's seen from the ground: the slabs' undersides and the sides facing you (the game shades the
     // faces differently, and tints the whole layer darker at night). [underside, front, side] by day and by night.
-    const SHADES = [[[232, 237, 245], [255, 255, 255], [245, 248, 252]], [[82, 93, 122], [112, 124, 155], [97, 108, 138]]];
+    const SHADES = [[[232, 237, 245], [255, 255, 255], [245, 248, 252]], [[96, 108, 139], [128, 140, 172], [112, 124, 155]]];
     const mix = (i, m) => `rgb(${SHADES[0][i].map((v, k) => Math.round(v + (SHADES[1][i][k] - v) * m)).join(',')})`;
 
     // The view: you stand under the layer and look toward the horizon, which sits just under the hero.
@@ -1404,7 +1404,8 @@
     const UP = 0.6; // the layer's height: a cell at the top of the hero looks 0.6 as deep as it's wide
     const FAR = 9; // how far the layer is drawn, in hero-top distances
     function view() {
-      HZ = H * 1.04;
+      HH = hero.getBoundingClientRect().height; // the canvas runs on below the hero, where it fades out
+      HZ = HH * 1.04;
       F = HZ / UP;
       CELL = Math.min(132, Math.max(72, W * 0.085)) / F; // a cell at the top of the hero is about this wide
     }
@@ -1451,19 +1452,22 @@
       // the layer thins into the distance, as the game's fog takes it
       lg.globalCompositeOperation = 'destination-in';
       const fog = lg.createLinearGradient(0, 0, 0, hz);
-      fog.addColorStop(0, 'rgba(0,0,0,1)'); fog.addColorStop(0.5, 'rgba(0,0,0,0.9)'); fog.addColorStop(0.86, 'rgba(0,0,0,0)');
+      fog.addColorStop(0, 'rgba(0,0,0,1)'); fog.addColorStop(0.5, 'rgba(0,0,0,0.9)'); fog.addColorStop(0.86, 'rgba(0,0,0,0)'); fog.addColorStop(1, 'rgba(0,0,0,0)');
       lg.fillStyle = fog;
       lg.fillRect(0, 0, W, H);
       lg.globalCompositeOperation = 'source-over';
       // see-through, and more so at night (as the game's are)
-      ctx.globalAlpha = 0.8 - 0.25 * m;
+      ctx.globalAlpha = 0.8 - 0.2 * m;
       ctx.drawImage(layer, 0, 0, W, H);
       ctx.globalAlpha = 1;
     }
 
-    // Rain falls in a few showers that drift across with the wind, covering about a third of the sky.
-    const drops = [], stars = [], showers = [];
-    const TRACK = () => W + 700;
+    // It rains some of the time: a spell of rain over most of the sky's width, then a longer dry one.
+    // Each spell falls somewhere else, comes on and eases off over a few seconds, and drifts with the wind.
+    const drops = [], stars = [];
+    const RAIN = [16, 24], DRY = [22, 34], EASE = 3; // seconds
+    const span = ([a, b]) => a + r() * (b - a);
+    const spell = { wet: false, left: 5, len: 5, x: 0.5, w: 0.8 }; // the first rain starts soon after the page opens
 
     function resize() {
       const rect = cv.getBoundingClientRect();
@@ -1473,8 +1477,6 @@
       for (const c of [cv, layer]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
       view();
       if (first) {
-        const n = Math.max(1, Math.round(W / 640));
-        for (let i = 0; i < n; i++) showers.push({ x: ((i + 0.2 + r() * 0.6) / n) * TRACK(), w: 170 + r() * 130 });
         for (let i = 0; i < 90; i++) stars.push({ x: r(), y: r() * 0.7, s: r() < 0.2 ? 2 : 1, p: r() * 6 });
       }
     }
@@ -1572,8 +1574,8 @@
       // going down to the right as the other comes up from the left
       const big = Math.round(Math.min(180, Math.max(110, W * 0.13)));
       const sx = par.x * -4, sy = par.y * -2;
-      const R = Math.max(W * 0.5, H * 1.15), UPR = 0.55; // the wheel, and how far right of the top "up" is
-      const wx = W / 2, wy = H * 0.22 + R * Math.cos(UPR);
+      const R = Math.max(W * 0.5, HH * 1.15), UPR = 0.55; // the wheel, and how far right of the top "up" is
+      const wx = W / 2, wy = HH * 0.22 + R * Math.cos(UPR);
       const at = (a) => [wx + R * Math.sin(a) + sx, wy - R * Math.cos(a) + sy];
       const [sunX, sunY] = at(UPR + turn), [moonX, moonY] = at(UPR + turn + Math.PI);
       if (sunY < H + big) body(sun, sunX, sunY, big * 1.15, 'rgba(255,240,170,0.45)', 1 - m * 0.3);
@@ -1583,12 +1585,21 @@
       drift += wind;
       drawClouds(m, par.x * -16, par.y * -6);
 
-      // a light rain at night, under the showers
-      const track = TRACK(), push = wind * CELL * F * 0.6; // the showers move with the clouds overhead
-      for (const s of showers) {
-        s.x += push;
-        if (s.x > W + 350) s.x -= track;
-        if (!still && r() < m * dt * 30) drops.push({ x: s.x + (r() - 0.5) * s.w, y: -10 - r() * 30, vy: 360 + r() * 140, k: 0.6 + r() * 0.5 });
+      // a light rain at night, in spells
+      spell.left -= dt;
+      if (spell.left <= 0) {
+        spell.wet = !spell.wet;
+        spell.len = spell.left = span(spell.wet ? RAIN : DRY);
+        if (spell.wet) { spell.w = 0.7 + r() * 0.2; spell.x = spell.w / 2 + r() * (1 - spell.w); } // 70 to 90% of the width
+      }
+      if (spell.wet && !still && m > 0.01) {
+        spell.x += (wind * CELL * F * 0.3) / W; // the rain moves with the clouds overhead
+        const strength = Math.min(1, (spell.len - spell.left) / EASE, spell.left / EASE);
+        let due = m * strength * dt * spell.w * W * 0.085; // drops this frame: about 85 a second per 1000px of rain
+        for (; due > 0; due--) {
+          if (due < 1 && r() > due) break;
+          drops.push({ x: (spell.x + (r() - 0.5) * spell.w) * W, y: -10 - r() * 30, vy: 360 + r() * 140, k: 0.6 + r() * 0.5 });
+        }
       }
       ctx.fillStyle = '#7f9be0';
       for (let i = drops.length - 1; i >= 0; i--) {
