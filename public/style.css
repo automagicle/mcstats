@@ -688,6 +688,7 @@ tr.link:hover td { background: var(--hover); }
   cursor: pointer;
 }
 .tile-select:hover { background: var(--surface-2); }
+.tile-sub .tile-select { margin-left: 0; width: auto; font-size: inherit; field-sizing: content; } /* the period in a tile's small line (player-hours, all time) */
 .strip-bg { fill: var(--surface-2); rx: 0; }
 .strip-on { fill: var(--series-1); }
 .strip-tick { stroke: var(--axis); stroke-width: 1; }
@@ -2351,11 +2352,10 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-sky[style*="transition: none"]::before { transition: none; }
 @media (prefers-reduced-motion: reduce) { .home-sky::before { transition: none; } }
 .home-sky canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-:root:not([data-theme="dark"]) .home-hero .home-lede { color: var(--ink); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .home-hero .home-lede { color: var(--ink-2); } }
-.home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 14px; font: 400 50px/1 var(--px-50); }
+.home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 16px; font: 400 60px/1 var(--px-40); } /* Jersey 20 at three times its size */
 .home-title { font: inherit; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
-.home-lede { margin: 0 auto 26px; font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 44ch; text-wrap: balance; }
+/* the line under the title sits on the sky with no shadow: full-strength ink, a little heavier and larger than body text */
+.home-lede { margin: 0 auto 28px; font-size: 19px; font-weight: 550; line-height: 1.45; color: var(--ink); max-width: 44ch; text-wrap: balance; }
 .home-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
 
@@ -2448,7 +2448,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 @media (max-width: 600px) {
   .home-top-join { display: none; }
   .home-hero { padding: 44px 0 32px; }
-  .home-lede { font-size: 15.5px; }
+  .home-lede { font-size: 17px; }
   .home-ftext h2, .home-end h2 { font: 400 30px/1.05 var(--px-30); }
   .home-chat { height: 500px; }
   .home-wbody { padding: 12px 10px 14px; }
@@ -2489,7 +2489,7 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .home-foot-by { color: #fff; }
 
 @media (max-width: 600px) {
-  .home-titlewrap { font: 400 40px/1.02 var(--px-40); }
+  .home-titlewrap { font: 400 50px/1 var(--px-50); }
   .home-hero { padding-top: 56px; }
 }
 
@@ -2547,12 +2547,6 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
   .wiz-check-head input:checked { animation: wiz-tick 0.25s cubic-bezier(0.2, 0.8, 0.3, 1.2); }
 }
 @keyframes wiz-tick { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
-
-/* hero text stays readable over a passing cloud: a soft halo in the sky's own color */
-.home-hero .home-lede { text-shadow: 0 0 6px var(--halo), 0 0 12px var(--halo), 0 0 2px var(--halo); }
-body.site { --halo: #a6c6ef; }
-:root[data-theme="dark"] body.site { --halo: #121d36; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --halo: #121d36; } }
 
 /* switching themes cross-fades the whole page (public/site.js) */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.8s; animation-timing-function: ease-in-out; }

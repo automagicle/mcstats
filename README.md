@@ -416,8 +416,9 @@ Two things, separately:
 
 - **Looking**: the server's join password, on `/join`. It gives a cookie for that server's pages, good for 30 days or
   until the owner changes the password. An owner can make a server public instead.
-- **Being someone**: **Sign in** at the top of a server's page sends a 6-digit code by email (through Resend; it works
-  for 10 minutes and 5 tries). Anyone who can look becomes a **member** of that server by signing in; owners make
+- **Being someone**: **Sign in** at the top of a server's page sends a 6-digit code by email, with a link that signs in
+  without typing it (through Resend; either works once, for 10 minutes; the code allows 5 tries). The link carries the
+  code after the `#` of `/join` (or `/new`), which is never sent to a server; the page's script signs in with it. Anyone who can look becomes a **member** of that server by signing in; owners make
   admins on the Roles tab or on `/new`. People an owner added can also sign in from `/join` ("Added by email?")
   without the password.
 

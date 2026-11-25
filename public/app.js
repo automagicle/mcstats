@@ -2101,8 +2101,24 @@ function renderTiles() {
   }
   if (isLive && last.up) peak = Math.max(peak, last.online); // someone just joined: today's peak can't be less
   setCounter($('#t-peak'), String(peak), peak, animate);
-  setCounter($('#t-week'), fmtHours(weekMinutes / 60), weekMinutes, animate);
+  // everyone's time added up: the whole season (from /api/status), or the last 7 days, as the tile's menu says
+  const week = playedMode() === '7d' || st.played_minutes == null;
+  const minutes = week ? weekMinutes : st.played_minutes;
+  $('#t-week-label').textContent = week ? 'Played this week' : 'Total played';
+  setCounter($('#t-week'), fmtHours(minutes / 60), minutes, animate);
   setCounter($('#t-players'), st.players_total.toLocaleString(), st.players_total, animate);
+}
+
+// The played tile's period: 'all' (the default) or '7d'. A finished season has no menu, only its total.
+const playedMode = () => $('#t-week-mode')?.value ?? 'all';
+{
+  const sel = $('#t-week-mode');
+  if (CURRENT_SEASON > 1) sel.options[0].textContent = 'this season'; // each season is counted on its own
+  sel.value = recall('playedMode') === '7d' ? '7d' : 'all';
+  sel.addEventListener('change', () => {
+    remember('playedMode', sel.value);
+    if (state.status) renderTiles();
+  });
 }
 
 // A finished season: how long it ran, its busiest moment and its total.

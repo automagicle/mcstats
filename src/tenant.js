@@ -21,7 +21,7 @@ import {
   cleanEmail, codeHash, CODE_MINUTES, CODE_TRIES, cookie, clearCookie, DAY, EMAIL_RE, ID_DAYS, newCode,
   sameString, serverPath, sessionReady, sha256Hex, signToken,
 } from './session.js';
-import { codeEmail, sendEmail } from './email.js';
+import { codeEmail, sendEmail, signInLink } from './email.js';
 import { ipKey, limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { parseStart } from './seasons.js';
@@ -368,7 +368,8 @@ export class Tenant extends DurableObject {
         await this.db.prepare(
           'INSERT INTO login_codes (email, code_hash, expires_at, tries) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, tries = 0'
         ).bind(email, await codeHash(this.id, email, code), now + CODE_MINUTES * 60).run();
-        const sent = await sendEmail(this.env, { to: email, ...codeEmail(code, this.settings.NAME || slug) });
+        const link = signInLink(url.origin, `/join?server=${encodeURIComponent(slug)}`, email, code);
+        const sent = await sendEmail(this.env, { to: email, ...codeEmail(code, this.settings.NAME || slug, link) });
         if (!sent) return json({ error: 'The email couldn’t be sent. Try again in a minute.' }, 502);
       }
       return json({ ok: true });

@@ -76,7 +76,7 @@
             <div class="tiles">
               <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="w-online">4</div><div class="tile-sub">of 20 slots</div></div>
               <div class="tile"><div class="tile-label">Peak today</div><div class="tile-value" id="w-peak">6</div><div class="tile-sub">players at once</div></div>
-              <div class="tile"><div class="tile-label">Played this week</div><div class="tile-value" id="w-week">–</div><div class="tile-sub">player-hours, last 7 days</div></div>
+              <div class="tile"><div class="tile-label" id="w-week-label">Total played</div><div class="tile-value" id="w-week">–</div><div class="tile-sub">player-hours, <select id="w-week-mode" class="tile-select" aria-label="Period"><option value="all">all time</option><option value="7d">last 7 days</option></select></div></div>
               <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value" id="w-seen">9</div><div class="tile-sub">this season</div></div>
             </div>
             <div class="chips" id="w-chips"></div>
@@ -140,20 +140,6 @@
             <div id="p-combat"></div>
           </section>
 
-          <div class="grid2 grid-side grid-side-left">
-            <section class="card">
-              <div class="card-head"><h2>When they play</h2><span class="card-sub">total time by hour</span></div>
-              <div id="p-weekgrid"></div>
-              <div class="p-usual">
-                <div class="pc-section">Usually on <span class="muted" id="p-usual-sub"></span></div>
-                <div id="p-usual"></div>
-              </div>
-            </section>
-            <section class="card recent-card">
-              <div class="card-head"><h2>Recent sessions</h2></div>
-              <div id="p-recent"></div>
-            </section>
-          </div>
         </div>
       </div>
     </section>

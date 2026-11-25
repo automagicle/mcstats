@@ -4,12 +4,30 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { call, cookieOf, siteCookie } from './helpers.js';
 import { codeHash } from '../src/session.js';
+import { codeEmail, signInLink } from '../src/email.js';
 
 const make = (cookie, body) => call('/api/site/servers', { method: 'POST', cookie, body });
 const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(name)}`, { cookie });
 // what someone with no cookies at all gets at a server's stats page
 const anonymousPage = (slug) => call(`/s/${slug}/`);
 const join = (slug, password) => call('/api/site/join', { method: 'POST', body: { server: slug, password } });
+
+describe('the sign-in email', () => {
+  it('has the code and a link that carries the same code after the #, where no server sees it', () => {
+    const link = signInLink('https://mcstats.test', '/join?server=my-smp', 'a+b@example.org', '424242');
+    const url = new URL(link);
+    expect(url.pathname + url.search).toBe('/join?server=my-smp');
+    expect(Object.fromEntries(new URLSearchParams(url.hash.slice(1)))).toEqual({ email: 'a+b@example.org', code: '424242' });
+    const mail = codeEmail('424242', 'Tom & <b>Jerry</b>', link);
+    expect(mail.subject).toContain('424242');
+    expect(mail.text).toContain('424242');
+    expect(mail.text).toContain(link);
+    // the server's name is its owner's to choose: it's text in the email, never markup
+    expect(mail.html).not.toContain('<b>Jerry');
+    expect(mail.html).toContain('href="https://mcstats.test/join?server=my-smp#email=a%2Bb%40example.org&#38;code=424242"');
+    expect(codeEmail('424242', 'x').html).toBeUndefined();
+  });
+});
 
 describe('signing in on /new', () => {
   it('a code by email signs you in; a wrong one does not', async () => {

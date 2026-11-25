@@ -250,12 +250,15 @@ markup, fed by one made-up server (Birchwood SMP, nine players) so every number 
 dashboard changes, the example changes with it; a look-alike `.home-*` class for something the dashboard already
 has is a bug.
 
-- **Hero**: one centred title (`--px-50`, `--px-40` on phones), one sentence, **Create a server** and **Join a
-  server**. Under it, the Activity page in a window frame (frame + lift): the `.now` panel (tiles and online badges),
+- **Hero**: one centred title (Jersey 20 at 60px, three times its size; `--px-50` on phones), one sentence in
+  full-strength ink at 19px and weight 550 with no shadow or halo, **Create a server** and **Join a server**. Behind
+  it, the game's sky: one flat layer of see-through cloud slabs laid out by the game's cloud texture, seen from the
+  ground and thinning toward the horizon, all drifting one way. Night (dark theme) has darker, thinner clouds, stars
+  and a few drifting showers of light rain over about a third of the sky. Under it, the Activity page in a window frame (frame + lift): the `.now` panel (tiles and online badges),
   and the Players online chart with its real range control (calendar, 6h to 90d, earlier and later), series rules
   and hover tooltip listing who was on.
-- **A player's page**: the real layout (3D model card, head and status, the four tiles, Combat, When they play,
-  Recent sessions). The model is `player3d.js`'s, in the game's textures. Under it the held weapon is named in its
+- **A player's page**: the real layout (3D model card, head and status, the four tiles, Combat; the
+  rest of the page is left out to keep the example short). The model is `player3d.js`'s, in the game's textures. Under it the held weapon is named in its
   game colours with the game's tooltip (enchantments included) on hover, focus or tap, and the list beside it puts
   another carried item in the hand. Gear is written out per player so it makes sense together: late-game players in
   enchanted, trimmed netherite with named weapons, new ones in leather and iron with stone tools.

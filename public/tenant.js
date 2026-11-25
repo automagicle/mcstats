@@ -75,6 +75,7 @@
     const go = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Sign in' });
     const step2 = h('form', { class: 'acct-form', hidden: true },
       h('label', { class: 'acct-label' }, 'The 6-digit code we emailed you', code),
+      h('p', { class: 'acct-note', text: 'Or open the link in the email.' }),
       h('div', { class: 'acct-row' }, go, h('button', { type: 'button', class: 'btn btn-quiet', text: 'Use another email' })));
     step1.addEventListener('submit', async (e) => {
       e.preventDefault();

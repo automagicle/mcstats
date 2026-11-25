@@ -77,6 +77,17 @@
   const params = new URLSearchParams(location.search);
   const main = $('#site-main');
 
+  // A sign-in link from an email (src/email.js) ends in #email=…&code=…. Taken off the address at once, so
+  // it isn't left in the history or copied along with the page's address. -> { email, code } or null
+  const emailed = (() => {
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const email = hash.get('email'), code = hash.get('code');
+    if (!email || !/^\d{6}$/.test(code || '')) return null;
+    history.replaceState(null, '', location.pathname + location.search);
+    return { email, code };
+  })();
+  const LINK_FAILED = 'That sign-in link didn’t work. It may have expired or been used already. You can ask for a new code here.';
+
   // ---------------- /join ----------------
   function joinPage() {
     const err = errorLine();
@@ -109,7 +120,7 @@
     const mSend = h('button', { type: 'submit', class: 'btn', text: 'Email me a code' });
     const mGo = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Sign in' });
     const slugOf = (v) => v.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s_-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    const mStep2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', mCode), mGo);
+    const mStep2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', mCode, 'Or open the link in the email.'), mGo);
     const mStep1 = h('form', { class: 'site-form' },
       field('Server name', mServer), field('Your email', mEmail, 'The one the server’s owner added.'), mSend);
     mStep1.addEventListener('submit', (e) => {
@@ -143,6 +154,22 @@
       h('p', { class: 'site-sub', text: 'See its players, chat and fights. You need the server’s name and password from its owner.' }),
       form, members));
     (name.value ? pass : name).focus();
+
+    // opened from the link in a sign-in email: sign in with its code, and go to the server
+    if (emailed && mServer.value) {
+      const slug = slugOf(mServer.value);
+      members.open = true;
+      mEmail.value = emailed.email;
+      busy(mSend, async () => {
+        try {
+          await api(`/s/${encodeURIComponent(slug)}/api/auth/verify`, emailed);
+          location.replace(`/s/${slug}/`);
+        } catch (x) {
+          say(mErr, x.status === 400 ? LINK_FAILED : x.message);
+          mEmail.focus();
+        }
+      });
+    }
   }
 
   // ---------------- /new ----------------
@@ -212,7 +239,7 @@
     const code = input({ inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '7', placeholder: '123456' });
     const send = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Email me a code' });
     const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Continue' });
-    const f2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', code, 'It works for 10 minutes.'), go);
+    const f2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', code, 'Or open the link in the email. Both work for 10 minutes.'), go);
     const f1 = h('form', { class: 'site-form' }, field('Your email', email, 'You’ll be the server’s owner. We only use it to sign you in.'), send);
     f1.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -540,7 +567,17 @@
   }
 
   async function newPage() {
+    // opened from the link in a sign-in email: sign in with its code first
+    let linkFailed = null;
+    if (emailed) await api('/api/site/verify', emailed).catch((x) => { linkFailed = x.status === 400 ? LINK_FAILED : x.message; });
     W.me = await api('/api/site/me').catch(() => ({ email: null, servers: [] }));
+    if (!W.me.email && linkFailed) {
+      show(1);
+      const email = main.querySelector('input[type="email"]');
+      if (email) email.value = emailed.email;
+      say(main.querySelector('.site-err'), linkFailed);
+      return;
+    }
     if (!W.me.email) return show(1);
     const want = params.get('server');
     const pick = want ? W.me.servers.find((x) => x.slug === want) : (!params.has('fresh') && W.me.servers.find((x) => x.step < 7));

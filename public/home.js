@@ -420,13 +420,17 @@
     }
   }
 
+  $('w-week-mode').addEventListener('change', () => renderTiles());
   function renderTiles() {
     const n = online.size, t = now();
     $('w-online').textContent = n;
     $('w-live').textContent = `${n} online`;
     $('c-online-n').textContent = `${n} online`;
     $('w-peak').textContent = Math.max(n, ...counts(today() * DAY, t + 1));
-    $('w-week').textContent = fmtHours(PLAYERS.reduce((sum, p) => sum + playedBetween(p, t - 7 * DAY, t), 0) / 60);
+    // all time, or the last 7 days (app.js, renderTiles)
+    const week = $('w-week-mode').value === '7d';
+    $('w-week-label').textContent = week ? 'Played this week' : 'Total played';
+    $('w-week').textContent = fmtHours(PLAYERS.reduce((sum, p) => sum + playedBetween(p, week ? t - 7 * DAY : START, t), 0) / 60);
     $('w-seen').textContent = PLAYERS.length;
   }
 
@@ -744,27 +748,6 @@
     $('p-longest-sub').textContent = fmt(longest[1], { month: 'short', day: 'numeric', year: 'numeric' });
     renderChatTile();
     renderCombat();
-
-    weekGrid($('p-weekgrid'), weekOf([p]), (v, label) => [{ value: v ? dur(v) : 'Never', label: v ? 'total' : null }, { label }]);
-    // average minutes online in each hour of the day since they first joined (app.js, usualActivity)
-    const days = Math.max(1, Math.round((t - first) / DAY));
-    const mins = Array(24).fill(0);
-    for (const [a, b] of sessions) eachHourChunk(a, b ?? t, (s, n) => { mins[hourOf(s)] += n; });
-    const bars = mins.map((v, hr) => ({
-      v: v / days, now: hr === hourOf(t),
-      tip: [{ value: v / days < 1 ? 'Rarely on' : `${Math.round(v / days)} min`, label: v / days < 1 ? null : 'avg' },
-        { label: `${hourName(hr)}–${hourName((hr + 1) % 24)}, since the season began` }],
-    }));
-    $('p-usual').replaceChildren(hourBars(bars, [0, 6, 12, 18].map((hr) => [hr / 24, hourName(hr, true)]), 'Usual activity by hour', 58));
-    $('p-usual-sub').textContent = `avg minutes, over ${days} days`;
-
-    const hm = { hour: 'numeric', minute: '2-digit' };
-    $('p-recent').replaceChildren(h('table', {},
-      h('thead', {}, h('tr', {}, h('th', { text: 'Date' }), h('th', { text: 'Time' }), h('th', { class: 'num', text: 'Length' }))),
-      h('tbody', {}, sessions.slice(-40).reverse().map(([a, b]) => h('tr', {},
-        h('td', { text: fmt(a, { weekday: 'short', month: 'short', day: 'numeric' }) }),
-        h('td', { class: 'muted' }, `${fmt(a, hm)} – `, b == null ? h('span', { class: 'badge', text: 'now' }) : fmt(b, hm)),
-        h('td', { class: 'num', text: dur((b ?? t) - a) }))))));
   }
   // Chat messages sent, all time or today (app.js, renderPlayerChatTile)
   function renderChatTile() {
@@ -1365,25 +1348,21 @@
   }, 5000);
 
   /* ---------------- the sky: the game's clouds, sun and moon, by day and by night ----------------
-     Blocky clouds cut from the game's own cloud texture drift with the wind and wrap round. In the light
-     theme it's day: a blue sky and the game's sun. In the dark theme it's night: the moon, stars, and a
-     light rain from some of the clouds. Switching themes turns the sky half way round: the sun sets as
-     the moon rises, the wind races, the clouds darken, the stars come out and the rain starts. The
-     pointer only tilts the view a little. Drawn only while the hero is on screen. */
+     The clouds are the game's: one flat layer of see-through white slabs, laid out by the game's own
+     cloud texture, seen from the ground and running off to the horizon, all drifting the same way. In
+     the light theme it's day: a blue sky and the game's sun. In the dark theme it's night: the moon,
+     stars, darker and thinner clouds, and a light rain here and there. Switching themes turns the sky
+     half way round: the sun sets as the moon rises and the wind races. The pointer only tilts the view
+     a little. Drawn only while the hero is on screen. */
   {
     const hero = $('hero');
     const sky = hero.querySelector('.home-sky');
     const cv = $('sky');
     const ctx = cv.getContext('2d');
+    const layer = document.createElement('canvas'); // the cloud layer, drawn solid, then laid on see-through
+    const lg = layer.getContext('2d');
     const still = reduced();
     const r = rng('sky');
-    const C = 15; // one cloud cell on screen at the nearest layer, in CSS pixels
-    // three depths, each in its own band of sky (top = farthest), so clouds rarely cross one another
-    const LAYERS = [
-      { k: 0.6, speed: 6, alpha: 0.65, band: [0.03, 0.12] },
-      { k: 0.85, speed: 10, alpha: 0.82, band: [0.22, 0.32] },
-      { k: 1.1, speed: 15, alpha: 0.95, band: [0.47, 0.58] },
-    ];
     let W = 0, H = 0, dpr = 1;
     const dark = () => {
       const m = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
@@ -1400,105 +1379,104 @@
     requestAnimationFrame(() => requestAnimationFrame(() => { sky.style.transition = ''; }));
     const ease = (t) => t * t * (3 - 2 * t);
 
-    // The game's cloud layer (textures/environment/clouds.png): each opaque pixel is one 12×12-block cell
-    // of cloud. A sky cloud is one clump cut from it, a connected patch that fills most of its box, so
-    // it's the game's own blocky shape but plump rather than stringy. Until the texture arrives (or if
-    // it can't), a rounded blob of blocks stands in. -> { cells: [[x, y]…], cols, rows }
-    let map = null;
-    function shape(maxCols, maxRows) {
-      if (map) {
-        for (let tries = 0; tries < 120; tries++) {
-          const x0 = Math.floor(r() * map.w), y0 = Math.floor(r() * map.h);
-          if (!map.on(x0, y0)) continue;
-          const seen = new Set([`${x0},${y0}`]), todo = [[x0, y0]], cells = [];
-          while (todo.length && cells.length < 600) {
-            const [x, y] = todo.pop();
-            cells.push([x, y]);
-            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-              const nx = x + dx, ny = y + dy, k = `${nx},${ny}`;
-              if (seen.has(k) || Math.abs(nx - x0) > maxCols / 2 || Math.abs(ny - y0) > maxRows / 2 || !map.on(nx, ny)) continue;
-              seen.add(k);
-              todo.push([nx, ny]);
-            }
+    // The game's cloud layer (textures/environment/clouds.png): each opaque pixel is one cell of cloud,
+    // 12 blocks square and 4 thick, and the picture repeats across the whole sky. Until the texture
+    // arrives (or if it can't), a made-up pattern of blocky patches stands in.
+    const wrap = (v, n) => ((v % n) + n) % n;
+    const fallback = (() => {
+      const n = 64, on = new Uint8Array(n * n);
+      for (let k = 0; k < 46; k++) {
+        const x0 = Math.floor(r() * n), y0 = Math.floor(r() * n), w = 2 + Math.floor(r() * 7), d = 1 + Math.floor(r() * 4);
+        for (let y = 0; y < d; y++) for (let x = 0; x < w; x++) on[wrap(y0 + y, n) * n + wrap(x0 + x, n)] = 1;
+      }
+      return { on: (x, y) => on[wrap(y, n) * n + wrap(x, n)] === 1 };
+    })();
+    let map = fallback;
+
+    // What's seen from the ground: the slabs' undersides and the sides facing you (the game shades the
+    // faces differently, and tints the whole layer darker at night). [underside, front, side] by day and by night.
+    const SHADES = [[[232, 237, 245], [255, 255, 255], [245, 248, 252]], [[82, 93, 122], [112, 124, 155], [97, 108, 138]]];
+    const mix = (i, m) => `rgb(${SHADES[0][i].map((v, k) => Math.round(v + (SHADES[1][i][k] - v) * m)).join(',')})`;
+
+    // The view: you stand under the layer and look toward the horizon, which sits just under the hero.
+    // A point X across, Y up and Z away lands at (cx + F·X/Z, HZ − F·Y/Z). Z = 1 is the top of the hero.
+    let HZ = 0, F = 0, CELL = 0, drift = 0;
+    const UP = 0.6; // the layer's height: a cell at the top of the hero looks 0.6 as deep as it's wide
+    const FAR = 9; // how far the layer is drawn, in hero-top distances
+    function view() {
+      HZ = H * 1.04;
+      F = HZ / UP;
+      CELL = Math.min(132, Math.max(72, W * 0.085)) / F; // a cell at the top of the hero is about this wide
+    }
+    function drawClouds(m, camX, camY) {
+      const cx = W / 2 + camX, hz = HZ + camY, thick = CELL / 3;
+      lg.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lg.clearRect(0, 0, W, H);
+      const under = mix(0, m), front = mix(1, m), side = mix(2, m);
+      const j0 = Math.max(1, Math.floor(0.45 / CELL)), j1 = Math.ceil(FAR / CELL);
+      const shift = -drift; // the layer slides sideways: column i spans X from (i + shift)·CELL
+      for (let j = j1; j >= j0; j--) { // far to near, so nearer slabs cover farther ones
+        const zn = j * CELL, zf = zn + CELL;
+        const yn = hz - (F * UP) / zn, yf = hz - (F * UP) / zf; // the underside's near and far edges
+        if (yf < -2) break; // this row and every nearer one are above the hero
+        const yt = hz - (F * (UP + thick)) / zn, ytf = hz - (F * (UP + thick)) / zf; // the top of the near face, and of the far one
+        const half = ((W / 2 + Math.abs(camX) + 40) * zf) / F;
+        const i0 = Math.floor(-half / CELL - shift) - 1, i1 = Math.ceil(half / CELL - shift) + 1;
+        const pu = new Path2D(), pf = new Path2D(), ps = new Path2D();
+        for (let i = i0; i <= i1; i++) {
+          if (!map.on(i, j)) continue;
+          let e = i;
+          while (e < i1 && map.on(e + 1, j)) e++;
+          const X0 = (i + shift) * CELL, X1 = (e + 1 + shift) * CELL;
+          const an = cx + (F * X0) / zn, bn = cx + (F * X1) / zn, af = cx + (F * X0) / zf, bf = cx + (F * X1) / zf;
+          pu.moveTo(an, yn); pu.lineTo(bn, yn); pu.lineTo(bf, yf); pu.lineTo(af, yf); pu.closePath();
+          // the side facing the middle of the view shows, at either end of the run
+          if (X0 > 0) { ps.moveTo(an, yn); ps.lineTo(an, yt); ps.lineTo(af, ytf); ps.lineTo(af, yf); ps.closePath(); }
+          if (X1 < 0) { ps.moveTo(bn, yn); ps.lineTo(bn, yt); ps.lineTo(bf, ytf); ps.lineTo(bf, yf); ps.closePath(); }
+          // the front face, where no slab stands in front of it
+          for (let k = i; k <= e; k++) {
+            if (map.on(k, j - 1)) continue;
+            let q = k;
+            while (q < e && !map.on(q + 1, j - 1)) q++;
+            const fa = cx + (F * (k + shift) * CELL) / zn, fb = cx + (F * (q + 1 + shift) * CELL) / zn;
+            pf.rect(fa, yt, fb - fa, yn - yt + 0.5);
+            k = q;
           }
-          const xs = cells.map((c) => c[0]), ys = cells.map((c) => c[1]);
-          const minX = Math.min(...xs), minY = Math.min(...ys), cols = Math.max(...xs) - minX + 1, rows = Math.max(...ys) - minY + 1;
-          if (cells.length >= 28 && cols >= 8 && cells.length / (cols * rows) >= 0.58) {
-            return { cells: cells.map(([x, y]) => [x - minX, y - minY]), cols, rows };
-          }
+          i = e;
         }
+        lg.fillStyle = side; lg.fill(ps);
+        lg.fillStyle = under; lg.fill(pu);
+        lg.fillStyle = front; lg.fill(pf);
       }
-      const cols = Math.round(maxCols * 0.7), rows = Math.round(maxRows * 0.6), cells = [];
-      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-        const dx = (x + 0.5 - cols / 2) / (cols / 2), dy = (y + 0.5 - rows / 2) / (rows / 2);
-        if (dx * dx + dy * dy < 0.85 + r() * 0.2) cells.push([x, y]);
-      }
-      return { cells, cols, rows };
+      // the layer thins into the distance, as the game's fog takes it
+      lg.globalCompositeOperation = 'destination-in';
+      const fog = lg.createLinearGradient(0, 0, 0, hz);
+      fog.addColorStop(0, 'rgba(0,0,0,1)'); fog.addColorStop(0.5, 'rgba(0,0,0,0.9)'); fog.addColorStop(0.86, 'rgba(0,0,0,0)');
+      lg.fillStyle = fog;
+      lg.fillRect(0, 0, W, H);
+      lg.globalCompositeOperation = 'source-over';
+      // see-through, and more so at night (as the game's are)
+      ctx.globalAlpha = 0.8 - 0.25 * m;
+      ctx.drawImage(layer, 0, 0, W, H);
+      ctx.globalAlpha = 1;
     }
 
-    // Drawn as the game draws its clouds: a slab seen from a little above, each cell's flat top and,
-    // under the cells with nothing in front of them, the slab's front face, darker (the game shades
-    // tops 1.0 and sides 0.9 and 0.8). One picture for the day and one for the night, cross-faded.
-    const SHADES = { day: ['#ffffff', '#dde3ec', '#cfd6e2'], night: ['#bcc5da', '#8f99b4', '#7f89a4'] };
-    function paint(c, [top, front, side]) {
-      const b = c.cw, d = c.cd, f = c.cf;
-      const s = document.createElement('canvas');
-      s.width = Math.ceil(c.w * dpr);
-      s.height = Math.ceil(c.h * dpr);
-      const g = s.getContext('2d');
-      g.scale(dpr, dpr);
-      const has = new Set(c.cells.map(([x, y]) => `${x},${y}`));
-      for (const [x, y] of [...c.cells].sort((a, z) => a[1] - z[1])) { // back to front
-        g.fillStyle = top;
-        g.fillRect(x * b, y * d, b, d + 0.5);
-        if (!has.has(`${x},${y + 1}`)) {
-          g.fillStyle = front;
-          g.fillRect(x * b, (y + 1) * d, b, f);
-          // the left end of a run of front face shows a sliver of the side
-          if (!has.has(`${x - 1},${y}`)) { g.fillStyle = side; g.fillRect(x * b, (y + 1) * d, Math.max(2, Math.round(b * 0.18)), f); }
-        }
-      }
-      return s;
-    }
-    function sprite(c) {
-      c.cw = Math.max(5, Math.round(C * c.layer.k)); // a cell's width
-      c.cd = Math.max(3, Math.round(c.cw * 0.55)); // its depth on screen, seen at a slant
-      c.cf = Math.max(3, Math.round(c.cw * 0.7)); // the slab's thickness
-      c.w = c.cols * c.cw;
-      c.h = c.rows * c.cd + c.cf;
-      c.day = paint(c, SHADES.day);
-      c.night = paint(c, SHADES.night);
-    }
-    const clouds = [];
-    function makeCloud(layer, x, y) {
-      const L = LAYERS[layer];
-      // about half the clouds rain at night
-      const c = { layer: L, li: layer, x, y, ...shape(26, 14), rainy: r() < 0.55 };
-      sprite(c);
-      clouds.push(c);
-      clouds.sort((a, b) => a.li - b.li);
-    }
-    const drops = [], stars = [];
+    // Rain falls in a few showers that drift across with the wind, covering about a third of the sky.
+    const drops = [], stars = [], showers = [];
+    const TRACK = () => W + 700;
 
     function resize() {
       const rect = cv.getBoundingClientRect();
       dpr = Math.min(devicePixelRatio || 1, 2);
       const first = !W;
       W = rect.width; H = rect.height;
-      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      for (const c of [cv, layer]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+      view();
       if (first) {
-        // per layer, a few clouds evenly spaced along a loop a bit longer than the sky, so they keep
-        // their spacing as they drift (all in a layer move at the same speed)
-        LAYERS.forEach((L, li) => {
-          const n = Math.max(2, Math.round(W / (li === 2 ? 520 : 380)));
-          L.track = W + 420;
-          for (let i = 0; i < n; i++) {
-            const y = H * (L.band[0] + r() * (L.band[1] - L.band[0]));
-            makeCloud(li, (i / n) * L.track - 200 + r() * (L.track / n) * 0.3, y);
-          }
-        });
+        const n = Math.max(1, Math.round(W / 640));
+        for (let i = 0; i < n; i++) showers.push({ x: ((i + 0.2 + r() * 0.6) / n) * TRACK(), w: 170 + r() * 130 });
         for (let i = 0; i < 90; i++) stars.push({ x: r(), y: r() * 0.7, s: r() < 0.2 ? 2 : 1, p: r() * 6 });
-      } else { clouds.forEach(sprite); LAYERS.forEach((L) => { L.track = W + 420; }); }
+      }
     }
 
     // The game's sun and full moon: 32-pixel pictures on black that the game adds onto the sky as light.
@@ -1551,16 +1529,16 @@
       ctx.restore();
     }
 
-    // the pointer only tilts the view a little (nearer things shift more); it never moves the clouds
+    // the pointer only tilts the view a little; it never moves the clouds
     const ptr = { x: 0.5, y: 0.5, in: false };
     const par = { x: 0, y: 0 };
-    const offset = (k) => [par.x * k * -14, par.y * k * -6];
     addEventListener('pointermove', (e) => {
       const b = hero.getBoundingClientRect();
       ptr.in = e.clientY >= b.top && e.clientY <= b.bottom;
       if (ptr.in) { ptr.x = (e.clientX - b.left) / b.width; ptr.y = (e.clientY - b.top) / b.height; }
     }, { passive: true });
 
+    const WIND = 0.14; // cells a second: a cell at the top of the hero crosses about 12px a second
     let last = 0, raf = 0, on = false;
     function frame(t) {
       const dt = Math.min(0.05, (t - (last || t)) / 1000);
@@ -1593,26 +1571,24 @@
       // the sun and moon on their wheel, behind the clouds as in the game: up at the top right, and
       // going down to the right as the other comes up from the left
       const big = Math.round(Math.min(180, Math.max(110, W * 0.13)));
-      const [sx, sy] = offset(0.3);
-      const R = Math.max(W * 0.5, H * 1.15), UP = 0.55; // the wheel, and how far right of the top "up" is
-      const cx = W / 2, cy = H * 0.22 + R * Math.cos(UP);
-      const at = (a) => [cx + R * Math.sin(a) + sx, cy - R * Math.cos(a) + sy];
-      const [sunX, sunY] = at(UP + turn), [moonX, moonY] = at(UP + turn + Math.PI);
+      const sx = par.x * -4, sy = par.y * -2;
+      const R = Math.max(W * 0.5, H * 1.15), UPR = 0.55; // the wheel, and how far right of the top "up" is
+      const wx = W / 2, wy = H * 0.22 + R * Math.cos(UPR);
+      const at = (a) => [wx + R * Math.sin(a) + sx, wy - R * Math.cos(a) + sy];
+      const [sunX, sunY] = at(UPR + turn), [moonX, moonY] = at(UPR + turn + Math.PI);
       if (sunY < H + big) body(sun, sunX, sunY, big * 1.15, 'rgba(255,240,170,0.45)', 1 - m * 0.3);
       if (moonY < H + big) body(moon, moonX, moonY, big, 'rgba(190,205,255,0.28)', 0.7 + m * 0.3);
 
-      for (const c of clouds) {
-        c.x += (still ? 0 : c.layer.speed * rush) * dt;
-        if (c.x > W + 210) c.x -= c.layer.track; // round the loop, keeping the layer's spacing
-        const [ox, oy] = offset(c.layer.k);
-        const x = Math.round(c.x + ox), y = Math.round(c.y + oy);
-        if (m < 1) { ctx.globalAlpha = c.layer.alpha; ctx.drawImage(c.day, x, y, c.w, c.h); }
-        if (m > 0) { ctx.globalAlpha = c.layer.alpha * m; ctx.drawImage(c.night, x, y, c.w, c.h); }
-        // a light rain at night
-        if (c.rainy && !still && r() < m * dt * 22 * c.layer.k) {
-          const [cx] = c.cells[Math.floor(r() * c.cells.length)];
-          drops.push({ x: x + cx * c.cw + r() * c.cw, y: y + c.h - 4, vy: 360 + r() * 140, k: c.layer.k });
-        }
+      const wind = still ? 0 : WIND * rush * dt;
+      drift += wind;
+      drawClouds(m, par.x * -16, par.y * -6);
+
+      // a light rain at night, under the showers
+      const track = TRACK(), push = wind * CELL * F * 0.6; // the showers move with the clouds overhead
+      for (const s of showers) {
+        s.x += push;
+        if (s.x > W + 350) s.x -= track;
+        if (!still && r() < m * dt * 30) drops.push({ x: s.x + (r() - 0.5) * s.w, y: -10 - r() * 30, vy: 360 + r() * 140, k: 0.6 + r() * 0.5 });
       }
       ctx.fillStyle = '#7f9be0';
       for (let i = drops.length - 1; i >= 0; i--) {
@@ -1637,7 +1613,7 @@
     // a theme switch wakes the sky even if nothing else would
     new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // the clouds wait (briefly) for the game's cloud texture, so they're cut from it from the start
+    // the clouds wait (briefly) for the game's cloud texture, so they're laid out by it from the start
     const tex = new Image();
     const start = () => { if (!W) resize(); wake(); };
     tex.onload = () => {
@@ -1646,8 +1622,7 @@
       const g = c.getContext('2d', { willReadFrequently: true });
       g.drawImage(tex, 0, 0);
       const px = g.getImageData(0, 0, tex.width, tex.height).data;
-      const wrap = (v, n) => ((v % n) + n) % n; // the texture tiles, as the game's sky does
-      map = { w: tex.width, h: tex.height, on: (x, y) => px[(wrap(y, tex.height) * tex.width + wrap(x, tex.width)) * 4 + 3] > 0 };
+      map = { on: (x, y) => px[(wrap(y, tex.height) * tex.width + wrap(x, tex.width)) * 4 + 3] > 0 }; // the texture tiles, as the game's sky does
       start();
     };
     tex.onerror = start;

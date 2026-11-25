@@ -26,7 +26,7 @@ import {
 import { forgetSlug, newServerId, serverBySlug, serversOwnedBy, slugify, slugProblem } from './directory.js';
 import { tenantStub } from './tenantenv.js';
 import { ipKey, limit, tooMany } from './limiter.js';
-import { codeEmail, sendEmail } from './email.js';
+import { codeEmail, sendEmail, signInLink } from './email.js';
 import { isSuper } from './roles.js';
 import { json } from './util.js';
 
@@ -110,7 +110,7 @@ export async function handleSite(request, env, url) {
     await env.DIRECTORY.prepare(
       'INSERT INTO login_codes (email, code_hash, expires_at, tries) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, tries = 0'
     ).bind(email, await codeHash('site', email, code), Math.floor(Date.now() / 1000) + CODE_MINUTES * 60).run();
-    if (!(await sendEmail(env, { to: email, ...codeEmail(code, 'mcstats') }))) return json({ error: 'The email couldn’t be sent. Try again in a minute.' }, 502);
+    if (!(await sendEmail(env, { to: email, ...codeEmail(code, 'mcstats', signInLink(url.origin, '/new', email, code)) }))) return json({ error: 'The email couldn’t be sent. Try again in a minute.' }, 502);
     return json({ ok: true });
   }
 
