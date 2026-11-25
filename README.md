@@ -43,11 +43,15 @@ shows into the mod's config, and wait for the first upload. Players of a private
 server's name and password; a public server's stats are simply at its address. A public server can be made private
 later once it has a password.
 
-Updating an existing deployment: run `npm run dir:migrate:remote` (adds `has_password`, migration 0002) before deploying.
+Updating an existing deployment: `npm run deploy` brings the directory database up to date first (it runs
+`wrangler d1 migrations apply mcstats-directory --remote`, then deploys), so new code never meets an old database.
+Deploying with `wrangler deploy` directly skips that: run `npm run dir:migrate:remote` yourself first, or every
+request that looks a server up fails with HTTP 500 (`no such column`).
 
 Nothing else is set per deployment: each server's address, time zone, seasons and chat resets are its own settings
 (the **Optional setup** step on `/new`, or `POST /api/site/servers/<server>/settings` with `MC_SERVER`, `TZ_NAME`,
-`CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS`, `CHAT_RESETS`, `PUBLIC`).
+`CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS`, `CHAT_RESETS`, `PUBLIC`). Its name, address, join password and
+look are changed from its own dashboard (Admin → Server, below).
 
 `npm test` runs the tests (Vitest inside the Workers runtime), including the ones that check servers stay apart.
 
@@ -135,7 +139,45 @@ log is left empty.
 
 ## Admin page
 
-`#/admin` (linked in the footer for admins only) has two parts.
+`#/admin` (linked in the footer for admins only) has four tabs: **Settings** (below), **Server**, **Analytics** and,
+for owners, **Roles**.
+
+### Server (the server's own details)
+
+Admin → **Server** (`src/serveradmin.js`, `GET`/`POST /api/admin/server`) changes the server itself. Like Settings it
+is a draft with a Save bar; nothing changes until Save.
+
+| What | Who | Notes |
+| --- | --- | --- |
+| **Name** | admins | Shown at the top of its pages and in emails. |
+| **Address** (`/s/<address>/`) | owners | Moves the server: the old address stops existing and everyone joins again at the new one (cookies are per address). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
+| **Private or public** | owners | A public server can only be made private once it has a join password. |
+| **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
+| **Accent color** | admins | Green (the default), blue, or any color (`#rrggbb`). |
+| **Tab style** | admins | Line (the default: the current tab is greyer with a line in the accent color under it) or Frame (set in, framed, no color). |
+| **Add-ons** | the site's operators (`SUPER_ADMIN_EMAIL`) | Features only some servers have; see Add-ons below. |
+
+The look is tried on the page as you pick, and put back if you leave without saving. Once saved, the Worker writes it
+on the page's `<html>` before anything is drawn (`data-accent`, `data-tabs`; `src/look.js`), so there's no flash of
+another color. DESIGN.md has the tokens.
+
+### Add-ons
+
+Features only some servers have are kept out of the dashboard every server gets:
+
+- `public/addons/<id>/` holds the add-on: `addon.js` (registers itself on `window.MCS_ADDONS`), its stylesheet and its data.
+- `src/addons.js` lists the add-ons the site has.
+- A server's `ADDONS` setting names the ones it has. The Worker puts only those on its page (`src/index.js`), ahead
+  of `app.js`, which asks them at a handful of named places (search `app.js` for "add-ons" for the list of hooks:
+  a tag beside a player's team, a line under their 3D model, what the model holds in its off hand, a card beside
+  Combat, a column on the roster, and options for the sample data). With no add-ons those places are simply empty.
+
+**Egg SMP** (`public/addons/eggsmp/`) is the one add-on so far: each player's egg on their page, in their model's
+hand with its particles, and an Egg column on the roster. The first server (the one copied in from the single-server
+version) has it switched on; servers made on `/new` don't. The roster's `egg` column and the gear report's `egg`
+field are still stored for every server (they're simply empty elsewhere), so switching the add-on off and on loses nothing.
+
+### Settings
 
 **Settings** (the teams, the season's players with their teams and eggs, each player's teams over time, hidden
 players and merged accounts) are a draft: nothing changes on the site until **Save** is pressed, in the bar at the
@@ -439,18 +481,18 @@ connections; the page reconnects by itself.
     deaths slide in as they're logged.
   A kill is a death the game credits to another player (being knocked off a cliff counts). Deaths logged before mod
   1.4.0 are worked out from the message itself.
-- **Player pages: egg and combat**: an **egg card** (what the player's Egg SMP egg does: passive, primary, secondary
-  and their cost, from `public/eggdata.js`, plus its level and energy as the mod last reported them) and a **combat
+- **Player pages: egg and combat**: an **egg card** (servers with the Egg SMP add-on only: what the player's egg does: passive, primary, secondary
+  and their cost, from `public/addons/eggsmp/eggdata.js`, plus its level and energy as the mod last reported them) and a **combat
   card** (kills, deaths, K/D and where that ranks, who they kill most, who kills them most, what else kills them, and
   their latest kills and deaths: like the chat log, the newest at the bottom with its time, a line where the day
   changes, and older ones loading as you scroll up).
   **Show the full in-game description** on the egg card unfolds the egg's item tooltip word for word as the game
-  shows it, at the player's level and energy (either level can be looked at). It comes from `public/eggtips.js`,
+  shows it, at the player's level and energy (either level can be looked at). It comes from `public/addons/eggsmp/eggtips.js`,
   which `python3 scripts/egg-tooltips.py [path to the Egg SMP datapack]` writes from the datapack's own tooltip
   reader (`tools/generate_tooltips.py`); run it again when the datapack changes.
 - **3D player model**: player pages show the player in 3D with their skin, the armor they last wore (trims, leather dye
   and the enchantment shimmer included), their best weapon in the main hand (mace, then trident, sword, spear, axe,
-  pickaxe, shovel; better material first) and their egg in the off hand (the one they carry, else their roster egg). It turns a
+  pickaxe, shovel; better material first) and, with the Egg SMP add-on, their egg in the off hand (the one they carry, else their roster egg). It turns a
   little toward the mouse. Under it, the weapon's name is in the game's colors with its in-game tooltip on hover, and
   their egg is on the line below. With mod 1.9.0 or newer, each weapon and tool comes with its tooltip, enchantments
   included. Before that, a named item takes its colors and tooltip from the latest death message that named it (their

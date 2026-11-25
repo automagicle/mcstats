@@ -237,6 +237,14 @@ export const MIGRATIONS = [
       if (!hasColumn(sql, 'user_perms', 'role')) sql.exec("ALTER TABLE user_perms ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
     },
   },
+  {
+    // Eggs became an add-on (src/addons.js). The first server (the one copied in from before servers had
+    // their own) is Egg SMP, which had them all along: it keeps them. Any other server starts without.
+    v: 3,
+    up(sql) {
+      sql.exec("INSERT OR IGNORE INTO settings (key, value) SELECT 'ADDONS', 'eggsmp' FROM settings WHERE key = 'LEGACY' AND value = '1'");
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;

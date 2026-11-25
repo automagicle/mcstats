@@ -196,7 +196,7 @@ let dummy = null;
 function dummyApi() {
   dummy ??= new Promise((resolve, reject) => {
     const script = el('script', { src: '/dummy.js' });
-    script.onload = () => rosterLoad.then((players) => resolve(window.createDummyApi({ roster: players, tz: TZ, eggIds: EGG_BY_ID })));
+    script.onload = () => rosterLoad.then((players) => resolve(window.createDummyApi({ roster: players, tz: TZ, ...Object.assign({}, ...addons('sampleData')) })));
     script.onerror = () => reject(new Error('couldn’t load the sample data'));
     document.head.append(script);
   });
@@ -367,58 +367,46 @@ $('#name-toggle').addEventListener('click', (e) => {
   rerenderNames();
 });
 
-/* ---------- eggs and gear ---------- */
+/* ---------- add-ons ---------- */
 
-// Egg SMP's eggs (from the egg datapack): name, color, and the game item each one is drawn as.
-const EGGS = {
-  life: ['Life Egg', '#FF4F8B', 'sniffer_egg'],
-  hunger: ['Harvest Egg', '#D6E35A', 'turtle_egg'],
-  sky: ['Skyblocker Egg', '#7DD3FC', 'vex_spawn_egg'],
-  gravity: ['Gravity Egg', '#9BC9FF', 'breeze_spawn_egg'],
-  gambler: ['Gambler Egg', '#FFE56A', 'piglin_spawn_egg'],
-  fire: ['Fire Egg', '#FF7A2E', 'blaze_spawn_egg'],
-  blood: ['Blood Egg', '#C41818', 'magma_cube_spawn_egg'],
-  echo: ['Echo Egg', '#2DD4BF', 'warden_spawn_egg'],
-  aqua: ['Aqua Egg', '#3DDCFF', 'tropical_fish_spawn_egg'],
-  meteor: ['Meteor Egg', '#FF8C2A', 'strider_spawn_egg'],
-  wizard: ['Wizard Egg', '#B14BFF', 'enderman_spawn_egg'],
-  train: ['Train Egg', '#E03A3A', 'spider_spawn_egg'],
-  redstone: ['Redstone Egg', '#FF3B3B', 'mooshroom_spawn_egg'],
-  binding: ['Binding Egg', '#C5CCD6', 'stray_spawn_egg'],
-  murica: ["'Murica Egg", '#C8102E', 'parrot_spawn_egg'],
-  dung: ['Dung Egg', '#A0693A', 'tadpole_spawn_egg'],
-  fat: ['Fat Egg', '#FF9EB5', 'pig_spawn_egg'],
-  woods: ['Woods Egg', '#3C8F3A', 'creaking_spawn_egg'],
-  smite: ['Smite Egg', '#2BB7A0', 'guardian_spawn_egg'],
-  stash: ['Stash Egg', '#3DDC97', 'villager_spawn_egg'],
-  sulfur: ['Sulfur Egg', '#E8D44D', 'sulfur_cube_spawn_egg'],
-  subzero: ['Sub-Zero Egg', '#8FD8FF', 'stray_spawn_egg'],
-  combo: ['Combo Egg', '#7DD3FF', 'allay_spawn_egg'],
-  electric: ['Electric Egg', '#4FD8FF', 'glow_squid_spawn_egg'],
-  deadshot: ['Deadshot Egg', '#E04848', 'pillager_spawn_egg'],
-  purpur: ['Purpur Egg', '#C9A0DC', 'shulker_spawn_egg'],
-  doggo: ['Doggo Egg', '#D9A066', 'wolf_spawn_egg'],
-};
-// The egg mod's number for each egg (its egg.type score), which the server mod reports with a player's gear.
-const EGG_BY_ID = {
-  1: 'life', 2: 'hunger', 3: 'sky', 4: 'gravity', 5: 'gambler', 7: 'fire', 8: 'blood', 9: 'echo', 10: 'aqua', 11: 'meteor',
-  12: 'wizard', 13: 'train', 14: 'redstone', 15: 'binding', 16: 'murica', 17: 'dung', 18: 'fat', 19: 'woods', 20: 'smite',
-  21: 'stash', 22: 'sulfur', 23: 'subzero', 24: 'combo', 25: 'electric', 26: 'deadshot', 27: 'purpur', 28: 'doggo',
-};
-// A player's egg: the one the server last reported them having, else the one the roster gives them.
-const playerEggId = (name, gear) => EGG_BY_ID[gear?.egg?.type] || rosterOf(name)?.egg || null;
-// An egg the datapack doesn't have (yet): its name from the id, drawn as a plain egg.
-const eggInfo = (id) => {
-  if (!id) return null;
-  const [name, color, model] = EGGS[id] || [`${id[0].toUpperCase()}${id.slice(1)} Egg`, null, 'egg'];
-  return { id, name, color, model };
-};
+// Features only some servers have live apart from this file, in public/addons/<id>/ (src/addons.js): the
+// Worker puts a server's add-ons on its page ahead of this script, and each adds itself to
+// window.MCS_ADDONS as { id, setup(api), …hooks }. setup gets the helpers below once. The hooks, all
+// optional, are asked at the places they name:
+//   playerTags(name, gear) -> [nodes]    after the team on a player's page
+//   modelLines(name, gear) -> [nodes]    lines under the player's 3D model
+//   modelSpec(name, gear)  -> { offhand?, aura? }  what the model holds in its off hand, and its particles
+//   playerCard(name, gear) -> node|null  a card beside Combat on the player's page
+//   rosterColumn()         -> { key, title, plural, none, options: [[value, label]], label(value) }
+//                             a column on Admin → Settings' roster, kept in the roster row's `key`
+//   sampleData()           -> options for the sample data's generator (public/dummy.js)
+// With no add-ons, every one of those places is simply empty.
+const ADDONS = Array.isArray(window.MCS_ADDONS) ? window.MCS_ADDONS : [];
+let addonsSetUp = false;
+function addons(hook, ...args) {
+  if (!addonsSetUp) {
+    addonsSetUp = true;
+    for (const a of ADDONS) a.setup?.({ el, $, icon, recall, remember, ago, rosterOf, BASE });
+  }
+  const out = [];
+  for (const a of ADDONS) {
+    try {
+      const r = a[hook]?.(...args);
+      if (r != null) out.push(r);
+    } catch (err) {
+      console.error(`add-on ${a.id}, ${hook}:`, err);
+    }
+  }
+  return out;
+}
+
+/* ---------- gear ---------- */
 
 // The best weapon they carry: mace, then trident, sword, spear, axe, pickaxe, shovel; better material first.
 const WEAPON_KINDS = ['mace', 'trident', 'sword', 'spear', 'axe', 'pickaxe', 'shovel'];
 const TOOL_MATERIALS = ['netherite', 'diamond', 'iron', 'copper', 'stone', 'golden', 'wooden'];
 function weaponRank(it) {
-  if (!it || it.egg) return null;
+  if (!it || it.egg) return null; // an item the server mod marks as an egg (Egg SMP) is never the weapon
   const kind = WEAPON_KINDS.indexOf(it.id === 'mace' || it.id === 'trident' ? it.id : it.id.split('_').pop());
   if (kind < 0) return null;
   const mat = TOOL_MATERIALS.indexOf(it.id.split('_')[0]);
@@ -431,13 +419,6 @@ function bestWeapon(gear) {
     if (r != null && r < bestRank) [best, bestRank] = [it, r];
   }
   return best;
-}
-// Their egg as they carry it (the off hand first: that's where it works), else the season's assignment.
-function heldEgg(gear, assigned) {
-  const carried = [gear?.offhand, gear?.mainhand, ...(gear?.items || [])].find((it) => it?.egg && it.model);
-  if (carried) return { id: carried.model };
-  const info = eggInfo(assigned);
-  return info ? { id: info.model } : null;
 }
 const itemKind = (it) => it.id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const itemName = (it) => it.name || itemKind(it);
@@ -2860,8 +2841,8 @@ function showPlayerLoading(uuid) {
   $('#p-usual-sub').textContent = '';
   $('#p-combat').replaceChildren(el('div', { class: 'empty', text: 'Loading…' }));
   $('#pcb-sub').textContent = '';
-  $('#p-egg-card').hidden = true;
-  $('#p-egg-combat').classList.add('no-egg');
+  $('#p-addon-card').hidden = true;
+  $('#p-side-combat').classList.add('no-side');
   $('#p-adv-card').hidden = true;
   adv.key = null;
   adv.drawn = null;
@@ -2923,7 +2904,7 @@ async function showPlayer(uuid, { refresh = false } = {}) {
   state.playerData = { name: player.name, sessions, liveSession: isOnline ? sessions.at(-1) : null, chat: chatInfo, gear: r.gear };
   renderPlayerName();
   renderPlayerModel(player.name, r.gear);
-  renderPlayerEgg(player.name, r.gear).catch((e) => console.error('egg card:', e));
+  renderPlayerAddons(player.name, r.gear);
   renderPlayerCombat(player.name).catch((e) => console.error('combat card:', e));
   renderPlayerAdvancements(player.name).catch((e) => console.error('advancements card:', e));
   setCounter($('#p-total'), dur(total), total, animate);
@@ -2987,11 +2968,10 @@ function renderPlayerName() {
   const team = $('#p-team');
   team.hidden = !r;
   if (r) {
-    const egg = eggInfo(playerEggId(d.name, d.gear));
     team.replaceChildren(el('span', { class: `team-dot team-${r.team}` }),
       el('span', { class: `team-${r.team}`, text: teamLabel(r.team) }),
       el('span', { class: 'muted', text: `· ${nameMode === 'real' ? r.ign : r.name}` }),
-      ...(egg ? [el('span', { class: 'p-egg', style: egg.color ? `--egg:${egg.color}` : '', text: `· ${egg.name}` })] : []));
+      ...addons('playerTags', d.name, d.gear).flat());
   }
 }
 
@@ -3164,7 +3144,16 @@ function drawAdvancements() {
   });
 }
 
-// The player in 3D, wearing their armor, with their best weapon and their egg (public/player3d.js).
+// What a server's add-ons put beside Combat on a player's page (the Egg SMP add-on: their egg).
+function renderPlayerAddons(name, gear) {
+  const parts = addons('playerCard', name, gear);
+  $('#p-side-combat').classList.toggle('no-side', !parts.length);
+  $('#p-addon-card').hidden = !parts.length;
+  $('#p-addon-body').replaceChildren(...parts);
+}
+
+// The player in 3D, wearing their armor, with their best weapon (public/player3d.js). An add-on may put
+// something in the off hand, with particles around them.
 let playerModel = null; // { key, abort, handle }
 function clearPlayerModel() {
   if (!playerModel) return;
@@ -3182,13 +3171,13 @@ function modelWeapon(name, gear) {
 }
 function renderPlayerModel(name, gear) {
   const card = $('#p-model-card');
+  const extra = Object.assign({}, ...addons('modelSpec', name, gear));
   const spec = {
     name,
     uuid: gear?.uuid ? gear.uuid.replace(/-/g, '') : null,
     armor: gear?.armor || {},
-    offhand: heldEgg(gear, playerEggId(name, gear)),
-    // the egg's particle aura (a dim one when it has no energy left)
-    aura: playerEggId(name, gear) ? { id: playerEggId(name, gear), cracked: gear?.egg?.energy === 0 } : null,
+    offhand: extra.offhand ?? null,
+    aura: extra.aura ?? null, // particles around them: [r, g, b, r2, g2, b2, accent particle] (player3d.js)
   };
   // the held item changes in place (setMainhand), so it isn't part of what rebuilds the model
   const key = JSON.stringify(spec);
@@ -3223,7 +3212,7 @@ function renderPlayerModel(name, gear) {
 }
 
 // Under the model: the weapon in their hand as the game styles it (hover for its tooltip), with a
-// list of everything else they carry next to it; their egg on the line below; when it was reported.
+// list of everything else they carry next to it; any add-on's line below; when it was reported.
 function renderModelNote(name, gear, mainhand) {
   const note = $('#p-model-note');
   closeGearMenu();
@@ -3246,8 +3235,7 @@ function renderModelNote(name, gear, mainhand) {
     }
     rows.push(line);
   }
-  const egg = eggInfo(playerEggId(name, gear));
-  if (egg) rows.push(el('div', { class: 'p-model-egg' }, el('span', { class: 'p-egg', style: egg.color ? `--egg:${egg.color}` : '', text: egg.name })));
+  rows.push(...addons('modelLines', name, gear).flat());
   const when = gear?.ts ? `Gear updated ${ago(gear.ts)}` : 'No gear reported yet';
   note.replaceChildren(...rows, el('div', { class: 'muted p-model-when', text: when }));
 }
@@ -6040,115 +6028,6 @@ async function renderPlayerCombat(name) {
   if (box) box.scrollTop = box.scrollHeight; // opened on the newest
 }
 
-/* a player's egg: what it does, and (from the server mod) its level and energy */
-
-let eggInfoLoad = null;
-const loadEggInfo = () => (eggInfoLoad ??= import('/eggdata.js').then((m) => m.EGG_INFO).catch(() => { eggInfoLoad = null; return {}; }));
-
-// The egg's item tooltip word for word as the game shows it (public/eggtips.js, made from the egg
-// datapack by scripts/egg-tooltips.py), folded away under the summary until it's asked for. It opens
-// at the level and energy the player's egg has, and either level can be looked at.
-let eggTipsLoad = null;
-const loadEggTips = () => (eggTipsLoad ??= import('/eggtips.js').catch(() => { eggTipsLoad = null; return null; }));
-
-function eggGameTip(egg, live) {
-  let tier = live && live.tier >= 2 ? 2 : 1;
-  const energy = live ? Math.max(0, Math.min(5, live.energy ?? 0)) : 5;
-  let open = recall('eggFull') === '1';
-  const box = el('div', { class: 'egg-game' });
-  const toggle = el('button', { type: 'button', class: 'egg-game-toggle' });
-  const run = ([text, color, style]) => el('span', { style: `color:${color};${style & 1 ? 'font-weight:700;' : ''}${style & 2 ? 'font-style:italic' : ''}`, text });
-  const draw = async () => {
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.replaceChildren(icon([open ? 'M3.5 10 8 5.5 12.5 10' : 'M3.5 6 8 10.5 12.5 6'], 12), open ? 'Hide the in-game description' : 'Show the full in-game description');
-    box.hidden = !open;
-    if (!open) return;
-    if (!box.firstChild) box.replaceChildren(el('div', { class: 'muted egg-game-note', text: 'Loading…' }));
-    const tips = await loadEggTips();
-    const lines = tips?.EGG_TIPS[egg.id]?.[tier];
-    if (!lines) {
-      box.replaceChildren(el('div', { class: 'muted egg-game-note', text: tips ? 'This egg’s in-game description isn’t in the egg datapack.' : 'Couldn’t load the in-game description.' }));
-      return;
-    }
-    const shown = lines.map((line, i) => (i === 0 && energy < 1 ? [...line, [' (Cracked)', '#AAAAAA', 0]]
-      : i === 1 && line.length ? [line[0], ...tips.EGG_TIP_ENERGY[energy]] : line));
-    const levels = el('div', { class: 'seg egg-game-level', role: 'group', 'aria-label': 'Level shown' }, ...[1, 2].map((n) => {
-      const b = el('button', { type: 'button', text: n === 1 ? 'Level I' : 'Level II', 'aria-pressed': String(n === tier) });
-      b.addEventListener('click', () => { tier = n; draw(); });
-      return b;
-    }));
-    box.replaceChildren(
-      el('div', { class: 'egg-game-head' }, levels,
-        el('span', { class: 'muted', text: live ? `theirs is Level ${live.tier >= 2 ? 'II' : 'I'}` : 'as the item shows it in game' })),
-      el('div', { class: 'item-tip egg-game-tip', tabindex: '0' },
-        ...shown.map((line, i) => el('div', { class: `it-line${i ? '' : ' it-name'}` }, ...(line.length ? line.map(run) : ['\u00a0'])))));
-  };
-  toggle.addEventListener('click', () => {
-    open = !open;
-    remember('eggFull', open ? '1' : '0');
-    draw();
-  });
-  draw();
-  return el('div', { class: 'egg-game-wrap' }, toggle, box);
-}
-
-async function renderPlayerEgg(name, gear) {
-  const card = $('#p-egg-card');
-  const live = gear?.egg && EGG_BY_ID[gear.egg.type] ? gear.egg : null;
-  const id = (live && EGG_BY_ID[live.type]) || rosterOf(name)?.egg;
-  const egg = eggInfo(id);
-  $('#p-egg-combat').classList.toggle('no-egg', !egg);
-  card.hidden = !egg;
-  if (!egg) return;
-  const info = (await loadEggInfo())[egg.id];
-  if (state.playerData?.name !== name) return;
-
-  const head = el('div', { class: 'egg-head' },
-    el('img', { class: 'egg-icon', src: `${BASE}/api/mc/textures/item/${egg.model}.png`, alt: '', width: 44, height: 44 }),
-    el('div', { class: 'egg-title' },
-      el('h2', { class: 'p-egg', style: egg.color ? `--egg:${egg.color}` : '' }, info?.symbol ? `${info.symbol} ` : '', egg.name),
-      el('div', { class: 'card-sub', text: info?.theme || 'Egg SMP egg' })));
-
-  const facts = el('div', { class: 'egg-facts' });
-  if (live) {
-    const tier = live.tier >= 2 ? 2 : 1;
-    const energy = Math.max(0, Math.min(5, live.energy ?? 0));
-    facts.append(
-      el('div', { class: 'egg-fact' }, el('span', { class: 'egg-fact-label', text: 'Level' }), el('strong', { text: tier === 2 ? 'II' : 'I' })),
-      el('div', { class: 'egg-fact', title: `${energy} of 5 energy. Dying costs 1; at 0 the egg is Cracked.` },
-        el('span', { class: 'egg-fact-label', text: 'Energy' }),
-        el('span', { class: 'egg-pips', role: 'img', 'aria-label': `${energy} of 5` },
-          ...Array.from({ length: 5 }, (_, i) => el('i', { class: i < energy ? 'on' : '' }))),
-        ...(energy === 0 ? [el('span', { class: 'egg-cracked', text: 'Cracked' })] : [])));
-  }
-  head.append(facts);
-
-  const body = [head];
-  if (!info) {
-    body.push(el('div', { class: 'muted egg-none', text: 'This egg isn’t in the egg datapack yet, so its abilities aren’t listed.' }));
-  } else {
-    const locked = live && live.tier < 2;
-    const row = (label, a, { second = false } = {}) => {
-      if (a === undefined) return null;
-      const off = second && locked && !a?.always;
-      return el('div', { class: `egg-row${off ? ' locked' : ''}` },
-        el('div', { class: 'egg-row-label' }, label, second && a && !a.always ? el('span', { class: 'egg-tag', text: off ? 'Locked · Level II' : 'Level II' }) : null),
-        a
-          ? el('div', { class: 'egg-row-text' }, ...(a.name ? [el('strong', { text: a.name }), ' '] : []), a.text,
-            a.cost ? el('span', { class: 'egg-cost', text: a.cost }) : null)
-          : el('div', { class: 'egg-row-text muted', text: 'None' }));
-    };
-    body.push(el('div', { class: 'egg-rows' },
-      row('Passive', { text: info.passive }),
-      row('Primary', info.primary),
-      row('Secondary', info.secondary, { second: true })));
-  }
-  body.push(eggGameTip(egg, live));
-  if (live && gear.ts) body.push(el('div', { class: 'egg-asof muted', text: `Level and energy as of ${ago(gear.ts)}` }));
-  else if (!live) body.push(el('div', { class: 'egg-asof muted', text: 'Level and energy show once they’ve played with the server mod (1.4.0 or newer).' }));
-  $('#p-egg-body').replaceChildren(...body);
-}
-
 /* ---------- the IGN / Name switch: redraw names where they're showing ---------- */
 
 function rerenderNames() {
@@ -6309,7 +6188,9 @@ function adminChanges() {
     const was = base.roster.find((x) => lower(x.ign) === lower(r.ign));
     if (!was) { out.roster.push(`Add ${r.ign} (${tName(r.team)})`); continue; }
     if (was.team !== r.team) out.roster.push(`${r.ign}: ${tName(was.team)} → ${tName(r.team)}`);
-    if ((was.egg || null) !== (r.egg || null)) out.roster.push(`${r.ign}: egg → ${r.egg ? eggInfo(r.egg).name : 'none'}`);
+    for (const c of addons('rosterColumn')) {
+      if ((was[c.key] || null) !== (r[c.key] || null)) out.roster.push(`${r.ign}: ${c.title.toLowerCase()} → ${r[c.key] ? c.label(r[c.key]) : 'none'}`);
+    }
   }
   for (const r of base.roster) if (!draft.roster.some((x) => lower(x.ign) === lower(r.ign))) out.roster.push(`Remove ${r.ign} from the roster`);
 
@@ -6347,16 +6228,17 @@ function adminChanges() {
 const adminDirty = () => Object.values(adminChanges()).some((list) => list.length);
 
 window.addEventListener('beforeunload', (e) => {
-  if (admin.draft && adminDirty()) e.preventDefault(); // "Leave site? Changes you made may not be saved."
+  if ((admin.draft && adminDirty()) || (srv.draft && srvChanges().length)) e.preventDefault(); // "Leave site? Changes you made may not be saved."
 });
 
-// The Settings and Analytics tabs: one shows, the other hides.
+// The admin page's tabs (Settings, Server, Analytics, Roles): one shows, the others hide.
 function adminTab(name) {
   $('#admin').hidden = name !== 'settings';
+  $('#server-admin').hidden = name !== 'server';
   $('#analytics').hidden = name !== 'analytics';
   $('#roles').hidden = name !== 'roles';
   $('#adm-tab-roles').hidden = !site.super;
-  for (const t of ['settings', 'analytics', 'roles']) $(`#adm-tab-${t}`).setAttribute('aria-selected', String(t === name));
+  for (const t of ['settings', 'server', 'analytics', 'roles']) $(`#adm-tab-${t}`).setAttribute('aria-selected', String(t === name));
 }
 
 async function showAdmin() {
@@ -6380,6 +6262,250 @@ async function showAdmin() {
   renderAdmin();
 }
 
+/* ---------- admin: the server's own details (Admin → Server) ---------- */
+
+// The server's name, its address, who can see it, its join password and how its pages look (accent
+// color, tab style), saved together with the bar at the bottom (POST /api/admin/server,
+// src/serveradmin.js). The look is tried on the page as it's picked, and put back if it isn't saved.
+const srv = { data: null, draft: null, busy: false, errors: {}, custom: '#b4552d' };
+const HEX6 = /^#[0-9a-f]{6}$/;
+// Text on a custom accent: white, unless the color is too light for white to be read on it (as src/look.js).
+function inkOn(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#16181b' : '#ffffff';
+}
+// Puts a look on the page: accent 'green', 'blue' or '#rrggbb'; tabs 'line' or 'frame'.
+function applyLook(accent, tabs) {
+  const root = document.documentElement;
+  const custom = HEX6.test(accent);
+  root.dataset.accent = custom ? 'custom' : accent;
+  root.dataset.tabs = tabs;
+  for (const [k, v] of [['--accent-custom', accent], ['--accent-ink', custom ? inkOn(accent) : '']]) {
+    if (custom) root.style.setProperty(k, v);
+    else root.style.removeProperty(k);
+  }
+}
+const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons] });
+// What Save would change, one line each.
+function srvChanges() {
+  const d = srv.data, f = srv.draft;
+  if (!d || !f) return [];
+  const out = [];
+  const accentName = (a) => (HEX6.test(a) ? a : a[0].toUpperCase() + a.slice(1));
+  if (f.name.trim() !== d.name) out.push(`Name: ${d.name} → ${f.name.trim() || '(empty)'}`);
+  if (f.slug.trim().toLowerCase() !== d.slug) out.push(`Address: /s/${d.slug}/ → /s/${f.slug.trim().toLowerCase()}/ (old links stop working, and everyone joins again)`);
+  if (f.public !== d.public) out.push(f.public ? 'Public: anyone with the address can look' : 'Private: looking needs the join password');
+  if (f.password) out.push(d.has_password ? 'A new join password (everyone who joined with the old one joins again)' : 'A join password');
+  if (f.accent !== d.accent) out.push(`Accent: ${accentName(d.accent)} → ${accentName(f.accent)}`);
+  if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
+  for (const a of d.known_addons || []) {
+    if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
+  }
+  return out;
+}
+// Leaving the tab with a look that wasn't saved: the page goes back to the saved one.
+function srvLeave() {
+  if (srv.data) applyLook(srv.data.accent, srv.data.tab_style);
+}
+
+async function showServerAdmin() {
+  showView('admin');
+  document.title = `Server · ${SITE}`;
+  const root = $('#server-admin');
+  if (!site.perms) {
+    const r = DUMMY ? null : await api('/api/me').catch(() => null);
+    if (r) setMe(r);
+  }
+  adminTab('server');
+  if (!site.admin || DUMMY) {
+    root.replaceChildren(el('div', { class: 'card empty', text: DUMMY ? 'The sample data has no server to change.' : 'This page is only for admins.' }));
+    return;
+  }
+  if (!srv.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
+  const keep = srv.draft && srvChanges().length; // unsaved changes from an earlier visit stay
+  srv.data = await api('/api/admin/server');
+  if (!keep) {
+    srv.draft = srvDraftFrom(srv.data);
+    srv.errors = {};
+  }
+  if (HEX6.test(srv.draft.accent)) srv.custom = srv.draft.accent;
+  renderServerAdmin();
+}
+
+async function srvSave() {
+  const d = srv.data, f = srv.draft;
+  if (srv.busy || !d || !srvChanges().length) return;
+  const body = {};
+  if (f.name.trim() !== d.name) body.name = f.name.trim();
+  if (f.slug.trim().toLowerCase() !== d.slug) body.slug = f.slug.trim().toLowerCase();
+  if (f.public !== d.public) body.public = f.public;
+  if (f.password) Object.assign(body, { password: f.password, confirm: f.confirm });
+  if (f.accent !== d.accent) body.accent = f.accent;
+  if (f.tab_style !== d.tab_style) body.tab_style = f.tab_style;
+  if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
+  srv.busy = true;
+  srv.errors = {};
+  $('#server-admin').classList.add('adm-busy');
+  try {
+    const res = await fetch('/api/admin/server', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const r = await res.json().catch(() => null);
+    if (!res.ok) {
+      srv.errors = { [r?.field || 'form']: r?.error || `The server answered ${res.status}.` };
+      toast('That wasn’t saved. See the note by the field.', { error: true, ms: 5000 });
+      return;
+    }
+    // a new address is a new page; a new name is on every page's title: load it afresh
+    if (r.moved) { srv.draft = null; location.href = `${r.moved}#/admin/server`; return; }
+    if (body.name || body.addons) { srv.draft = null; location.reload(); return; }
+    srv.data = r;
+    srv.draft = srvDraftFrom(r);
+    toast('Saved');
+  } catch {
+    srv.errors = { form: 'Couldn’t reach the server. Nothing was saved.' };
+  } finally {
+    srv.busy = false;
+    $('#server-admin').classList.remove('adm-busy');
+    if (srv.draft) renderServerAdmin();
+  }
+}
+
+function renderServerAdmin(focusKey) {
+  const d = srv.data, f = srv.draft;
+  if (!d || !f) return;
+  const root = $('#server-admin');
+  const owner = d.can.owner;
+  const redraw = (fk) => renderServerAdmin(fk);
+  applyLook(f.accent, f.tab_style);
+
+  const error = (key) => (srv.errors[key] ? el('span', { class: 'site-err', role: 'alert', text: srv.errors[key] }) : null);
+  const field = (label, control, hint, key) => el('div', { class: 'site-field srv-field' },
+    el('span', { class: 'site-label', text: label }), control, key ? error(key) : null, hint ? el('span', { class: 'site-hint', text: hint }) : null);
+  // a text box that keeps the draft up to date as it's typed in (only the Save bar is drawn again, so it keeps its place)
+  const text = (key, attrs) => {
+    const box = el('input', { class: 'adm-input srv-input', 'data-fk': `srv:${key}`, ...attrs });
+    box.value = f[key];
+    box.addEventListener('input', () => { f[key] = box.value; drawBar(); });
+    box.addEventListener('keydown', (e) => { if (e.key === 'Enter') srvSave(); });
+    return box;
+  };
+  const ownerOnly = owner ? null : 'Only the server’s owner can change this.';
+  const card = (title, sub, ...kids) => el('section', { class: 'card adm-card' },
+    el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null),
+    el('div', { class: 'srv-fields' }, ...kids));
+
+  /* ---- name and address ---- */
+  const slugBox = text('slug', { type: 'text', maxlength: '32', spellcheck: 'false', autocapitalize: 'none', autocomplete: 'off', 'aria-label': 'Address',
+    disabled: owner && !d.slug_locked ? null : '' });
+  slugBox.className = 'wiz-url-input srv-url-input';
+  const details = card('Server', null,
+    field('Name', text('name', { type: 'text', maxlength: '60', autocomplete: 'off', 'aria-label': 'Name' }), 'Shown at the top of its pages and in emails.', 'name'),
+    field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slugBox),
+      d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
+
+  /* ---- who can see it, and the join password ---- */
+  const vis = (pub, title, about) => {
+    const radio = el('input', { type: 'radio', name: 'srv-vis', class: 'wiz-vis-radio', 'data-fk': `srv:vis:${pub}`, disabled: owner ? null : '' });
+    radio.checked = f.public === pub;
+    radio.addEventListener('change', () => { f.public = pub; redraw(`srv:vis:${pub}`); });
+    return el('label', { class: 'wiz-vis-opt' }, radio, el('span', { class: 'wiz-vis-title', text: title }), el('span', { class: 'wiz-vis-text', text: about }));
+  };
+  const pass = (key, label) => text(key, { type: 'password', autocomplete: 'new-password', maxlength: '200', placeholder: label, 'aria-label': label, disabled: owner ? null : '' });
+  const access = card('Who can see it', null,
+    field('Stats', el('div', { class: 'wiz-vis srv-vis', role: 'radiogroup', 'aria-label': 'Who can see the stats' },
+      vis(false, 'Private', 'Players join with the server’s name and its join password.'),
+      vis(true, 'Public', 'Anyone with the address can look. No password needed.')), ownerOnly, 'public'),
+    field(d.has_password ? 'New join password' : 'Join password', el('div', { class: 'srv-row' }, pass('password', 'New password'), pass('confirm', 'The same again')),
+      ownerOnly || (d.has_password
+        ? 'Leave empty to keep the one it has. 8 characters or more. A new one makes everyone who joined with the old one join again.'
+        : 'This server has none yet. 8 characters or more; it needs one before it can be made private.'), srv.errors.confirm ? 'confirm' : 'password'));
+
+  /* ---- how its pages look ---- */
+  const custom = HEX6.test(f.accent);
+  const swatch = (value, label, color) => {
+    const on = value === 'custom' ? custom : f.accent === value;
+    const b = el('button', { type: 'button', class: 'srv-swatch', 'aria-pressed': String(on), 'data-fk': `srv:accent:${value}` },
+      el('i', { style: `background:${color}` }), label);
+    b.addEventListener('click', () => { f.accent = value === 'custom' ? srv.custom : value; redraw(`srv:accent:${value}`); });
+    return b;
+  };
+  const picker = el('input', { type: 'color', class: 'srv-color', 'aria-label': 'Custom accent color', 'data-fk': 'srv:color' });
+  picker.value = srv.custom;
+  const hex = el('input', { type: 'text', class: 'adm-input srv-hex', maxlength: '7', spellcheck: 'false', 'aria-label': 'Custom accent color as a hex code', 'data-fk': 'srv:hex' });
+  hex.value = srv.custom;
+  const setCustom = (v, from) => {
+    srv.custom = f.accent = v;
+    applyLook(f.accent, f.tab_style);
+    if (from !== picker) picker.value = v;
+    if (from !== hex) hex.value = v;
+    drawBar();
+  };
+  picker.addEventListener('input', () => setCustom(picker.value.toLowerCase(), picker));
+  hex.addEventListener('input', () => {
+    const v = (hex.value.trim().startsWith('#') ? hex.value.trim() : `#${hex.value.trim()}`).toLowerCase();
+    if (HEX6.test(v)) setCustom(v, hex);
+  });
+  const tabs = (value, title, about) => {
+    const radio = el('input', { type: 'radio', name: 'srv-tabs', class: 'wiz-vis-radio', 'data-fk': `srv:tabs:${value}` });
+    radio.checked = f.tab_style === value;
+    radio.addEventListener('change', () => { f.tab_style = value; redraw(`srv:tabs:${value}`); });
+    return el('label', { class: 'wiz-vis-opt srv-tabs-opt' }, radio,
+      el('span', { class: `srv-demo srv-demo-${value}`, 'aria-hidden': 'true' }, el('span', { class: 'on', text: 'Activity' }), el('span', { text: 'Combat' }), el('span', { text: 'Chat log' })),
+      el('span', { class: 'wiz-vis-title', text: title }), el('span', { class: 'wiz-vis-text', text: about }));
+  };
+  const look = card('Look', 'tried on this page as you pick; everyone sees it once it’s saved',
+    field('Accent color', el('div', { class: 'srv-swatches' },
+      swatch('green', 'Green', 'var(--accent-green)'), swatch('blue', 'Blue', 'var(--accent-blue)'), swatch('custom', 'Custom', srv.custom),
+      custom ? el('span', { class: 'srv-custom' }, picker, hex) : null),
+    'Charts, links, the main buttons and the line under whatever’s picked. A custom color is lightened a little in dark mode.', 'accent'),
+    field('Tab style', el('div', { class: 'wiz-vis srv-vis', role: 'radiogroup', 'aria-label': 'Tab style' },
+      tabs('line', 'Line', 'The current tab is a shade greyer, with a line in the accent color under it.'),
+      tabs('frame', 'Frame', 'The current tab is set in, with a frame around it and no color.')), null, 'tab_style'));
+
+  /* ---- add-ons: the site's operators only ---- */
+  const extras = d.known_addons?.length ? card('Add-ons', 'features only some servers have; only the site’s operators see this',
+    ...d.known_addons.map((a) => {
+      const box = el('input', { type: 'checkbox', 'data-fk': `srv:addon:${a.id}` });
+      box.checked = f.addons.includes(a.id);
+      box.addEventListener('change', () => {
+        f.addons = d.known_addons.map((x) => x.id).filter((id) => (id === a.id ? box.checked : f.addons.includes(id)));
+        redraw(`srv:addon:${a.id}`);
+      });
+      return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: a.name }), el('span', { class: 'site-hint', text: a.about })));
+    })) : null;
+
+  /* ---- the Save bar ---- */
+  const bar = el('div', {});
+  function drawBar() {
+    const all = srvChanges();
+    const button = (label, cls, fk, onClick) => {
+      const b = el('button', { type: 'button', class: `btn ${cls}`, text: label, 'data-fk': fk });
+      b.disabled = !all.length || srv.busy;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+    bar.replaceChildren(el('div', { class: `adm-savebar${all.length ? ' dirty' : ''}`, role: 'region', 'aria-label': 'Save changes' },
+      el('div', { class: 'adm-save-text' },
+        el('strong', { text: all.length ? `${all.length} unsaved ${all.length === 1 ? 'change' : 'changes'}` : 'No unsaved changes' }),
+        srv.errors.form ? el('span', { class: 'site-err', role: 'alert', text: srv.errors.form }) : null,
+        all.length ? el('ul', { class: 'adm-change-list' }, ...all.map((c) => el('li', { text: c })))
+          : el('span', { class: 'muted', text: 'Edits above are only kept and applied once you press Save.' })),
+      el('div', { class: 'adm-save-actions' },
+        button('Reset changes', 'adm-reset', 'srv:reset', () => { srv.draft = srvDraftFrom(d); srv.errors = {}; redraw('srv:reset'); }),
+        button('Save', 'btn-primary adm-save', 'srv:save', srvSave))));
+  }
+  drawBar();
+
+  root.replaceChildren(details, access, look, ...(extras ? [extras] : []), bar);
+  if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+}
+
 /* ---------- website analytics ---------- */
 
 // Each page view, and each minute a page is open and visible, goes to /api/hit (src/analytics.js).
@@ -6388,7 +6514,7 @@ const analyticsPage = () => {
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   if (m) return `player:${m[1].toLowerCase()}`;
   if (onLive()) return 'live';
-  return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/analytics': 'admin', '#/admin/roles': 'admin' }[location.hash] || 'home';
+  return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/server': 'admin', '#/admin/analytics': 'admin', '#/admin/roles': 'admin' }[location.hash] || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
 function sendHit(beat) {
@@ -6742,7 +6868,9 @@ function renderAdmin() {
   const teamList = draft.teams;
   const teamIds = [...new Set([...teamList.map((t) => t.id), ...draft.roster.map((r) => r.team)])];
   const teamName = (id) => teamList.find((x) => x.id === id)?.name || (id ? id[0].toUpperCase() + id.slice(1) : 'No team');
-  const eggIds = Object.keys(EGGS).sort((a, b) => EGGS[a][0].localeCompare(EGGS[b][0]));
+  // columns the server's add-ons put on the roster (the Egg SMP add-on: Egg)
+  const rosterCols = addons('rosterColumn');
+  const rosterWhat = ['teams', ...rosterCols.map((c) => c.plural)].join(' and ');
   const players = el('datalist', { id: 'adm-players' }, ...d.players.map((n) => el('option', { value: n })));
   const select = (options, value, label, fk) => {
     const s = el('select', { class: 'adm-input', 'aria-label': label, 'data-fk': fk });
@@ -6752,7 +6880,7 @@ function renderAdmin() {
     return s;
   };
   const teamSelect = (v, fk) => select(teamIds.map((t) => [t, teamName(t)]), v, 'Team', fk);
-  const eggSelect = (v, fk) => select([['', 'No egg'], ...eggIds.map((id) => [id, EGGS[id][0]])], v, 'Egg', fk);
+  const colSelect = (c, v, fk) => select([['', c.none], ...c.options], v, c.title, fk);
   const button = (text, onClick, cls = '', fk = null) => {
     const b = el('button', { type: 'button', class: `btn ${cls}`, text, 'data-fk': fk });
     b.addEventListener('click', onClick);
@@ -6840,9 +6968,9 @@ function renderAdmin() {
       el('thead', {}, el('tr', {}, ...['', 'Color', 'Name', 'Short', 'Combat scoreboard', 'Kills chart', 'Activity charts', '', ''].map((h) => el('th', { text: h })))),
       el('tbody', {}, ...teamRows))),
     el('div', { class: 'adm-form adm-team-add' }, newTeamColor, newTeamName, button('Add team', addTeam, 'btn-primary')),
-    el('p', { class: 'muted adm-note', text: 'Put players on a team in Teams and eggs below. Combat scoreboard: with two teams shown it’s the tug-of-war bar; with one, or three or more, each gets a block. A team “in the middle” sits between the two sides of the tug-of-war bar: its deaths, with its kills of each side to their left and right, and no headline of its own. Activity charts: “Group with” leaves the team out of the by-team charts and counts its players’ time as the other team’s. A team left out of a chart still has its players, in their color, everywhere else.' }));
+    el('p', { class: 'muted adm-note', text: `Put players on a team in ${rosterWhat[0].toUpperCase()}${rosterWhat.slice(1)} below. Combat scoreboard: with two teams shown it’s the tug-of-war bar; with one, or three or more, each gets a block. A team “in the middle” sits between the two sides of the tug-of-war bar: its deaths, with its kills of each side to their left and right, and no headline of its own. Activity charts: “Group with” leaves the team out of the by-team charts and counts its players’ time as the other team’s. A team left out of a chart still has its players, in their color, everywhere else.` }));
 
-  /* ---- teams and eggs: the roster, and each player's teams over time ---- */
+  /* ---- the roster (teams, and any add-on's column), and each player's teams over time ---- */
   const now = nowSec();
   const seasonFrom = Math.min(now - 3600, Math.max(d.lo || 0, state.dataStart || 0) || now - 30 * 86400);
   const periodsOf = (ign) => draft.history.filter((h) => lower(h.ign) === lower(ign)).sort((a, b) => a.until - b.until);
@@ -6914,7 +7042,12 @@ function renderAdmin() {
     const key = lower(r.ign);
     const base = d.roster.find((x) => lower(x.ign) === key);
     const periods = periodsOf(r.ign);
-    const team = teamSelect(r.team, `ros:${key}:team`), egg = eggSelect(r.egg, `ros:${key}:egg`);
+    const team = teamSelect(r.team, `ros:${key}:team`);
+    const extras = rosterCols.map((c) => {
+      const sel = colSelect(c, r[c.key], `ros:${key}:${c.key}`);
+      sel.addEventListener('change', () => { r[c.key] = sel.value || null; redraw(); });
+      return el('td', {}, sel);
+    });
     team.addEventListener('change', () => {
       const was = r.team;
       r.team = team.value;
@@ -6929,7 +7062,6 @@ function renderAdmin() {
       }
       redraw();
     });
-    egg.addEventListener('change', () => { r.egg = egg.value || null; redraw(); });
     const open = admin.open.has(key);
     const toggle = el('button', { type: 'button', class: `btn btn-quiet adm-periods-toggle${open ? ' open' : ''}`, 'aria-expanded': String(open), 'data-fk': `ros:${key}:periods` },
       periods.length ? timeline(r, periods) : null,
@@ -6938,7 +7070,7 @@ function renderAdmin() {
     toggle.addEventListener('click', () => { if (open) admin.open.delete(key); else admin.open.add(key); redraw(); });
     const changed = !base ? 'adm-row-new' : changes.roster.some((c) => c.startsWith(`${r.ign}:`)) || changes.history.some((c) => c.startsWith(`${r.ign}:`)) ? 'adm-row-changed' : '';
     const main = el('tr', { class: changed },
-      el('td', { class: 'adm-ign' }, dot(r.team), r.ign, !base ? unsaved('new') : null), el('td', {}, team), el('td', {}, egg),
+      el('td', { class: 'adm-ign' }, dot(r.team), r.ign, !base ? unsaved('new') : null), el('td', {}, team), ...extras,
       el('td', {}, toggle),
       el('td', { class: 'adm-act' }, button('Remove', () => {
         draft.roster = draft.roster.filter((x) => x !== r);
@@ -6946,9 +7078,9 @@ function renderAdmin() {
         admin.open.delete(key);
         redraw();
       }, 'btn-quiet', `ros:${key}:remove`)));
-    return open ? [main, el('tr', { class: `adm-periods-row ${changed}` }, el('td', { colspan: '5' }, periodEditor(r)))] : [main];
+    return open ? [main, el('tr', { class: `adm-periods-row ${changed}` }, el('td', { colspan: String(4 + rosterCols.length) }, periodEditor(r)))] : [main];
   });
-  const newIgn = nameInput('IGN'), newTeam = teamSelect(teamIds[0]), newEgg = eggSelect('');
+  const newIgn = nameInput('IGN'), newTeam = teamSelect(teamIds[0]), newExtras = rosterCols.map((c) => colSelect(c, ''));
   const addPlayer = () => {
     const ign = newIgn.value.trim();
     if (!ign) return;
@@ -6956,19 +7088,19 @@ function renderAdmin() {
     if (draft.roster.some((x) => lower(x.ign) === lower(ign))) return toast(`${ign} is already on the roster`, { error: true });
     if (!newTeam.value) return toast('Add a team first', { error: true });
     const was = d.roster.find((x) => lower(x.ign) === lower(ign)); // taken off and put back: as they were known
-    draft.roster.push({ ign: was?.ign || ign, team: newTeam.value, egg: newEgg.value || null });
+    draft.roster.push({ ign: was?.ign || ign, team: newTeam.value, egg: null, ...Object.fromEntries(rosterCols.map((c, i) => [c.key, newExtras[i].value || null])) });
     redraw();
   };
   onEnter(newIgn, addPlayer);
-  const addRow = el('tr', { class: 'adm-add' }, el('td', {}, newIgn), el('td', {}, newTeam), el('td', {}, newEgg), el('td', {}),
+  const addRow = el('tr', { class: 'adm-add' }, el('td', {}, newIgn), el('td', {}, newTeam), ...newExtras.map((x) => el('td', {}, x)), el('td', {}),
     el('td', { class: 'adm-act' }, button('Add', addPlayer, 'btn-primary')));
-  const rosterCard = card('Teams and eggs', `Season ${d.season}`,
+  const rosterCard = card(`${rosterWhat[0].toUpperCase()}${rosterWhat.slice(1)}`, `Season ${d.season}`,
     el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table adm-roster' },
-      el('thead', {}, el('tr', {}, ...['Player', 'Team', 'Egg', 'Teams over time', ''].map((h) => el('th', { text: h })))),
+      el('thead', {}, el('tr', {}, ...['Player', 'Team', ...rosterCols.map((c) => c.title), 'Teams over time', ''].map((h) => el('th', { text: h })))),
       el('tbody', {}, ...rosterRows, addRow))),
     el('p', { class: 'adm-note adm-from-now' }, el('strong', { text: 'A team change counts from now on. ' }),
       'Changing a player’s team keeps what they did before with the team they were on then, as an earlier team ending now. Open Teams over time to move that moment, change which team they were on in any stretch, add or remove stretches, or remove the earlier team so everything they’ve done counts for the new one.'),
-    el('p', { class: 'muted adm-note', text: `Running npm run roster:remote again replaces the players, teams and eggs with roster-s${d.season}.json, so copy lasting changes there too.` }));
+    el('p', { class: 'muted adm-note', text: `Running npm run roster:remote again replaces the players, ${rosterWhat.replace(' and ', ', ')} with roster-s${d.season}.json, so copy lasting changes there too.` }));
 
   /* ---- hidden players ---- */
   const hidName = nameInput('Player'), hidNote = el('input', { class: 'adm-input', type: 'text', placeholder: 'Note (optional)', maxlength: '200' });
@@ -7350,12 +7482,14 @@ async function route() {
   closeTip();
   closeGearMenu();
   showError('');
+  if (location.hash !== '#/admin/server') srvLeave(); // a look tried on Admin → Server but not saved
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   try {
     if (m) await showPlayer(m[1]);
     else if (location.hash === '#/chat') await showChat();
     else if (location.hash === '#/combat') await showCombat();
     else if (location.hash === '#/admin') await showAdmin();
+    else if (location.hash === '#/admin/server') await showServerAdmin();
     else if (location.hash === '#/admin/analytics') await showAnalytics();
     else if (location.hash === '#/admin/roles') await showRoles();
     else if (onLive()) await showLive();
@@ -7701,7 +7835,7 @@ async function refresh() {
     else if (location.hash === '#/combat') await showCombat({ refresh: true });
     else if (location.hash === '#/admin') { /* the admin page reloads only on a change */ }
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
-    else if (location.hash === '#/admin/roles') { /* the roles page reloads only on a change */ }
+    else if (location.hash === '#/admin/roles' || location.hash === '#/admin/server') { /* these reload only on a change */ }
     else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
     else await showHome();
     renderUnread();

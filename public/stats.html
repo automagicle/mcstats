@@ -191,9 +191,10 @@
         </div>
       </div>
 
-      <div class="grid2 p-egg-combat" id="p-egg-combat">
-        <section class="card egg-card" id="p-egg-card" hidden>
-          <div id="p-egg-body"></div>
+      <!-- the card on the left is a server's add-ons' (public/addons/); without any, Combat has the row to itself -->
+      <div class="grid2 p-side-combat no-side" id="p-side-combat">
+        <section class="card addon-card" id="p-addon-card" hidden>
+          <div id="p-addon-body"></div>
         </section>
         <section class="card pcombat-card" id="p-combat-card">
           <div class="card-head">
@@ -299,18 +300,20 @@
       </div>
     </section>
 
-    <!-- Admin (only for the emails in the ADMIN_EMAIL secret) -->
+    <!-- Admin (this server's members with the admin permission) -->
     <section id="view-admin" hidden>
       <div class="adm-top">
         <h1 class="page-title adm-title">Admin</h1>
         <div class="seg adm-tabs" role="tablist" aria-label="Admin sections">
           <a role="tab" href="#/admin" id="adm-tab-settings">Settings</a>
+          <a role="tab" href="#/admin/server" id="adm-tab-server">Server</a>
           <a role="tab" href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
           <!-- super admins only (app.js shows it once /api/me says so) -->
           <a role="tab" href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
         </div>
       </div>
       <div id="admin"></div>
+      <div id="server-admin" hidden></div>
       <div id="analytics" hidden></div>
       <div id="roles" hidden></div>
     </section>

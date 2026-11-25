@@ -60,36 +60,34 @@
       </div>
     </section>
 
-    <div class="home-shot">
+    <div class="home-shot" id="activity">
       <div class="home-window" aria-label="An example server’s Activity page" role="figure">
         <div class="home-wbar">
           <span class="home-wbrand"><span class="logo" aria-hidden="true"></span>Birchwood SMP</span>
           <nav class="tabs home-wtabs" aria-label="Example pages">
-            <a href="#top" aria-current="page" onclick="return false">Activity</a>
-            <a href="#players">Players</a>
+            <a href="#activity" aria-current="page" onclick="return false">Activity</a>
+            <a href="#more">Combat</a>
             <a href="#chat">Chat log</a>
           </nav>
-          <span class="live"><span class="dot home-dot"></span><span id="w-live">4 online</span></span>
+          <span class="live" data-state="up"><span class="dot"></span><span id="w-live">4 online</span></span>
         </div>
         <div class="home-wbody">
-          <div class="tiles">
-            <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="w-online">4</div><div class="tile-sub">of 9 players</div></div>
-            <div class="tile"><div class="tile-label">Peak today</div><div class="tile-value">6</div><div class="tile-sub">players at once</div></div>
-            <div class="tile"><div class="tile-label">Played this week</div><div class="tile-value">71h</div><div class="tile-sub">player-hours, last 7 days</div></div>
-            <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value">9</div><div class="tile-sub">this season</div></div>
-          </div>
-          <div class="chips home-chips" id="w-chips"></div>
-          <section class="card home-wcard">
-            <div class="card-head"><div class="card-title"><h2>Players online</h2> <span class="card-sub">today</span></div></div>
-            <div class="home-plot" id="w-plot">
-              <svg viewBox="0 0 1440 100" preserveAspectRatio="none" aria-hidden="true">
-                <path class="home-grid" d="M0 25H1440M0 50H1440M0 75H1440"/>
-                <path class="home-area" id="w-area"/>
-                <path class="home-line" id="w-line"/>
-              </svg>
-              <div class="home-cursor" id="w-cursor" hidden><span class="home-marker" id="w-marker"></span><span class="tooltip home-tip" id="w-tip"></span></div>
+          <div class="now">
+            <div class="tiles">
+              <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="w-online">4</div><div class="tile-sub">of 20 slots</div></div>
+              <div class="tile"><div class="tile-label">Peak today</div><div class="tile-value" id="w-peak">6</div><div class="tile-sub">players at once</div></div>
+              <div class="tile"><div class="tile-label">Played this week</div><div class="tile-value" id="w-week">–</div><div class="tile-sub">player-hours, last 7 days</div></div>
+              <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value" id="w-seen">9</div><div class="tile-sub">this season</div></div>
             </div>
-            <div class="home-ticks" aria-hidden="true"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+            <div class="chips" id="w-chips"></div>
+          </div>
+          <section class="card">
+            <div class="card-head">
+              <div class="card-title"><h2>Players online</h2> <span class="card-sub" id="w-label">Last 24 hours</span></div>
+              <div class="range-ctl" id="w-ctl"></div>
+            </div>
+            <div class="legend-row"><div class="legend" id="w-legend"></div></div>
+            <div class="chart" id="w-chart"></div>
           </section>
         </div>
       </div>
@@ -99,17 +97,64 @@
     <section class="home-feature" id="players">
       <div class="home-ftext">
         <h2>A page for every player</h2>
-        <p>Playtime, sessions, the hours they’re usually on, and how their fights went.</p>
+        <p>Playtime, sessions, the hours they’re usually on, what they carry, and how their fights went.</p>
         <div class="home-pick" id="p-pick" role="group" aria-label="Example players"></div>
       </div>
-      <div class="home-fvis card home-profile" id="profile">
-        <div class="home-pleft">
-          <figure class="p-model-card home-model-card">
-            <div class="p-model loading" id="p-model" role="img" aria-label="3D model of the player, in their armor"></div>
-            <figcaption class="p-model-note"><div class="p-model-held" id="p-held">Loading the model…</div></figcaption>
-          </figure>
+      <div class="home-fvis home-window home-page" id="profile" aria-label="An example player’s page" role="figure">
+        <div class="home-wbody" id="p-page">
+          <a class="back" href="#activity">← All players</a>
+          <div class="player-top">
+            <figure class="p-model-card" id="p-model-card">
+              <div class="p-model loading" id="p-model" role="img" aria-label="3D model of the player"></div>
+              <figcaption class="p-model-note" id="p-model-note"></figcaption>
+            </figure>
+            <div class="player-side">
+              <div class="player-head">
+                <img id="p-head" class="p-avatar" alt="" width="64" height="64">
+                <div>
+                  <div class="home-pname" id="p-name"></div>
+                  <div class="card-sub" id="p-status"></div>
+                </div>
+              </div>
+              <div class="tiles">
+                <div class="tile"><div class="tile-label">Total played</div><div class="tile-value" id="p-total">–</div><div class="tile-sub" id="p-total-sub"></div></div>
+                <div class="tile"><div class="tile-label">Sessions</div><div class="tile-value" id="p-sessions">–</div><div class="tile-sub" id="p-avg"></div></div>
+                <div class="tile"><div class="tile-label">Longest session</div><div class="tile-value" id="p-longest">–</div><div class="tile-sub" id="p-longest-sub"></div></div>
+                <div class="tile">
+                  <div class="tile-label">Chat messages
+                    <select id="p-chat-mode" class="tile-select" aria-label="Count">
+                      <option value="total">total</option><option value="today">today</option>
+                    </select>
+                  </div>
+                  <div class="tile-value" id="p-chat">–</div><div class="tile-sub" id="p-chat-sub"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <section class="card pcombat-card">
+            <div class="card-head">
+              <div class="card-title"><h2>Combat</h2><span class="card-sub">this season</span></div>
+              <a class="card-link" href="#more">Combat page</a>
+            </div>
+            <div id="p-combat"></div>
+          </section>
+
+          <div class="grid2 grid-side grid-side-left">
+            <section class="card">
+              <div class="card-head"><h2>When they play</h2><span class="card-sub">total time by hour</span></div>
+              <div id="p-weekgrid"></div>
+              <div class="p-usual">
+                <div class="pc-section">Usually on <span class="muted" id="p-usual-sub"></span></div>
+                <div id="p-usual"></div>
+              </div>
+            </section>
+            <section class="card recent-card">
+              <div class="card-head"><h2>Recent sessions</h2></div>
+              <div id="p-recent"></div>
+            </section>
+          </div>
         </div>
-        <div class="home-pinfo" id="p-info" aria-live="polite"></div>
       </div>
     </section>
 
@@ -121,43 +166,46 @@
         <p class="home-try">Try it: send a message below.</p>
       </div>
       <div class="home-fvis card chat-card home-chat">
-        <div class="home-chat-head">
-          <div class="seg" id="c-filter" role="group" aria-label="Show">
-            <button type="button" data-k="all" aria-pressed="true">All</button>
-            <button type="button" data-k="chat" aria-pressed="false">Chat</button>
-            <button type="button" data-k="death" aria-pressed="false">Deaths</button>
-            <button type="button" data-k="advancement" aria-pressed="false">Advancements</button>
-          </div>
+        <div class="chat-scroll" id="c-log" role="log" aria-label="Example chat log" tabindex="0">
+          <div id="c-list"></div>
         </div>
-        <div class="chat-scroll" id="c-log" role="log" aria-label="Example chat log" tabindex="0"></div>
         <form class="chat-compose" id="c-form" autocomplete="off">
-          <span class="chat-compose-me"><span class="msg-admin">You</span></span>
+          <span class="chat-compose-me" aria-hidden="true"><span class="msg-name msg-admin">You</span></span>
           <input type="text" id="c-input" maxlength="120" enterkeyhint="send" placeholder="Message Birchwood SMP" aria-label="Message the example server">
           <button type="submit" class="chat-send" id="c-send" aria-label="Send" title="Send (Enter)" disabled>
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3.5M3.8 7.5 8 3.2l4.2 4.3"/></svg>
           </button>
         </form>
+        <div class="chat-online" id="c-online">
+          <div class="chips chat-chips" id="c-chips"></div>
+          <button type="button" class="icon-btn chat-online-close" id="c-online-close" aria-label="Hide who’s online" title="Hide who’s online">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+          <button type="button" class="online-pill" id="c-online-pill" aria-label="Show who’s online" hidden><span class="dot"></span><span id="c-online-n"></span></button>
+        </div>
       </div>
     </section>
 
     <!-- smaller things, one line each -->
     <section class="home-more" id="more" aria-label="More of what mcstats does">
       <div class="card home-mini">
-        <h3>Busiest hours</h3>
+        <h3>Busiest times</h3>
         <p>When everyone’s on, hour by hour.</p>
-        <div class="home-week" id="m-week" aria-hidden="true"></div>
+        <div id="m-week"></div>
       </div>
       <div class="card home-mini">
         <h3>Fights</h3>
         <p>Kills, deaths, and who did it.</p>
-        <table class="home-kd" id="m-kd"></table>
+        <div class="cb-leaderboard" id="m-fights"></div>
       </div>
       <div class="card home-mini">
         <h3>Private by default</h3>
         <p>Each server has its own password. Or make it public.</p>
-        <div class="home-lock" aria-hidden="true">
-          <span class="home-lock-field"><span id="m-pass"></span><i></i></span>
-          <span class="btn btn-primary">Join</span>
+        <!-- the join page's form, filled in; the button goes to the real one -->
+        <div class="site-form home-join">
+          <div class="site-field" aria-hidden="true"><span class="site-label">Server name</span><span class="adm-input site-input">Birchwood SMP</span><span class="site-hint">The name the server’s owner gave you.</span></div>
+          <div class="site-field" aria-hidden="true"><span class="site-label">Server password</span><span class="adm-input site-input home-pass">••••••••<i></i></span></div>
+          <a class="btn btn-primary site-go" href="/join">Join</a>
         </div>
       </div>
     </section>

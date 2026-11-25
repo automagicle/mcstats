@@ -25,12 +25,15 @@ import { codeEmail, sendEmail } from './email.js';
 import { ipKey, limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { parseStart } from './seasons.js';
+import { cleanAccent, TAB_STYLES } from './look.js';
+import { ADDONS, addonList } from './addons.js';
+import { handleServerAdmin } from './serveradmin.js';
 
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const MINUTE = 60_000;
 
 // Settings anyone with access may see (the page and /new show them). The rest stay inside.
-const PUBLIC_SETTINGS = ['TZ_NAME', 'CURRENT_SEASON', 'CHAT_RESETS', 'PUBLIC'];
+const PUBLIC_SETTINGS = ['TZ_NAME', 'CURRENT_SEASON', 'CHAT_RESETS', 'PUBLIC', 'ACCENT', 'TAB_STYLE'];
 
 export class Tenant extends DurableObject {
   constructor(ctx, env) {
@@ -98,7 +101,11 @@ export class Tenant extends DurableObject {
         this.put('CREATED_AT', Math.floor(Date.now() / 1000));
       }
       this.put('NAME', name);
-      if (legacy) this.put('LEGACY', '1');
+      if (legacy) {
+        this.put('LEGACY', '1');
+        // the server from before servers had their own is Egg SMP: it keeps its eggs (src/addons.js)
+        if (this.settings.ADDONS == null) this.put('ADDONS', 'eggsmp');
+      }
       if (paused) this.put('PAUSED', '1');
       for (const [k, v] of Object.entries(settings)) if (SETTING_RE.test(k)) this.put(k, v);
     });
@@ -178,6 +185,13 @@ export class Tenant extends DurableObject {
         clean[k] = v;
       } else if (k === 'PUBLIC') {
         clean[k] = v === '1' || v === 'true' ? '1' : '';
+      } else if (k === 'ACCENT') {
+        const a = cleanAccent(v);
+        if (v && !a) return { error: 'The accent is blue, green, or a color like #3d8a26.' };
+        clean[k] = a || '';
+      } else if (k === 'TAB_STYLE') {
+        if (v && !TAB_STYLES.includes(v)) return { error: `The tab style is ${TAB_STYLES.join(' or ')}.` };
+        clean[k] = v;
       } else if (k === 'TZ_NAME') {
         try {
           if (v) new Intl.DateTimeFormat('en', { timeZone: v });
@@ -204,6 +218,14 @@ export class Tenant extends DurableObject {
     await clearCache(this.db);
     await this.arm();
     return this.info();
+  }
+
+  // Which add-ons this server has (src/addons.js). Only the site's operators set this.
+  async setAddons(ids) {
+    // '-' for none at all, so "switched off" is remembered apart from "never set"
+    this.put('ADDONS', [...new Set(ids)].filter((id) => ADDONS[id]).join(',') || '-');
+    this.load();
+    return addonList(this.settings);
   }
 
   async addMember(email, role, by) {
@@ -296,6 +318,8 @@ export class Tenant extends DurableObject {
     } catch { /* nobody */ }
     if (url.pathname.startsWith('/api/auth/')) return this.auth(request, url, proof);
     const who = await this.access(proof);
+    // the server's own details (name, address, password, look): they live here and in the directory
+    if (who && url.pathname === '/api/admin/server') return handleServerAdmin(this, request, url, who);
     return handleApi(request, this.serverEnv(who ? { WHO: who } : {}), url, this.ctx);
   }
 

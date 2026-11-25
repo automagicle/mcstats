@@ -21,13 +21,17 @@
   // The mod versions shown on /new, read from mod/ (scripts/mod-info.mjs writes src/modinfo.gen.js).
   "build": { "command": "node scripts/mod-info.mjs" },
 
+  // No cron: each server checks itself on its own alarm (src/tenant.js). Said out loud, because leaving
+  // "triggers" out keeps whatever cron an earlier deploy set up.
+  "triggers": { "crons": [] },
+
   "d1_databases": [
     {
       // Which servers exist: slug, name, hashed join password, hashed mod keys, owner. No stats.
       // Create it with `npx wrangler d1 create mcstats-directory` and put its id here.
       "binding": "DIRECTORY",
       "database_name": "mcstats-directory",
-      "database_id": "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create",
+      "database_id": "2710840a-3a87-4057-80a0-98507e6a0d0f",
       "migrations_dir": "directory-migrations"
     },
     {

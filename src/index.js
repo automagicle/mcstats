@@ -21,6 +21,8 @@ import { currentSeason } from './seasons.js';
 import { ipKey, limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { serveHomeAsset } from './mcassets.js';
+import { ADDONS, addonList } from './addons.js';
+import { lookAttrs, lookOf } from './look.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
@@ -120,12 +122,25 @@ async function server(request, env, url, ctx, slug, rest) {
   if (season[1] && (Number(season[1]) < 1 || Number(season[1]) >= current)) return new Response('Not found', { status: 404 });
   const html = await env.ASSETS.fetch(new Request(new URL('/stats', url)));
   // What the page needs to know about its server, before app.js runs (public/tenant.js reads it).
+  const look = lookOf(g.settings);
+  const addons = addonList(g.settings);
   const config = {
     base: `/s/${row.slug}`, slug: row.slug, name: row.name, season: current,
-    email: g.who.email, public: g.settings.PUBLIC === '1',
+    email: g.who.email, public: g.settings.PUBLIC === '1', accent: look.accent, tabs: look.tabs, addons,
   };
+  // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
+  const extras = addons.flatMap((id) => [
+    ...ADDONS[id].styles.map((href) => `<link rel="stylesheet" href="${href}">`),
+    ...ADDONS[id].scripts.map((src) => `<script src="${src}" defer></script>`),
+  ]).join('');
   const script = `<script>window.MCS=${JSON.stringify(config).replace(/</g, '\\u003c')};</script><script src="/tenant.js"></script>`;
-  const out = new HTMLRewriter().on('head', { element(e) { e.prepend(script, { html: true }); } }).transform(html);
+  const out = new HTMLRewriter()
+    // the server's accent color and tab style, on <html> before anything is drawn (src/look.js)
+    .on('html', { element(e) { for (const [k, v] of Object.entries(lookAttrs(look))) e.setAttribute(k, v); } })
+    .on('head', { element(e) { e.prepend(script, { html: true }); } })
+    // after the site's stylesheet, so an add-on's rules can build on it
+    .on('script[src="/app.js"]', { element(e) { if (extras) e.before(extras, { html: true }); } })
+    .transform(html);
   const res = new Response(out.body, out);
   res.headers.set('Cache-Control', 'no-store');
   return res;
