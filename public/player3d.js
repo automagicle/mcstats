@@ -49,10 +49,14 @@ function pixelTexture(source) {
 
 // The skin as the game prepares it: a 64×64 sheet whose base layer is fully opaque (only the outer
 // layer has see-through pixels). Old 64×32 skins keep their size; their left limbs mirror the right.
-async function loadSkin(name, uuid) {
+// preset: one of the game's own skins ({ path: 'entity/player/slim/alex', slim: true }) instead of the player's.
+async function loadSkin(name, uuid, preset) {
   let model = 'classic';
   let img = null;
-  try {
+  if (preset) {
+    img = await loadImage(TEX(preset.path));
+    model = preset.slim ? 'slim' : 'classic';
+  } else try {
     const res = await fetch(`/api/skin/${encodeURIComponent(name)}${uuid ? `?uuid=${uuid}` : ''}`);
     if (res.ok) {
       model = res.headers.get('X-Skin-Model') || 'unknown';
@@ -99,8 +103,12 @@ async function loadSkin(name, uuid) {
 // right (left limbs drawn from the right limb's texture).
 function cube(w, h, d, u, v, texW, texH, inflate = 0, mirror = false) {
   const g = new THREE.BoxGeometry(w + inflate * 2, h + inflate * 2, d + inflate * 2);
+  // Each face's corners are pulled a hair inside its pixels: exactly on a pixel border, the GPU can
+  // sample the neighbouring pixel of the sheet, which shows as a thin line along the box's edges
+  // (on armor and outer layers, even where they're see-through).
+  const E = 0.02;
   const rect = (x1, y1, x2, y2) => {
-    const l = x1 / texW, r = x2 / texW, t = 1 - y1 / texH, b = 1 - y2 / texH;
+    const l = (x1 + E) / texW, r = (x2 - E) / texW, t = 1 - (y1 + E) / texH, b = 1 - (y2 - E) / texH;
     return mirror ? [[r, t], [l, t], [r, b], [l, b]] : [[l, t], [r, t], [l, b], [r, b]]; // TL TR BL BR
   };
   const playerRight = rect(u, v + d, u + d, v + d + h);
@@ -482,15 +490,14 @@ async function makeAura(scene, look, keep) {
 
 /* ---------- the model ---------- */
 
-export async function mountPlayer(container, spec) {
-  const disposables = [];
-  const keep = (x) => (disposables.push(x), x);
+// The player's model on its own, with no scene or renderer: their skin, armor and held items, built
+// exactly as on their page. Also used by the landing page's little world (public/home3d.js).
+// keep(x) is given everything that needs disposing. -> { root, parts, glints, held, hasWeapon, hasEgg, itemHolder }
+// root has the feet at the origin, faces +z, one unit per skin pixel; glints' time uniforms move the shimmer.
+export async function buildModel(spec, keep, cancelled = () => spec.signal?.aborted) {
   const glints = [];
-  let disposed = false;
-  const cancelled = () => disposed || spec.signal?.aborted;
-
   const [skin, glintImg] = await Promise.all([
-    loadSkin(spec.name, spec.uuid),
+    loadSkin(spec.name, spec.uuid, spec.skin),
     glintImage ??= loadImage(TEX('misc/enchanted_glint_armor')),
   ]);
   const glintTex = glintImg ? keep(pixelTexture(glintImg)) : null;
@@ -498,15 +505,6 @@ export async function mountPlayer(container, spec) {
     glintTex.wrapS = glintTex.wrapT = THREE.RepeatWrapping;
     glintTex.magFilter = glintTex.minFilter = THREE.LinearFilter;
   }
-
-  const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff, 1.9));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-  sun.position.set(-0.6, 1, 0.9);
-  scene.add(sun);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.45);
-  fill.position.set(0.8, 0.2, -0.6);
-  scene.add(fill);
 
   const material = (map) => keep(new THREE.MeshLambertMaterial({ map, alphaTest: 0.5, side: THREE.DoubleSide }));
   const mesh = (geo, mat, x, y, z) => {
@@ -517,7 +515,6 @@ export async function mountPlayer(container, spec) {
 
   // Body parts, each turning around its joint: feet at y = 0, facing +z.
   const root = new THREE.Group();
-  scene.add(root);
   const part = (x, y, z) => {
     const g = new THREE.Group();
     g.position.set(x, y, z);
@@ -595,9 +592,12 @@ export async function mountPlayer(container, spec) {
   // as the game places them (see HELD above).
   // The item drawn in a hand, as a group of its own (not yet in the hand), or null.
   const itemHolder = async (item, arm) => {
+    if (item?.special === 'shield') return shieldHolder(item, arm);
     const id = item && (item.model || item.id);
     if (!id || !ID_RE.test(id)) return null;
-    const img = await loadImage(TEX(`item/${id}`));
+    // a few items are drawn from a block's picture (leaves), given as texture: 'block/…'
+    const path = typeof item.texture === 'string' && /^(item|block)\/[a-z0-9_]+$/.test(item.texture) ? item.texture : `item/${id}`;
+    const img = await loadImage(TEX(path));
     if (!img || cancelled()) return null;
     const { geo, canvas: c, size } = itemGeometry(img);
     const tex = keep(pixelTexture(c));
@@ -614,6 +614,32 @@ export async function mountPlayer(container, spec) {
     }
     return holder;
   };
+  // The shield: its own little model (a 12×22×1 board and a 2×6×6 handle on a 64×64 sheet), held
+  // upright beside the hand with its face forward, roughly as the game shows it in third person.
+  const shieldHolder = async (item, arm) => {
+    const img = await loadImage(TEX('entity/shield/shield_base_nopattern'));
+    if (!img || cancelled()) return null;
+    const tex = keep(pixelTexture(img));
+    const mat = material(tex);
+    const holder = new THREE.Group();
+    const side = arm === 'rightArm' ? -1 : 1;
+    const board = new THREE.Mesh(keep(cube(12, 22, 1, 0, 0, 64, 64)), mat);
+    const handle = new THREE.Mesh(keep(cube(2, 6, 6, 26, 0, 64, 64)), mat);
+    board.position.set(0, 0, 4);
+    handle.position.set(0, 0, 0.5);
+    holder.add(board, handle);
+    if (item.glint && glintTex) {
+      const gmat = keep(glintMaterial(tex, glintTex, new THREE.Vector2(2, 2)));
+      glints.push(gmat);
+      holder.userData.glint = gmat;
+      const shine = new THREE.Mesh(board.geometry, gmat);
+      shine.position.copy(board.position);
+      holder.add(shine);
+    }
+    holder.position.set(side * 1, -9, 0);
+    holder.rotation.set(Math.PI / 10, side * 0.15, 0);
+    return holder;
+  };
   const held = {}; // arm -> its holder
   const holdItem = async (item, arm) => {
     const holder = await itemHolder(item, arm);
@@ -622,10 +648,31 @@ export async function mountPlayer(container, spec) {
     held[arm] = holder;
     return true;
   };
-  let [hasWeapon, hasEgg] = await Promise.all([
+  const [hasWeapon, hasEgg] = await Promise.all([
     holdItem(spec.mainhand, 'rightArm'),
     holdItem(spec.offhand, 'leftArm'),
   ]);
+  return { root, parts, glints, held, hasWeapon, hasEgg, itemHolder };
+}
+
+export async function mountPlayer(container, spec) {
+  const disposables = [];
+  const keep = (x) => (disposables.push(x), x);
+  let disposed = false;
+  const cancelled = () => disposed || spec.signal?.aborted;
+
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 1.9));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  sun.position.set(-0.6, 1, 0.9);
+  scene.add(sun);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.45);
+  fill.position.set(0.8, 0.2, -0.6);
+  scene.add(fill);
+
+  const { root, parts, glints, held, hasEgg, itemHolder, ...built } = await buildModel(spec, keep, cancelled);
+  let { hasWeapon } = built;
+  scene.add(root);
 
   // The egg's particles, only while the egg is in the hand and things may move.
   const auraLook = spec.aura?.cracked ? AURA_CRACKED : AURA[spec.aura?.id];

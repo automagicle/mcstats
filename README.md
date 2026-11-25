@@ -36,9 +36,14 @@ npm run build:mod                             # the mod jar that /new offers (ne
 npm run deploy
 ```
 
-Then open the site, choose **Create a server**, and follow the steps: sign in with your email, name the server and
-set its join password, install the mod, paste the key it shows into the mod's config, and wait for the first upload.
-Players join at `/join` with the server's name and password.
+Then open the site, choose **Create a server**, and follow the steps: sign in with your email, name the server, pick
+its address (`/s/<address>/`, checked as you type) and whether its stats are **private** (players need its join
+password) or **public** (anyone with the address can look; no password needed), install the mod, paste the key it
+shows into the mod's config, and wait for the first upload. Players of a private server join at `/join` with the
+server's name and password; a public server's stats are simply at its address. A public server can be made private
+later once it has a password.
+
+Updating an existing deployment: run `npm run dir:migrate:remote` (adds `has_password`, migration 0002) before deploying.
 
 Nothing else is set per deployment: each server's address, time zone, seasons and chat resets are its own settings
 (the **Optional setup** step on `/new`, or `POST /api/site/servers/<server>/settings` with `MC_SERVER`, `TZ_NAME`,

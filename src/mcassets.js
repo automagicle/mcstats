@@ -4,7 +4,8 @@
 // Textures come straight out of the official game client for the server's version (MC_VERSION),
 // downloaded from Mojang piece by piece: a .jar is a zip, so one ranged request reads its table of
 // contents (cached) and another reads just the one file asked for. Nothing of Mojang's is kept in
-// this repository, and only signed-in visitors can load them (they're under /api/).
+// this repository, and only signed-in visitors can load them (they're under /api/), apart from the
+// few the landing page's example players wear (serveHomeAsset below).
 
 import { json } from './util.js';
 
@@ -104,6 +105,37 @@ export async function serveTexture(env, path) {
     console.error(`texture ${path}:`, err.message);
     return json({ error: 'texture unavailable' }, 502);
   }
+}
+
+/* ---------- the landing page's example players ---------- */
+
+// The landing page (/) has no server behind it, but its made-up players are drawn like real ones: in
+// the game's default skins, armor and items (public/home3d.js). Just those few textures are served
+// there, to anyone, at the same /api/mc/ addresses; everything else stays behind a server's sign-in.
+const HOME_SKINS = 'steve|alex|ari|efe|kai|makena|noor|sunny|zuri';
+const HOME_ARMOR = 'leather|chainmail|iron|gold|diamond|netherite';
+const HOME_ITEMS = new Set([
+  ...['leather', 'chainmail', 'iron', 'golden', 'diamond', 'netherite'].flatMap((m) => ['helmet', 'chestplate', 'leggings', 'boots'].map((p) => `${m}_${p}`)),
+  ...['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite'].flatMap((m) => ['sword', 'pickaxe', 'axe'].map((t) => `${m}_${t}`)),
+  ...['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite'].map((m) => `${m}_spear`),
+  'mace', 'apple', 'golden_apple', 'enchanted_golden_apple', 'totem_of_undying', 'ender_pearl', 'bread',
+  'bucket', 'water_bucket', 'lava_bucket', 'shears',
+]);
+const HOME_TRIMS = 'coast|dune|eye|host|raiser|rib|sentry|shaper|silence|snout|spire|tide|vex|ward|wayfinder|wild|bolt|flow';
+const HOME_PALETTES = 'trim_palette|(amethyst|copper|diamond|emerald|gold|iron|lapis|netherite|quartz|redstone|resin)(_darker)?';
+const HOME_TEXTURE_RE = new RegExp(
+  `^textures/(entity/player/(wide|slim)/(${HOME_SKINS})|entity/equipment/humanoid(_leggings)?/(${HOME_ARMOR}|leather_overlay)|misc/enchanted_glint_armor`
+  + `|trims/entity/humanoid(_leggings)?/(${HOME_TRIMS})|trims/color_palettes/(${HOME_PALETTES})`
+  + `|block/(flowering_)?azalea_leaves|entity/shield/shield_base_nopattern)\\.png$`);
+const HOME_ITEM_TEXTURE_RE = /^textures\/item\/([a-z_]+?)(_overlay)?\.png$/;
+
+// GET /api/mc/… outside any server: only what the landing page uses
+export function serveHomeAsset(env, path) {
+  const item = /^item\/([a-z_]+)\.json$/.exec(path);
+  if (item) return HOME_ITEMS.has(item[1]) ? serveItem(env, path.slice(5)) : json({ error: 'not found' }, 404);
+  const tex = HOME_ITEM_TEXTURE_RE.exec(path);
+  if (HOME_TEXTURE_RE.test(path) || (tex && HOME_ITEMS.has(tex[1]))) return serveTexture(env, path);
+  return json({ error: 'not found' }, 404);
 }
 
 /* ---------- how an item is drawn in the inventory ---------- */

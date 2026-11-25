@@ -62,5 +62,10 @@ else if (process.argv.includes('--check')) {
     process.exit(1);
   }
 }
-else if (import.meta.url === `file://${process.argv[1]}`) writeFileSync(join(root, 'src/modinfo.gen.js'), text);
+// only when it changed: `wrangler dev` runs this on every build and rebuilds when the file is touched
+else if (import.meta.url === `file://${process.argv[1]}`) {
+  let old = null;
+  try { old = readFileSync(join(root, 'src/modinfo.gen.js'), 'utf8'); } catch {}
+  if (old !== text) writeFileSync(join(root, 'src/modinfo.gen.js'), text);
+}
 export { text as MOD_INFO_TEXT };

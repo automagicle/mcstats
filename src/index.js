@@ -8,6 +8,7 @@
 //                        for the first server (LEGACY_SLUG) only.
 //   /api/site/*          joining and making servers (src/site.js);  /api/ops/*  the operator's (src/ops.js)
 //   /s1/                 the old season 1 archive address: now the first server's
+//   /api/mc/*            outside a server: just the game textures the landing page's example players wear
 //   everything else      the static pages in public/ (/, /join, /new)
 import { handleApi } from './api.js';
 import { handleSite } from './site.js';
@@ -19,6 +20,7 @@ import { keyServer, parseCookies, passwordStamp, sameString, verifyToken } from 
 import { currentSeason } from './seasons.js';
 import { ipKey, limit, tooMany } from './limiter.js';
 import { json } from './util.js';
+import { serveHomeAsset } from './mcassets.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
@@ -154,6 +156,8 @@ export default {
     if (old && env.LEGACY_SLUG) return page(`/s/${env.LEGACY_SLUG}/s${old[1]}/${url.search}`);
     // The stats page only makes sense inside a server.
     if (p === '/stats' || p === '/stats.html') return new Response('Not found', { status: 404 });
+    // the landing page's example players, in the game's own textures (only the few it uses)
+    if (p.startsWith('/api/mc/') && request.method === 'GET') return serveHomeAsset(env, p.slice(8));
     if (p.startsWith('/api/')) return json({ error: 'not found' }, 404);
     return env.ASSETS.fetch(request);
   },

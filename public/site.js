@@ -151,7 +151,7 @@
       const done = n < current || (n === 7 && current === 7 && W.view === 7);
       const can = W.server ? n >= 3 && n <= current : n === W.view;
       const state = n === W.view ? 'now' : done ? 'done' : 'todo';
-      const mark = h('span', { class: 'wiz-n', text: state === 'done' ? '✓' : String(n) });
+      const mark = h('span', { class: 'wiz-n', text: state === 'done' ? '' : String(n) }); // done: a pixel check, drawn in CSS
       const inner = can && n !== W.view
         ? h('button', { type: 'button', class: 'wiz-step-btn', onclick: () => show(n) }, mark, label)
         : h('span', { class: 'wiz-step-btn' }, mark, label);
@@ -235,6 +235,21 @@
     frame('Make a server', 'First, sign in with your email.', f1, f2, err);
   }
 
+  // Who can see the stats: a pair of choices, the picked one greyer with a green line under it.
+  function visibilityChoice(initial, onChange) {
+    const group = h('div', { class: 'wiz-vis', role: 'radiogroup', 'aria-label': 'Who can see the stats' });
+    const opt = (value, title, text) => {
+      const radio = h('input', { type: 'radio', name: 'visibility', value, class: 'wiz-vis-radio' });
+      radio.checked = value === initial;
+      radio.addEventListener('change', () => onChange(value));
+      return h('label', { class: 'wiz-vis-opt' }, radio, h('span', { class: 'wiz-vis-title', text: title }), h('span', { class: 'wiz-vis-text', text }));
+    };
+    group.append(
+      opt('private', 'Private', 'Players need the join password to see the stats.'),
+      opt('public', 'Public', 'Anyone with the address can see the stats. Chatting and admin still need a sign-in.'));
+    return group;
+  }
+
   function stepName() {
     if (W.server) return show(3);
     if (W.me.servers.length >= W.me.max && !W.me.super) {
@@ -242,42 +257,91 @@
     }
     const err = errorLine();
     const name = input({ required: true, maxlength: '60', autocomplete: 'off' });
-    const slug = input({ required: true, maxlength: '32', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', pattern: '[a-z0-9][a-z0-9-]{1,30}[a-z0-9]' });
-    const pass = input({ type: 'password', required: true, minlength: '8', autocomplete: 'new-password' });
-    const confirm = input({ type: 'password', required: true, minlength: '8', autocomplete: 'new-password' });
-    const where = h('span', { class: 'site-hint' });
+    const slug = h('input', { class: 'wiz-url-input', required: true, maxlength: '32', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', 'aria-describedby': 'wiz-slug-status' });
+    const status = h('span', { class: 'wiz-slug-status', id: 'wiz-slug-status', 'aria-live': 'polite' });
+    const pass = input({ type: 'password', minlength: '8', autocomplete: 'new-password' });
+    const confirm = input({ type: 'password', minlength: '8', autocomplete: 'new-password' });
+    let visibility = 'private';
     let slugTouched = false;
+    let free = null; // the last answer: { slug, ok, error }
     const slugify = (v) => v.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s_-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 32);
-    const sync = () => { where.textContent = `${location.origin}/s/${slug.value || '…'}/ · players type this name to join`; };
-    name.addEventListener('input', () => { if (!slugTouched) slug.value = slugify(name.value); sync(); });
-    slug.addEventListener('input', () => { slugTouched = true; slug.value = slug.value.toLowerCase(); sync(); });
-    sync();
+
+    // ask whether the address is free, a moment after typing stops
+    let timer = 0, asked = 0;
+    const checkSlug = () => {
+      clearTimeout(timer);
+      free = null;
+      const v = slug.value;
+      if (!v) { status.className = 'wiz-slug-status'; status.textContent = 'Players open the stats at this address.'; return; }
+      status.className = 'wiz-slug-status';
+      status.textContent = 'Checking…';
+      timer = setTimeout(async () => {
+        const n = ++asked;
+        try {
+          const r = await api(`/api/site/slug?name=${encodeURIComponent(v)}`);
+          if (n !== asked) return;
+          free = r;
+          if (r.slug !== v) slug.value = r.slug;
+          status.className = `wiz-slug-status ${r.ok ? 'ok' : 'bad'}`;
+          status.textContent = r.ok ? `${location.host}/s/${r.slug}/ is free.` : r.error;
+        } catch (x) {
+          if (n === asked) { status.className = 'wiz-slug-status bad'; status.textContent = x.message; }
+        }
+      }, 350);
+    };
+    name.addEventListener('input', () => { if (!slugTouched) { slug.value = slugify(name.value); checkSlug(); } });
+    slug.addEventListener('input', () => {
+      slugTouched = true;
+      const at = slug.selectionStart;
+      slug.value = slug.value.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
+      slug.setSelectionRange(at, at);
+      checkSlug();
+    });
+    checkSlug();
+
+    const passBox = h('div', { class: 'site-form wiz-pass' },
+      field('Join password', pass, 'Players type it once to see the stats. At least 8 characters.'),
+      field('The password again', confirm));
+    const publicNote = h('p', { class: 'site-hint wiz-pass-note', hidden: true, text: 'No password needed. If you make it private later, you’ll set one then.' });
+    const syncVis = (v) => {
+      visibility = v;
+      passBox.hidden = v === 'public';
+      publicNote.hidden = v !== 'public';
+      pass.required = confirm.required = v === 'private';
+    };
+    syncVis(visibility);
+
     const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Make the server' });
     const fields = { name, slug, password: pass, confirm };
     const form = h('form', { class: 'site-form' },
       field('Display name', name, 'Shown on its pages, e.g. “Egg SMP”.'),
-      h('label', { class: 'site-field' }, h('span', { class: 'site-label', text: 'Server name (its address)' }), slug, where),
-      field('Join password', pass, 'Players need it to see the stats. At least 8 characters.'),
-      field('The password again', confirm),
+      h('label', { class: 'site-field' }, h('span', { class: 'site-label', text: 'Address' }),
+        h('span', { class: 'wiz-url' }, h('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slug), status),
+      h('fieldset', { class: 'site-field wiz-fieldset' }, h('legend', { class: 'site-label', text: 'Who can see the stats' }), visibilityChoice(visibility, syncVis)),
+      passBox, publicNote,
       go, err);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       say(err, '');
-      if (pass.value !== confirm.value) { say(err, 'The two passwords aren’t the same.'); confirm.focus(); return; }
+      if (free && !free.ok && free.slug === slug.value) { say(err, free.error); slug.focus(); return; }
+      if (visibility === 'private' && pass.value !== confirm.value) { say(err, 'The two passwords aren’t the same.'); confirm.focus(); return; }
       busy(go, async () => {
         try {
-          const r = await api('/api/site/servers', { name: name.value, slug: slug.value, password: pass.value, confirm: confirm.value });
+          const body = { name: name.value, slug: slug.value, visibility };
+          if (visibility === 'private') Object.assign(body, { password: pass.value, confirm: confirm.value });
+          const r = await api('/api/site/servers', body);
           W.me = await api('/api/site/me');
           W.server = { slug: r.server.slug };
           await refreshServer();
           show(3);
         } catch (x) {
           say(err, x.message);
+          if (x.field === 'slug') checkSlug();
           fields[x.field]?.focus();
         }
       });
     });
-    frame('Name the server', null, form);
+    frame('Name the server', 'Pick its address and who can see it. You can change who can see it later.', form);
   }
 
   async function stepInstall() {
@@ -378,22 +442,32 @@
     const s = W.server;
     const set = s.info.settings || {};
     const err = errorLine();
-    const ok = h('p', { class: 'site-ok', role: 'status', hidden: true });
+    const ok = h('p', { class: 'site-ok', role: 'status', hidden: !W.saved, text: 'Saved.' });
+    W.saved = false;
     const name = input({ value: s.name, maxlength: '60' });
     const address = input({ value: s.info.mc_server || '', placeholder: 'play.example.com or 1.2.3.4:25565', autocapitalize: 'none', spellcheck: 'false' });
     const tz = input({ value: set.TZ_NAME || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', autocapitalize: 'none', spellcheck: 'false' });
-    const pub = h('input', { type: 'checkbox' });
-    pub.checked = !!s.info.public;
+    let vis = s.info.public ? 'public' : 'private';
     const pass = input({ type: 'password', autocomplete: 'new-password', minlength: '8' });
     const confirm2 = input({ type: 'password', autocomplete: 'new-password', minlength: '8' });
+    const passWrap = h('details', { class: 'site-more' }, h('summary', { text: s.has_password ? 'Change the join password' : 'Set a join password' }),
+      field(s.has_password ? 'New join password' : 'Join password', pass, s.has_password ? 'Everyone who joined with the old one has to join again.' : 'Needed to make it private.'),
+      field('The password again', confirm2));
+    const needPass = h('p', { class: 'site-hint', hidden: true, text: 'This server has no join password yet: set one to make it private.' });
+    const pick = (v) => {
+      vis = v;
+      const must = v === 'private' && !s.has_password;
+      needPass.hidden = !must;
+      if (must) passWrap.open = true;
+      pass.required = confirm2.required = must;
+    };
     const save = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Save' });
     const form = h('form', { class: 'site-form' },
       field('Display name', name),
       field('Server address', address, 'For the online count and charts: the site checks the server once a minute. Leave blank to skip.'),
       field('Time zone', tz, 'Times on the pages are shown in it, e.g. Europe/London.'),
-      h('label', { class: 'site-check' }, pub, h('span', { text: 'Public: anyone with the address can look, without the password. Chat and admin still need a sign-in.' })),
-      h('details', { class: 'site-more' }, h('summary', { text: 'Change the join password' }),
-        field('New join password', pass, 'Everyone who joined with the old one has to join again.'), field('The new password again', confirm2)),
+      h('fieldset', { class: 'site-field wiz-fieldset' }, h('legend', { class: 'site-label', text: 'Who can see the stats' }), visibilityChoice(vis, pick), needPass),
+      passWrap,
       h('div', { class: 'site-row' }, save), err, ok);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -401,12 +475,11 @@
       ok.hidden = true;
       busy(save, async () => {
         try {
-          const body = { NAME: name.value, MC_SERVER: address.value, TZ_NAME: tz.value, PUBLIC: pub.checked ? '1' : '' };
+          const body = { NAME: name.value, MC_SERVER: address.value, TZ_NAME: tz.value, PUBLIC: vis === 'public' ? '1' : '' };
           if (pass.value) Object.assign(body, { password: pass.value, confirm: confirm2.value });
           W.server = await api(`/api/site/servers/${s.slug}/settings`, body);
-          pass.value = confirm2.value = '';
-          ok.textContent = 'Saved.';
-          ok.hidden = false;
+          W.saved = true;
+          stepOptional(); // drawn again: whether it has a password may have changed
         } catch (x) { say(err, x.message); }
       });
     });
@@ -444,7 +517,9 @@
 
   function stepDone() {
     const s = W.server;
-    const share = `See our server’s stats on mcstats: ${location.origin}/join\nServer name: ${s.slug}\nPassword: (ask me)`;
+    const share = s.info.public
+      ? `See our server’s stats on mcstats: ${s.url}`
+      : `See our server’s stats on mcstats: ${location.origin}/join?server=${s.slug}\nServer name: ${s.slug}\nPassword: (ask me)`;
     const open = h('button', { type: 'button', class: 'btn btn-primary site-go', text: 'Open my server' });
     open.addEventListener('click', () => busy(open, async () => {
       const r = await api(`/api/site/servers/${s.slug}/open`, {});
@@ -454,7 +529,8 @@
     area.value = share;
     frame('Done', `${s.name} is set up.`,
       h('p', {}, 'Its address: ', h('a', { href: s.url, text: s.url })),
-      h('p', { class: 'site-label', text: 'Send this to your players (with the password):' }),
+      h('p', { class: 'site-sub', text: s.info.public ? 'It’s public: anyone with the address can see the stats.' : 'It’s private: players need the join password to see the stats.' }),
+      h('p', { class: 'site-label', text: s.info.public ? 'Send this to your players:' : 'Send this to your players (with the password):' }),
       area, h('div', { class: 'site-row' }, copyButton(() => share, 'Copy'), open));
   }
 

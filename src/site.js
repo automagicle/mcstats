@@ -6,7 +6,10 @@
 //   POST /api/site/logout
 //   GET  /api/site/me                 { email, servers: [{ slug, name, step }], max }
 //   GET  /api/site/mod                what to install, from mod/ (src/modinfo.gen.js)
-//   POST /api/site/servers            { name, slug, password, confirm }  a new server; you're its owner
+//   GET  /api/site/slug?name=…        { slug, ok, error? }  whether that address is free (signed in only)
+//   POST /api/site/servers            { name, slug, visibility, password?, confirm? }  a new server; you're its owner.
+//                                     visibility: 'private' (the stats need the join password) or 'public' (anyone
+//                                     with the address can look; the password is then optional)
 //   GET  /api/site/servers/<slug>     the server as its setup sees it
 //   POST /api/site/servers/<slug>/step      { step }   how far setup has got (to pick it up again)
 //   POST /api/site/servers/<slug>/key       a new mod key, shown once; the old one stops working at once
@@ -89,7 +92,8 @@ export async function handleSite(request, env, url) {
     if (!lim.ok) return tooMany(lim.retry);
     const row = slug ? await serverBySlug(env, slug, { fresh: true }) : null;
     // checkPassword works through a made-up hash when there's no such server, so both take as long
-    const ok = await checkPassword(password, row);
+    // a public server made without a password has none to join with
+    const ok = (await checkPassword(password, row)) && row?.has_password !== 0;
     if (!ok) return json({ error: JOIN_FAILED }, 401);
     const token = await signToken(env, { k: 'view', s: row.id, p: passwordStamp(row), x: Math.floor(Date.now() / 1000) + VIEW_DAYS * DAY });
     return withCookies({ ok: true, url: serverPath(row.slug) }, [cookie('mcs_view', token, { path: serverPath(row.slug), maxAge: VIEW_DAYS * DAY })]);
@@ -147,6 +151,19 @@ export async function handleSite(request, env, url) {
 
   if (!email) return json({ error: 'Sign in first.', reason: 'signed_out' }, 401);
 
+  // Whether an address can be had, for the form on /new as it's typed. Signed in only, and limited: making a
+  // server says the same thing (that address is taken), so this tells nobody more than they could find out.
+  if (path === '/slug') {
+    if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
+    const lim = await limit(env, [[`slug-check:${email}`, 120, 600]]);
+    if (!lim.ok) return tooMany(lim.retry);
+    const slug = slugify(url.searchParams.get('name') || '');
+    const bad = slug ? slugProblem(slug) : 'Type an address.';
+    if (bad) return json({ slug, ok: false, error: bad });
+    const taken = await serverBySlug(env, slug, { fresh: true });
+    return json(taken ? { slug, ok: false, error: 'That address is taken. Pick another.' } : { slug, ok: true });
+  }
+
   if (path === '/servers') {
     const r = await body(request, url);
     if (r instanceof Response) return r;
@@ -155,18 +172,24 @@ export async function handleSite(request, env, url) {
     const slug = typeof r.b.slug === 'string' && r.b.slug.trim() ? r.b.slug.trim().toLowerCase() : slugify(name);
     const bad = slugProblem(slug);
     if (bad) return json({ error: bad, field: 'slug' }, 400);
+    const visibility = r.b.visibility ?? 'private';
+    if (visibility !== 'private' && visibility !== 'public') return json({ error: 'Choose who can see the stats: private or public.', field: 'visibility' }, 400);
     const password = typeof r.b.password === 'string' ? r.b.password : '';
-    if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) return json({ error: `The password is ${MIN_PASSWORD} to ${MAX_PASSWORD} characters.`, field: 'password' }, 400);
-    if (password !== r.b.confirm) return json({ error: 'The two passwords aren’t the same.', field: 'confirm' }, 400);
+    // a private server needs a password; a public one may have one ready for if it's made private later
+    if (visibility === 'private' || password) {
+      if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) return json({ error: `The password is ${MIN_PASSWORD} to ${MAX_PASSWORD} characters.`, field: 'password' }, 400);
+      if (password !== r.b.confirm) return json({ error: 'The two passwords aren’t the same.', field: 'confirm' }, 400);
+    }
     const owned = await serversOwnedBy(env, email);
     if (owned.length >= max && !isSuper(env, { email })) return json({ error: `You can have up to ${max} servers.` }, 403);
     const id = newServerId();
     const now = Math.floor(Date.now() / 1000);
-    const h = await hashPassword(password);
+    // no password: the hash of a random one nobody is told, so joining with a password can't succeed
+    const h = await hashPassword(password || crypto.randomUUID() + crypto.randomUUID());
     try {
       await env.DIRECTORY.batch([
-        env.DIRECTORY.prepare('INSERT INTO servers (id, slug, name, join_salt, join_hash, join_iter, owner_email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .bind(id, slug, name, h.join_salt, h.join_hash, h.join_iter, email, now),
+        env.DIRECTORY.prepare('INSERT INTO servers (id, slug, name, join_salt, join_hash, join_iter, has_password, owner_email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(id, slug, name, h.join_salt, h.join_hash, h.join_iter, password ? 1 : 0, email, now),
         env.DIRECTORY.prepare('INSERT INTO wizard (server_id, step, updated_at) VALUES (?, 3, ?)').bind(id, now),
       ]);
     } catch (err) {
@@ -174,8 +197,8 @@ export async function handleSite(request, env, url) {
       throw err;
     }
     forgetSlug(slug);
-    await tenantStub(env, id).setup({ slug, name, owner: email });
-    return json({ ok: true, server: { slug, name, step: 3 } });
+    await tenantStub(env, id).setup({ slug, name, owner: email, settings: { PUBLIC: visibility === 'public' ? '1' : '' } });
+    return json({ ok: true, server: { slug, name, step: 3, public: visibility === 'public' } });
   }
 
   const m = /^\/servers\/([a-z0-9-]{1,32})(\/[a-z]+)?$/.exec(path);
@@ -193,7 +216,7 @@ export async function handleSite(request, env, url) {
     let info = await stub.info();
     // making it was interrupted before its object was set up: finish that now
     if (!info.slug) info = await stub.setup({ slug: row.slug, name: row.name, owner: row.owner_email });
-    return { slug: row.slug, name: row.name, url: `${url.origin}${serverPath(row.slug)}`, step: await step(), info };
+    return { slug: row.slug, name: row.name, url: `${url.origin}${serverPath(row.slug)}`, step: await step(), has_password: row.has_password !== 0, info };
   };
 
   if (!action) {
@@ -229,6 +252,10 @@ export async function handleSite(request, env, url) {
       if (typeof password !== 'string' || password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) return json({ error: `The password is ${MIN_PASSWORD} to ${MAX_PASSWORD} characters.`, field: 'password' }, 400);
       if (password !== confirm) return json({ error: 'The two passwords aren’t the same.', field: 'confirm' }, 400);
     }
+    // a server can only be made private once it has a password to join with
+    if ('PUBLIC' in patch && !['1', 'true', true].includes(patch.PUBLIC) && row.has_password === 0 && !password) {
+      return json({ error: 'Set a join password to make it private, so players can still get in.', field: 'password' }, 400);
+    }
     const out = await stub.updateSettings(patch);
     if (out.error) return json({ error: out.error }, 400);
     const sets = [];
@@ -236,7 +263,8 @@ export async function handleSite(request, env, url) {
     if (password) {
       // a new password ends every viewer session made with the old one (their cookies carry its stamp)
       const h = await hashPassword(password);
-      sets.push(env.DIRECTORY.prepare('UPDATE servers SET join_salt = ?, join_hash = ?, join_iter = ? WHERE id = ?').bind(h.join_salt, h.join_hash, h.join_iter, row.id));
+      sets.push(env.DIRECTORY.prepare('UPDATE servers SET join_salt = ?, join_hash = ?, join_iter = ?, has_password = 1 WHERE id = ?').bind(h.join_salt, h.join_hash, h.join_iter, row.id));
+      row.has_password = 1;
     }
     if (sets.length) await env.DIRECTORY.batch(sets);
     forgetSlug(row.slug);

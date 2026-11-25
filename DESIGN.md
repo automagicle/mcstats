@@ -154,7 +154,9 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Leaderboard bar | `.bar` | 5px tall, `--series-1` (or the team's colour), 4px under its row's text, never narrower than 2px |
 | Sign-in popover | `.acct-pop` | 300px, `padding: 14px`, 10px gap, `--surface`, frame + lift; under the top bar's Sign in button |
 | Site card | `.site-card` | a `.card`, max 640px, `padding: 20px 22px 22px`; title `400 30px/1.1 var(--px-30)`; fields 14px apart, labels 13px/600 `--ink-2`, hints 12.5px `--muted` |
-| Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 `--surface-2`, current `--series-1`, done `--good` with ✓; current row `--surface-2` with frame. Under 800px a row of squares above the step |
+| Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 with cut corners, `--surface-2`; current `--picked` with the green line under it; done `--good` with the pixel check (`--pixel-check`, a 9×7 two-pixel-thick tick); current row `--surface-2` with frame. Under 800px a row of squares above the step |
+| Checklist box | `.wiz-check-head input` | 20×20, set in like an inventory slot (cut corners, dark top-left and light bottom-right edge); ticked: `--good` with the white pixel check and a drop, and its row takes a 10% `--good` wash |
+| Visibility choice | `.wiz-vis` | two raised options (Private, Public) side by side, one column under 520px; the picked one `--picked` with the green line under it |
 | Waiting strip | `.wiz-wait` | `--surface-2`, 14.5px/600, a 10px square that blinks in two steps (`--warning`); green (`--good` mixed 16% into `--surface`) once it's done |
 
 Focus is always `outline: 2px solid var(--series-1)` (offset 1–2px, or -1px on inputs).
@@ -211,6 +213,32 @@ eye, a title, one or two sentences, and at most one field and one button.
 
 The console (`.lv-console`) is the one place with a fixed-width face (`ui-monospace`, 12.5px), so command output
 lines up.
+
+## Landing page
+
+The home page (`/`, [public/index.html](public/index.html), [public/home.js](public/home.js),
+[public/home3d.js](public/home3d.js)) introduces mcstats with its own dashboard, not with paragraphs. Each server's
+stats stay at `/s/<server>/`. Nothing on it calls the server.
+
+- **Hero**: one centred title (`--px-50`, `--px-40` on phones) , one sentence, **Create a server** and **Join a server**. Under it, the Activity page of
+  a made-up server (Birchwood SMP) in a window frame (frame + lift), over pixel hills drawn on a canvas.
+- **Sections**: a short `--px-40` heading and one sentence in a 300px sticky column, beside a working example built
+  from the dashboard's own classes: a player's page with their 3D model (built like `player3d.js`, same joints, pose
+  and hold transform) and their gear in game-style inventory slots with the game's tooltip; the chat log, whose
+  message box adds your line with a `web` tag and gets a reply; and Liveview, a small block world where three players
+  walk and the camera follows one (drag to look, **Players** to follow someone else, **Stop** to stay put).
+- **More**: three panels (busiest hours, fights, the password box), a closing call to action, and a footer of grass
+  over the game's darkened dirt.
+
+What is different here and nowhere else:
+
+- **No blue.** `--series-1` and the heatmap steps are grass green on this page (charts, focus, links).
+- **Buttons are the dashboard's `.btn`**; the main one is the same raised button, not filled.
+- **Picked means greyer with a green line under it**: a pressed segment, the current tab, the chosen player
+  (`--picked`, `--picked-line`).
+- Titles carry the game's flat text shadow (3px, `--title-shadow`).
+- Skins, armor, items and blocks are pixel pictures drawn in code (the game's own textures are only served to a
+  server's signed-in visitors).
 
 ## Motion
 

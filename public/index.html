@@ -4,28 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>mcstats</title>
-  <meta name="description" content="Stats pages for Minecraft servers.">
+  <meta name="description" content="Stats pages for Minecraft servers: who played, when and for how long, plus the chat, deaths and advancements.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Crect width='8' height='3' fill='%235fae4c'/%3E%3Cpath fill='%235fae4c' d='M1 3h1v1H1zM4 3h2v1H4zM7 3h1v1H7z'/%3E%3Cpath fill='%2386cf6f' d='M0 0h2v1H0zM5 0h1v1H5zM3 1h1v1H3zM6 1h2v1H6z'/%3E%3Cpath fill='%236b4324' d='M2 5h1v1H2zM6 4h1v1H6zM4 6h2v1H4zM0 7h1v1H0z'/%3E%3Cpath fill='%23a47148' d='M0 4h1v1H0zM3 5h1v1H3zM6 6h1v1H6zM2 7h1v1H2z'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..800;1,400..800&family=Jersey+10&family=Jersey+15&family=Jersey+20&family=Jersey+25&display=swap">
   <link rel="stylesheet" href="/style.css">
+  <!-- the 3D models' code, fetched alongside the page instead of one file after another once it's scrolled to -->
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" crossorigin>
+  <link rel="modulepreload" href="/home3d.js">
+  <link rel="modulepreload" href="/player3d.js">
   <script>
     // Dark by default; a theme picked with the switch is saved and wins. Set before first paint, so there's no flash.
     document.documentElement.dataset.theme = 'dark';
     try { const t = localStorage.getItem('theme'); if (t === 'light') document.documentElement.dataset.theme = t; } catch {}
   </script>
   <script src="/site.js" defer></script>
+  <script src="/home.js" defer></script>
 </head>
-<body class="site" data-page="home">
+<body class="site home" data-page="home">
   <header class="top">
     <div class="top-left">
       <a class="brand" href="/">
         <span class="logo" aria-hidden="true"></span>
         <span>mcstats</span>
       </a>
+      <nav class="home-nav" aria-label="On this page">
+        <a href="#players">Player pages</a>
+        <a href="#chat">Chat log</a>
+      </nav>
     </div>
     <div class="top-right">
+      <a class="btn home-top-join" href="/join">Join a server</a>
+      <a class="btn btn-primary" href="/new">Create a server</a>
       <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
         <span class="theme-knob"></span>
         <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>
@@ -33,23 +44,140 @@
       </button>
     </div>
   </header>
-  <main id="site-main" class="site-main">
-    <section class="site-hero">
-      <h1 class="site-hero-title">Stats for your Minecraft server</h1>
-      <p class="site-sub">Who’s online and for how long, the chat log, deaths and fights, advancements and gear, all from a small server mod. Each server has its own page, its own password and its own data.</p>
+
+  <main id="site-main" class="site-main home-main">
+    <!-- the pitch, then the dashboard itself -->
+    <section class="home-hero">
+      <div class="home-titlewrap">
+        <h1 class="home-title">Your server, minute by minute</h1>
+      </div>
+      <p class="home-lede">Who played, when and for how long. Plus the chat, every death and every advancement.</p>
+      <div class="home-ctas">
+        <a class="btn btn-primary home-cta" href="/new">Create a server</a>
+        <a class="btn home-cta" href="/join">Join a server</a>
+      </div>
     </section>
-    <div class="site-choices">
-      <a class="card site-choice" href="/join">
-        <h2>Join a server</h2>
-        <p class="site-sub">You have a server’s name and password from its owner.</p>
-        <span class="btn btn-primary">Join</span>
-      </a>
-      <a class="card site-choice" href="/new">
-        <h2>Create a server</h2>
-        <p class="site-sub">You run a Fabric server and want a stats page for it. About ten minutes.</p>
-        <span class="btn">Create</span>
-      </a>
+
+    <div class="home-shot">
+      <canvas class="home-land" id="land" aria-hidden="true"></canvas>
+      <div class="home-window" aria-label="An example server’s Activity page" role="figure">
+        <div class="home-wbar">
+          <span class="home-wbrand"><span class="logo" aria-hidden="true"></span>Birchwood SMP</span>
+          <nav class="tabs home-wtabs" aria-label="Example pages">
+            <a href="#top" aria-current="page" onclick="return false">Activity</a>
+            <a href="#players">Players</a>
+            <a href="#chat">Chat log</a>
+          </nav>
+          <span class="live"><span class="dot home-dot"></span><span id="w-live">4 online</span></span>
+        </div>
+        <div class="home-wbody">
+          <div class="tiles">
+            <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="w-online">4</div><div class="tile-sub">of 9 players</div></div>
+            <div class="tile"><div class="tile-label">Peak today</div><div class="tile-value">6</div><div class="tile-sub">players at once</div></div>
+            <div class="tile"><div class="tile-label">Played this week</div><div class="tile-value">71h</div><div class="tile-sub">player-hours, last 7 days</div></div>
+            <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value">9</div><div class="tile-sub">this season</div></div>
+          </div>
+          <div class="chips home-chips" id="w-chips"></div>
+          <section class="card home-wcard">
+            <div class="card-head"><div class="card-title"><h2>Players online</h2> <span class="card-sub">today</span></div></div>
+            <div class="home-plot" id="w-plot">
+              <svg viewBox="0 0 1440 100" preserveAspectRatio="none" aria-hidden="true">
+                <path class="home-grid" d="M0 25H1440M0 50H1440M0 75H1440"/>
+                <path class="home-area" id="w-area"/>
+                <path class="home-line" id="w-line"/>
+              </svg>
+              <div class="home-cursor" id="w-cursor" hidden><span class="home-marker" id="w-marker"></span><span class="tooltip home-tip" id="w-tip"></span></div>
+            </div>
+            <div class="home-ticks" aria-hidden="true"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+          </section>
+        </div>
+      </div>
     </div>
+
+    <!-- a player's page -->
+    <section class="home-feature" id="players">
+      <div class="home-ftext">
+        <h2>A page for every player</h2>
+        <p>Playtime, sessions, the hours they’re usually on, and how their fights went.</p>
+        <div class="home-pick" id="p-pick" role="group" aria-label="Example players"></div>
+      </div>
+      <div class="home-fvis card home-profile" id="profile">
+        <div class="home-pleft">
+          <figure class="p-model-card home-model-card">
+            <div class="p-model loading" id="p-model" role="img" aria-label="3D model of the player, in their armor"></div>
+            <figcaption class="p-model-note"><div class="p-model-held" id="p-held">Loading the model…</div></figcaption>
+          </figure>
+        </div>
+        <div class="home-pinfo" id="p-info" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- the chat log -->
+    <section class="home-feature" id="chat">
+      <div class="home-ftext">
+        <h2>Every message, kept</h2>
+        <p>Read back what was said, and talk to players in game right from the page.</p>
+        <p class="home-try">Try it: send a message below.</p>
+      </div>
+      <div class="home-fvis card chat-card home-chat">
+        <div class="home-chat-head">
+          <div class="seg" id="c-filter" role="group" aria-label="Show">
+            <button type="button" data-k="all" aria-pressed="true">All</button>
+            <button type="button" data-k="chat" aria-pressed="false">Chat</button>
+            <button type="button" data-k="death" aria-pressed="false">Deaths</button>
+            <button type="button" data-k="advancement" aria-pressed="false">Advancements</button>
+          </div>
+        </div>
+        <div class="chat-scroll" id="c-log" role="log" aria-label="Example chat log" tabindex="0"></div>
+        <form class="chat-compose" id="c-form" autocomplete="off">
+          <span class="chat-compose-me"><span class="msg-admin">You</span></span>
+          <input type="text" id="c-input" maxlength="120" enterkeyhint="send" placeholder="Message Birchwood SMP" aria-label="Message the example server">
+          <button type="submit" class="chat-send" id="c-send" aria-label="Send" title="Send (Enter)" disabled>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3.5M3.8 7.5 8 3.2l4.2 4.3"/></svg>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- smaller things, one line each -->
+    <section class="home-more" id="more" aria-label="More of what mcstats does">
+      <div class="card home-mini">
+        <h3>Busiest hours</h3>
+        <p>When everyone’s on, hour by hour.</p>
+        <div class="home-week" id="m-week" aria-hidden="true"></div>
+      </div>
+      <div class="card home-mini">
+        <h3>Fights</h3>
+        <p>Kills, deaths, and who did it.</p>
+        <table class="home-kd" id="m-kd"></table>
+      </div>
+      <div class="card home-mini">
+        <h3>Private by default</h3>
+        <p>Each server has its own password. Or make it public.</p>
+        <div class="home-lock" aria-hidden="true">
+          <span class="home-lock-field"><span id="m-pass"></span><i></i></span>
+          <span class="btn btn-primary">Join</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-end">
+      <h2>Give your server a page</h2>
+      <p>Install the mod, paste in one key, and it’s live in about ten minutes.</p>
+      <div class="home-ctas">
+        <a class="btn btn-primary home-cta" href="/new">Create a server</a>
+        <a class="btn home-cta" href="/join">Join a server</a>
+      </div>
+    </section>
   </main>
+
+  <footer class="home-foot">
+    <div class="home-foot-grass" aria-hidden="true"></div>
+    <div class="home-foot-in">
+    <span class="home-foot-brand"><span class="logo" aria-hidden="true"></span>mcstats</span>
+    <span>By <a class="home-foot-by" href="https://emptyconsole.com">Empty Console</a></span>
+    <span>Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</span>
+    </div>
+  </footer>
 </body>
 </html>

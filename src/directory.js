@@ -28,7 +28,7 @@ const CACHE_MS = 5_000;
 const cache = new Map();
 export const forgetSlug = (slug) => cache.delete(slug);
 
-const COLS = 'id, slug, name, join_salt, join_hash, join_iter, owner_email, created_at';
+const COLS = 'id, slug, name, join_salt, join_hash, join_iter, has_password, owner_email, created_at';
 
 export async function serverBySlug(env, slug, { fresh = false } = {}) {
   if (!SLUG_RE.test(slug || '')) return null;

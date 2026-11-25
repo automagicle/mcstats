@@ -2216,16 +2216,9 @@ select:not([multiple]) {
 /* ---------- the site's own pages: landing, join, create (public/site.js) ---------- */
 
 .wiz-panel > .site-go, .wiz-panel > .site-row:last-child { margin-top: 18px; }
-.site-hero { margin: 36px 0 20px; }
-.site-hero-title { font: 400 50px/1.05 var(--px-50); letter-spacing: 0.01em; margin: 0 0 10px; }
 .site-title { font: 400 30px/1.1 var(--px-30); letter-spacing: 0.01em; margin: 0 0 6px; }
 .site-h2 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
 .site-sub { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; max-width: 62ch; }
-.site-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.site-choice { display: grid; gap: 6px; align-content: start; justify-items: start; text-decoration: none; margin: 0; }
-.site-choice h2 { font: 400 30px/1.1 var(--px-30); margin: 0; }
-.site-choice:hover { background: var(--raise); }
-.site-choice:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 .site-card { max-width: 640px; margin: 24px auto; padding: 20px 22px 22px; }
 .site-form { display: grid; gap: 14px; margin: 0 0 4px; }
 .site-field { display: grid; gap: 4px; }
@@ -2291,9 +2284,244 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
   .wiz-account > div { display: none; }
 }
 @media (max-width: 600px) {
-  .site-choices { grid-template-columns: minmax(0, 1fr); }
-  .site-hero-title { font: 400 30px/1.1 var(--px-30); }
   .site-card { padding: 16px; margin: 14px 0; }
   .wiz-step-btn { font-size: 0; gap: 0; }
   .wiz-step.now .wiz-step-btn { font-size: 11px; gap: 4px; }
 }
+
+/* ---------------- the landing page (/) ----------------
+   An introduction in the order a visitor needs it: one line and two buttons, the dashboard itself, then a
+   section per thing it does, each a short heading, one sentence and a working example built from the
+   dashboard's own parts (public/home.js). Text stays short; the examples do the explaining. */
+.home-main { max-width: 1152px; padding-bottom: 0; }
+.home-nav { display: flex; gap: 2px; margin-left: 18px; }
+.home-nav a { padding: 5px 10px; font-size: 14px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
+.home-nav a:hover { color: var(--ink); background: var(--hover); }
+.home .top-right .btn { text-decoration: none; }
+.home .top-left { display: flex; align-items: center; }
+.home .top-right { margin-left: auto; }
+html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: 24px; }
+@media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
+
+.home-hero { padding: 72px 0 44px; text-align: center; }
+.home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 14px; font: 400 50px/1 var(--px-50); }
+.home-title { font: inherit; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+.home-lede { margin: 0 auto 26px; font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 44ch; text-wrap: balance; }
+.home-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
+
+/* the dashboard, framed like a window on a backdrop of stepped hills */
+.home-shot { position: relative; overflow: hidden; padding: 64px 56px 56px; background: var(--stage); }
+.home-land { position: absolute; left: 0; bottom: 0; image-rendering: pixelated; pointer-events: none; }
+:root[data-theme="dark"] .home-land { filter: brightness(0.5) saturate(0.85); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .home-land { filter: brightness(0.5) saturate(0.85); } }
+.home-window { position: relative; background: var(--page); box-shadow: var(--frame), var(--lift); }
+.home-wbar { display: flex; align-items: center; gap: 16px; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--edge); }
+.home-wbrand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); white-space: nowrap; }
+.home-wbrand .logo { width: 16px; height: 16px; }
+.home-wtabs a { font-size: 13px; padding: 4px 10px; }
+.home-wbar .live { margin-left: auto; }
+.home-dot { background: var(--good) !important; }
+.home-wbody { padding: 14px 14px 16px; }
+.home-chips { margin: 0 0 14px; }
+.home-chips .chip { cursor: pointer; }
+.home-wcard { margin: 0; }
+.home-plot { position: relative; height: 110px; cursor: crosshair; }
+.home-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.home-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; fill: none; }
+.home-line { stroke: var(--series-1); stroke-width: 2; vector-effect: non-scaling-stroke; fill: none; }
+.home-area { fill: color-mix(in srgb, var(--series-1) 16%, transparent); }
+.home-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--axis); pointer-events: none; }
+.home-marker { position: absolute; left: 0; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--series-1); box-shadow: 0 0 0 2px var(--surface); }
+.home-tip { position: absolute; top: 4px; left: 10px; padding: 5px 8px; white-space: nowrap; font-size: 12.5px; background: var(--surface); box-shadow: var(--frame), var(--lift); }
+.home-tip.flip { left: auto; right: 10px; }
+.home-ticks { display: flex; justify-content: space-between; padding-top: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* a section: a short heading and one sentence beside its example */
+.home-feature { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; align-items: start; padding: 96px 0 0; }
+.home-ftext { position: sticky; top: 24px; padding-top: 6px; }
+.home-ftext h2, .home-end h2 { font: 400 40px/1 var(--px-40); margin: 0 0 10px; text-wrap: balance; }
+.home-ftext p { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--ink-2); }
+.home-ftext .home-try { margin-top: 18px; font-size: 13px; color: var(--muted); }
+.home-fvis { margin: 0; }
+.home-pick { display: flex; flex-wrap: wrap; gap: 14px 16px; margin-top: 22px; }
+.home-pick .chip { border: 0; font: inherit; font-size: 13px; font-weight: 550; color: var(--ink); cursor: pointer; }
+.home-pick .chip:focus-visible, .home-chips .chip:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; }
+
+/* the example player's page */
+.home-profile { padding: 16px 16px 18px; }
+.home-swap > * { animation: rise-in 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.home-pname { font: 400 40px/0.95 var(--px-40); margin-bottom: 4px; }
+.home-pstatus { display: flex; align-items: center; gap: 6px; }
+.home-profile .tiles { margin-bottom: 18px; }
+.home-pgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; }
+.home-bars { width: 100%; height: 64px; }
+.home-bars rect { cursor: default; }
+.home-bars rect:hover { fill: var(--ink); }
+.pc-hours .home-bars { height: 46px; }
+.home-prow table { font-size: 13.5px; }
+.home-prow td { padding: 5px 8px 5px 0; }
+.home-pfights { margin: 0; }
+
+/* the example chat log */
+.home-chat { height: 470px; }
+.home-chat-head { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); overflow-x: auto; scrollbar-width: none; }
+.home-chat .msg-name { cursor: pointer; }
+.home-adv { color: var(--series-3); font-weight: 600; }
+
+/* smaller things, side by side */
+.home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 96px 0 0; }
+.home-mini { margin: 0; padding: 18px 18px 20px; display: flex; flex-direction: column; }
+.home-mini h3 { font: 400 30px/1.05 var(--px-30); margin: 0 0 4px; }
+.home-mini > p { margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }
+.home-week { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 2px; font-size: 10.5px; color: var(--muted); margin-top: auto; }
+.home-week .dlabel { text-align: center; }
+.home-week .hlabel { text-align: right; padding-right: 4px; line-height: 10px; font-variant-numeric: tabular-nums; }
+.home-week .wcell { height: 10px; }
+.home-kd { margin-top: auto; font-size: 13.5px; }
+.home-kd td { padding: 5px 8px 4px 0; }
+.home-kd th { padding-left: 0; }
+.home-lock { display: flex; gap: 10px; align-items: center; margin-top: auto; }
+.home-lock-field { flex: 1; display: flex; align-items: center; height: 34px; padding: 0 10px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); letter-spacing: 0.15em; }
+.home-lock-field i { width: 1px; height: 16px; margin-left: 2px; background: var(--series-1); }
+.home-lock .btn { padding: 8px 16px; }
+
+.home-end { padding: 110px 0 96px; text-align: center; }
+.home-end p { margin: 0 auto 26px; font-size: 16px; color: var(--ink-2); max-width: 44ch; }
+.home-foot { font-size: 12.5px; }
+.home-foot-brand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); color: var(--ink-2); }
+.home-foot-brand .logo { width: 16px; height: 16px; }
+
+@media (max-width: 1000px) {
+  .home-nav { display: none; }
+  .home-feature { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 72px; }
+  .home-ftext { position: static; max-width: 560px; }
+  .home-more { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
+}
+@media (max-width: 800px) {
+  .home-shot { padding: 28px 14px 40px; margin: 0 -16px; }
+  .home-wtabs { display: none; }
+}
+@media (max-width: 600px) {
+  .home-top-join { display: none; }
+  .home-hero { padding: 44px 0 32px; }
+  .home-lede { font-size: 15.5px; }
+  .home-ftext h2, .home-end h2 { font: 400 30px/1.05 var(--px-30); }
+  .home-pname { font: 400 30px/1 var(--px-30); }
+  .home-pgrid { grid-template-columns: minmax(0, 1fr); }
+  .home-chat { height: 440px; }
+  .home-wbody { padding: 12px 10px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .home-swap > * { animation: none; } }
+
+/* ---- the landing page's Minecraft dress ----
+   On the site's own pages (home, /join, /new: body.site) the accent is grass green instead of blue (pressed
+   states, focus, charts) and buttons stay the dashboard's own, not filled. On the home page only: Titles carry the game's flat text shadow, and the page ends on a strip of grass over dirt. */
+body.site {
+  --series-1: #3d8a26;
+  --lv1: #c9e6b9; --lv2: #93cf74; --lv3: #5aa83c; --lv4: #2f7a1c;
+  --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent);
+}
+:root[data-theme="dark"] body.site { --series-1: #62b443; --lv1: #1d4519; --lv2: #2f7524; --lv3: #4fa537; --lv4: #8fdb6a; --title-shadow: #000; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --series-1: #62b443; --lv1: #1d4519; --lv2: #2f7524; --lv3: #4fa537; --lv4: #8fdb6a; --title-shadow: #000; } }
+.home-title, .home-ftext h2, .home-end h2, .home-mini h3 { text-shadow: 3px 3px 0 var(--title-shadow); }
+.home-mini h3 { text-shadow: 2px 2px 0 var(--title-shadow); }
+
+/* buttons are the dashboard's own (.btn); the main one is the same raised button, not blue. Anything
+   picked (a pressed segment, the current tab, the chosen player) turns a shade greyer with a green line under it. */
+body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --picked-line: inset 0 -2px 0 var(--series-1); }
+.site .btn-primary, .site .btn-primary:hover:not(:disabled) { --pc: var(--edge); background: var(--raise); color: var(--ink); box-shadow: var(--frame); filter: none; }
+.site .btn-primary:hover:not(:disabled) { background: var(--surface-2); }
+.home-cta { padding: 9px 20px; font-size: 14px; }
+.site .seg button[aria-pressed="true"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
+.home .tabs a[aria-current="page"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
+.home-pick .chip[aria-pressed="true"] { --pc: var(--picked); background: var(--picked); color: var(--ink); box-shadow: var(--pixel), var(--picked-line), var(--drop-sm); }
+.home .chat-send, .home .chat-send:not(:disabled) { --pc: var(--edge); background: var(--raise); color: var(--ink); box-shadow: var(--frame); }
+.home .chat-send:disabled { background: var(--surface-2); color: var(--muted); }
+
+/* the profile: model and inventory beside the numbers */
+.home-profile { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px 18px; align-items: start; }
+.home-pleft { display: grid; gap: 10px; }
+.home-model-card { width: auto; }
+.home-model { min-height: 280px; }
+.home-pinfo .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.home-pinfo .tile-value { font: 400 30px/1.15 var(--px-30); }
+
+.home-foot { display: block; padding: 0; border: 0; color: #c8c8c8; }
+.home-foot-grass {
+  height: 24px; image-rendering: pixelated;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Crect width='8' height='3' fill='%235fae4c'/%3E%3Cpath fill='%235fae4c' d='M1 3h1v1H1zM4 3h2v1H4zM7 3h1v1H7z'/%3E%3Cpath fill='%2386cf6f' d='M0 0h2v1H0zM5 0h1v1H5zM3 1h1v1H3zM6 1h2v1H6z'/%3E%3Cpath fill='%236b4324' d='M2 5h1v1H2zM6 4h1v1H6zM4 6h2v1H4zM0 7h1v1H0z'/%3E%3Cpath fill='%23a47148' d='M0 4h1v1H0zM3 5h1v1H3zM6 6h1v1H6zM2 7h1v1H2z'/%3E%3C/svg%3E") 0 0 / 24px 24px repeat-x;
+}
+.home-foot-in {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+  padding: 22px max(16px, calc((100% - 1120px) / 2)) 26px; text-shadow: 2px 2px 0 #1a1a1a;
+  background: linear-gradient(rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.62)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Cpath fill='%236b4324' d='M2 1h1v1H2zM6 0h1v1H6zM4 3h2v1H4zM0 5h1v1H0zM5 6h1v1H5zM1 7h1v1H1z'/%3E%3Cpath fill='%23a47148' d='M0 1h1v1H0zM3 4h1v1H3zM7 3h1v1H7zM6 6h1v1H6zM2 6h1v1H2z'/%3E%3C/svg%3E") 0 0 / 24px 24px;
+  image-rendering: pixelated;
+}
+.home-foot-brand { color: #fff; }
+.home-foot-by { color: #fff; }
+
+@media (max-width: 700px) {
+  .home-profile { grid-template-columns: minmax(0, 1fr); }
+  .home-pleft { grid-template-columns: minmax(0, 1fr); max-width: 320px; }
+}
+@media (max-width: 600px) {
+  .home-titlewrap { font: 400 40px/1.02 var(--px-40); }
+  .home-hero { padding-top: 56px; }
+}
+
+/* /new: the address with its free-or-taken line, and the private-or-public choice */
+.wiz-url { display: flex; align-items: stretch; background: var(--surface-2); border: 1px solid var(--edge); }
+.wiz-url:focus-within { outline: 2px solid var(--series-1); outline-offset: -1px; }
+.wiz-url-host { display: flex; align-items: center; padding: 0 0 0 9px; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.wiz-url-input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); padding: 8px 9px 8px 1px; outline: none; }
+.wiz-slug-status { font-size: 12.5px; color: var(--muted); min-height: 1.45em; }
+.wiz-slug-status.ok { color: var(--good); }
+.wiz-slug-status.bad { color: var(--critical); }
+.wiz-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.wiz-fieldset legend { padding: 0; margin-bottom: 4px; }
+.wiz-vis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.wiz-vis-opt { position: relative; display: grid; gap: 2px; padding: 10px 12px 12px; background: var(--raise); box-shadow: var(--frame); cursor: pointer; }
+.wiz-vis-opt:hover { background: var(--surface-2); }
+.wiz-vis-radio { position: absolute; opacity: 0; pointer-events: none; }
+.wiz-vis-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+.wiz-vis-text { font-size: 12.5px; color: var(--ink-2); }
+.wiz-vis-opt:has(.wiz-vis-radio:checked) { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
+.wiz-vis-opt:has(.wiz-vis-radio:focus-visible) { outline: 2px solid var(--series-1); outline-offset: 3px; }
+.wiz-pass[hidden], .wiz-pass-note[hidden] { display: none; }
+.wiz-pass-note { margin: -4px 0 0; }
+@media (max-width: 520px) { .wiz-vis { grid-template-columns: minmax(0, 1fr); } }
+
+/* Checkmarks on /new, drawn as pixel art: a two-pixel-thick tick in steps, the same picture for a finished step
+   and a ticked box. Done is grass green with cut corners; a box waits set in, like an inventory slot. */
+.site {
+  --pixel-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 7' shape-rendering='crispEdges'%3E%3Cpath d='M7 1h2v1H7zM6 2h2v1H6zM0 3h2v1H0zM5 3h2v1H5zM1 4h2v1H1zM4 4h2v1H4zM2 5h3v1H2z'/%3E%3C/svg%3E");
+  --pixel-check-white: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 7' shape-rendering='crispEdges'%3E%3Cpath fill='%23fff' d='M7 1h2v1H7zM6 2h2v1H6zM0 3h2v1H0zM5 3h2v1H5zM1 4h2v1H1zM4 4h2v1H4zM2 5h3v1H2z'/%3E%3C/svg%3E");
+}
+.wiz-n { --pc: var(--surface-2); box-shadow: var(--pixel); }
+.wiz-step.now .wiz-n { --pc: var(--picked); background: var(--picked); color: var(--ink); box-shadow: var(--pixel), var(--picked-line); }
+.wiz-step.done .wiz-n { --pc: var(--good); background: var(--good); color: #fff; }
+.wiz-step.done .wiz-n::after {
+  content: ""; width: 18px; height: 14px; background: currentColor; image-rendering: pixelated;
+  -webkit-mask: var(--pixel-check) center / 100% 100% no-repeat; mask: var(--pixel-check) center / 100% 100% no-repeat;
+}
+.wiz-step.done .wiz-step-btn:hover .wiz-n { filter: brightness(1.08); }
+
+.wiz-check-head input {
+  appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin: 0 2px; cursor: pointer;
+  --pc: var(--surface);
+  background: var(--surface) center / 14px 11px no-repeat;
+  box-shadow: var(--pixel), inset 2px 2px 0 color-mix(in srgb, var(--ink) 22%, transparent), inset -2px -2px 0 color-mix(in srgb, var(--raise) 70%, transparent);
+  image-rendering: pixelated;
+}
+.wiz-check-head input:hover { background-color: var(--raise); --pc: var(--raise); }
+.wiz-check-head input:checked { --pc: var(--good); background-color: var(--good); background-image: var(--pixel-check-white); box-shadow: var(--pixel), var(--drop-sm); }
+.wiz-check-head input:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; }
+.wiz-check:has(.wiz-check-head input:checked) { background: color-mix(in srgb, var(--good) 10%, var(--surface-2)); }
+.wiz-check:has(.wiz-check-head input:checked) .wiz-check-head span { color: var(--ink-2); }
+.wiz-check-body { padding-left: 34px; }
+@media (prefers-reduced-motion: no-preference) {
+  .wiz-check-head input:checked { animation: wiz-tick 0.25s cubic-bezier(0.2, 0.8, 0.3, 1.2); }
+}
+@keyframes wiz-tick { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
