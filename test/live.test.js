@@ -1,7 +1,7 @@
 // The parts handled outside a server's own object: WebSockets and the once-a-minute check.
 import { env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { call, makeServer, newKey, upload, viewerCookie } from './helpers.js';
+import { call, chatEvent, makeServer, newKey, upload, viewerCookie } from './helpers.js';
 
 const tenant = (s) => env.TENANT.get(env.TENANT.idFromName(s.id));
 const ws = (path, headers) => call(path, { headers: { Upgrade: 'websocket', ...headers } });
@@ -79,5 +79,27 @@ describe('a server with no address', () => {
     expect(rows.snaps).toEqual([{ online: 1 }]);
     expect(rows.sessions).toEqual(['Steve']);
     expect(await runInDurableObject(tenant(a), (_o, s) => s.storage.getAlarm())).toBeGreaterThan(Date.now());
+  });
+});
+
+describe('a player page before any minute is recorded', () => {
+  it('shows players the mod has named, and still 404s for nobody', async () => {
+    const a = await makeServer('early-page');
+    const key = await newKey(a);
+    const view = await viewerCookie(a);
+    const page = (uuid) => call(`/s/${a.slug}/api/player/${uuid}`, { cookie: view });
+    // on now, by the mod's list
+    const alex = 'acb4cbcb-0824-4e60-b578-0fe604008bb0';
+    expect((await upload(key, null, { path: '/api/ingest/online', body: { players: [{ uuid: alex, name: 'Alex' }] } })).status).toBe(200);
+    const res = await page(alex);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = await res.json();
+    expect(body.player).toMatchObject({ uuid: alex, name: 'Alex', first_seen: null });
+    expect(body.sessions).toEqual([]);
+    // only in the chat log
+    expect((await upload(key, [chatEvent('hi', { name: 'Steve', uuid: '00000000-0000-4000-8000-0000000000dd' })])).status).toBe(200);
+    expect((await (await page('00000000-0000-4000-8000-0000000000dd')).json()).player.name).toBe('Steve');
+    // nobody the server has seen
+    expect((await page('00000000-0000-4000-8000-0000000000ee')).status).toBe(404);
   });
 });
