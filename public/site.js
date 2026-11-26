@@ -137,6 +137,7 @@
   // how an account is made and how a forgotten password is replaced. done(email) runs once signed in.
   //   next   where the link in the code email should lead on to
   //   start  { email, code } from that link: opens on choosing a password
+  const MISMATCH = 'The two passwords aren’t the same.';
   function authForms({ next, start, done }) {
     const err = errorLine();
     const box = h('div', { class: 'auth' });
@@ -194,14 +195,19 @@
       const email = input({ type: 'email', name: 'email', autocomplete: 'username', readonly: true, value: address });
       const codeIn = input({ name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]{8,9}', maxlength: '9', placeholder: '12345678', required: true, value: code });
       const { pw, show } = passwordField('new-password');
+      // typed twice, so a slip of the finger isn't the password
+      const again = input({ type: 'password', autocomplete: 'new-password', required: true, maxlength: '200' });
+      show.querySelector('input').addEventListener('change', () => { again.type = pw.type; });
       const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: what === 'create' ? 'Create account' : 'Save and sign in' });
       const form = h('form', { class: 'site-form' },
         field('Email', email),
         field('The 8-digit code we emailed you', codeIn, code ? null : 'Or open the link in the email. Both work for 10 minutes.'),
-        field(what === 'create' ? 'Choose a password' : 'New password', pw, 'At least 8 characters. A few words in a row is a good one.'), show, go);
+        field(what === 'create' ? 'Choose a password' : 'New password', pw, 'At least 8 characters. A few words in a row is a good one.'),
+        field('The password again', again), show, go);
       submit(form, go, async () => {
-        const r = await api('/api/account/password', { email: address, code: codeIn.value, password: pw.value })
-          .catch((x) => { (x.field === 'code' ? codeIn : pw).select(); throw x; });
+        if (pw.value !== again.value) { again.select(); throw new Error(MISMATCH); }
+        const r = await api('/api/account/password', { email: address, code: codeIn.value, password: pw.value, confirm: again.value })
+          .catch((x) => { (x.field === 'code' ? codeIn : x.field === 'confirm' ? again : pw).select(); throw x; });
         await done(r.email);
       });
       draw(what === 'create' ? 'Create an account' : what === 'forgot' ? 'Forgot password' : null, form,
@@ -234,20 +240,23 @@
     const user = input({ type: 'email', autocomplete: 'username', readonly: true, value: me.email, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
     const current = input({ type: 'password', autocomplete: 'current-password', required: true, maxlength: '200' });
     const fresh = input({ type: 'password', autocomplete: 'new-password', required: true, minlength: '8', maxlength: '200' });
+    const again = input({ type: 'password', autocomplete: 'new-password', required: true, maxlength: '200' });
     const save = h('button', { type: 'submit', class: 'btn', text: 'Change password' });
-    const change = h('form', { class: 'site-form' }, user, field('Current password', current), field('New password', fresh, 'At least 8 characters.'), save, err, ok);
+    const change = h('form', { class: 'site-form' }, user, field('Current password', current), field('New password', fresh, 'At least 8 characters.'),
+      field('The new password again', again), save, err, ok);
     change.addEventListener('submit', (e) => {
       e.preventDefault();
       say(err, '');
       ok.hidden = true;
+      if (fresh.value !== again.value) { say(err, MISMATCH); again.select(); return; }
       busy(save, async () => {
         try {
-          await api('/api/account/change', { current: current.value, password: fresh.value });
-          current.value = fresh.value = '';
+          await api('/api/account/change', { current: current.value, password: fresh.value, confirm: again.value });
+          current.value = fresh.value = again.value = '';
           ok.hidden = false;
         } catch (x) {
           say(err, x.message);
-          (x.field === 'current' ? current : fresh).select();
+          (x.field === 'current' ? current : x.field === 'confirm' ? again : fresh).select();
         }
       });
     });

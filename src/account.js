@@ -3,13 +3,13 @@
 //   POST /api/account/code      { email, next? }            emails an 8-digit code (and a link carrying it) that
 //                                                           proves the address. The answer is the same whether
 //                                                           or not the address has an account.
-//   POST /api/account/password  { email, code, password }   with that code: makes the account, or (if there is
+//   POST /api/account/password  { email, code, password, confirm }  with that code: makes the account, or (if there is
 //                                                           one) gives it a new password and signs it out
 //                                                           everywhere else. Signs in.
 //   POST /api/account/login     { email, password }         signs in
 //   POST /api/account/logout                                signs this browser out
 //   POST /api/account/logout-all                            signs the account out everywhere
-//   POST /api/account/change    { current, password }       a new password; signed out everywhere else
+//   POST /api/account/change    { current, password, confirm }  a new password; signed out everywhere else
 //   GET  /api/account/me        { email }                   who's signed in (email: null if nobody)
 //
 // An account is only ever made by someone who received a code at its address: what a person may do on a
@@ -34,6 +34,9 @@ import { accountCodeEmail, passwordChangedEmail, sendEmail, signInLink } from '.
 import { json } from './util.js';
 
 export const LOGIN_FAILED = 'That email and password don’t match.';
+// The pages ask for a new password twice and send both; when the second is sent, it has to be the first.
+const MISMATCH = 'The two passwords aren’t the same.';
+const confirmed = (b) => b.confirm === undefined || b.confirm === b.password;
 const CODE_FAILED = 'That code isn’t right, or it has expired.';
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -152,6 +155,7 @@ export async function handleAccount(request, env, url) {
     // the password is looked at first, so a password that won't do doesn't use the code up
     const bad = passwordProblem(b.password, email);
     if (bad) return json({ error: bad, field: 'password' }, 400);
+    if (!confirmed(b)) return json({ error: MISMATCH, field: 'confirm' }, 400);
     const wrong = json({ error: CODE_FAILED, field: 'code' }, 400);
     if (!EMAIL_RE.test(email) || !ACCOUNT_CODE_RE.test(code)) return wrong;
     // A try is claimed in one statement, before the code is looked at: guesses sent all at once still get
@@ -219,6 +223,7 @@ export async function handleAccount(request, env, url) {
     if (!ok) return json({ error: 'That isn’t your current password.', field: 'current' }, 400);
     const bad = passwordProblem(b.password, me.email);
     if (bad) return json({ error: bad, field: 'password' }, 400);
+    if (!confirmed(b)) return json({ error: MISMATCH, field: 'confirm' }, 400);
     await env.DIRECTORY.prepare('UPDATE accounts SET pw_hash = ?, pw_changed_at = ? WHERE id = ?').bind(await hashAccountPassword(env, b.password), now(), me.id).run();
     await endSessions(env, me.id, me.session);
     console.log(`account: new password for ${me.id}`);

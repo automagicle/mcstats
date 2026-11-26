@@ -60,6 +60,9 @@ describe('making an account', () => {
       expect((await res.json()).field).toBe('password');
     }
     expect(await env.DIRECTORY.prepare('SELECT COUNT(*) AS n FROM accounts WHERE email = ?').bind(email).first('n')).toBe(0);
+    // typed twice, differently: no account, and the code isn't used up
+    const slip = await post('password', { email, code, password: 'a fine password', confirm: 'a fine passwrod' });
+    expect([slip.status, (await slip.json()).field]).toEqual([400, 'confirm']);
     // the right code: an account, signed in
     const res = await post('password', { email, code, password: 'a fine password' });
     expect(res.status).toBe(200);
