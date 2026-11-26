@@ -172,6 +172,7 @@ async function server(request, env, url, ctx, slug, rest) {
     // how its pages are arranged, its description and its icon (Admin → Layout and Server; src/layout.js)
     layout: layoutOf(g.settings), about: g.settings.ABOUT || '',
     icon: g.settings.ICON_AT ? `/s/${row.slug}/api/icon?v=${g.settings.ICON_AT}` : null,
+    banner: g.settings.BANNER || '',
   };
   // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
   const extras = addons.flatMap((id) => [

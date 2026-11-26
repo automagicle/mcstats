@@ -210,6 +210,9 @@ export class Tenant extends DurableObject {
         const about = cleanAbout(raw);
         if (about.length > MAX_ABOUT) return { error: `The description is at most ${MAX_ABOUT} characters.` };
         clean[k] = about;
+      } else if (k === 'BANNER') {
+        // the header at the top of the Activity page: '1' shown, '0' hidden, '' as it comes (shown once there's an icon)
+        clean[k] = v === '1' || v === '0' ? v : '';
       } else if (k === 'TZ_NAME') {
         try {
           if (v) new Intl.DateTimeFormat('en', { timeZone: v });

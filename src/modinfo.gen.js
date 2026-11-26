@@ -3,17 +3,99 @@ export const MOD = {
   "id": "mcstats_chat",
   "name": "mcstats",
   "version": "2.3.0",
-  "jar": "mcstats-chat-2.3.0.jar",
+  "jar": "mcstats-chat-2.3.0+mc26.2.jar",
   "environment": "server",
-  "minecraft": "${minecraft}",
+  "minecraft": "~26.2",
   "minecraft_built": "26.2",
-  "loader": "${loader}",
+  "loader": ">=0.18.4",
   "loader_built": "0.20.1",
-  "java": "${java}",
+  "java": ">=25",
+  "downloads": [
+    {
+      "file": "mcstats-chat-2.3.0+mc26.3.jar",
+      "version": "2.3.0",
+      "minecraft": "~26.3",
+      "label": "26.3.x",
+      "java": ">=25",
+      "loader": ">=0.18.4"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc26.2.jar",
+      "version": "2.3.0",
+      "minecraft": "~26.2",
+      "label": "26.2.x",
+      "java": ">=25",
+      "loader": ">=0.18.4"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc26.1.2.jar",
+      "version": "2.3.0",
+      "minecraft": ">=26.1 <26.2",
+      "label": "26.1.x",
+      "java": ">=25",
+      "loader": ">=0.18.4"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc1.21.11.jar",
+      "version": "2.3.0",
+      "minecraft": "1.21.11",
+      "label": "1.21.11",
+      "java": ">=21",
+      "loader": ">=0.16.0"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc1.21.10.jar",
+      "version": "2.3.0",
+      "minecraft": ">=1.21.9 <=1.21.10",
+      "label": "1.21.9–1.21.10",
+      "java": ">=21",
+      "loader": ">=0.16.0"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc1.21.8.jar",
+      "version": "2.3.0",
+      "minecraft": ">=1.21.6 <=1.21.8",
+      "label": "1.21.6–1.21.8",
+      "java": ">=21",
+      "loader": ">=0.16.0"
+    },
+    {
+      "file": "mcstats-chat-2.3.0+mc1.21.5.jar",
+      "version": "2.3.0",
+      "minecraft": "1.21.5",
+      "label": "1.21.5",
+      "java": ">=21",
+      "loader": ">=0.16.0"
+    },
+    {
+      "file": "mcstats-chat-2.2.0.jar",
+      "version": "2.2.0",
+      "minecraft": "~26.2",
+      "label": "26.2.x",
+      "java": ">=25",
+      "loader": ">=0.18.4"
+    },
+    {
+      "file": "mcstats-chat-2.1.0.jar",
+      "version": "2.1.0",
+      "minecraft": "~26.2",
+      "label": "26.2.x",
+      "java": ">=25",
+      "loader": ">=0.18.4"
+    }
+  ],
   "fabric_api": {
     "version": "0.161.0+26.2",
-    "bundled": false,
-    "modules": []
+    "bundled": true,
+    "modules": [
+      "fabric-api-base",
+      "fabric-message-api-v1",
+      "fabric-lifecycle-events-v1",
+      "fabric-command-api-v2",
+      "fabric-entity-events-v1",
+      "fabric-events-interaction-v0",
+      "fabric-networking-api-v1"
+    ]
   },
   "other_depends": {},
   "config_file": "config/mcstats-chat.properties",
@@ -32,6 +114,15 @@ export const MOD = {
             {
               "title": "Connect your mcstats account",
               "text": "/mcstats connect, or Connect Account in the /mcstats menu, opens an anvil: type the email of your mcstats account and click the result. The dashboard emails that address, and once someone signed in with it clicks Connect above the Chat log's message box, they chat from the website as you, with your name in game. Admins see the connected email on the player's page under Admin → Players and can disconnect it; /mcstats disconnect does it in game. Needs this version."
+            }
+          ]
+        },
+        {
+          "section": "Fixed",
+          "items": [
+            {
+              "title": "Liveview inventory screens",
+              "text": "The mod now sends the page's textures and font several files at a time instead of one per frame, and keeps up to 512 waiting requests instead of dropping those past 64. A page opening while the world was loading could miss the inventory texture and the game's font, and show a plain grey box with no slot grid."
             }
           ]
         },

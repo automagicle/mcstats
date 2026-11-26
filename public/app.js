@@ -408,7 +408,7 @@ const LAYOUT_PAGES = {
   home: {
     name: 'Activity', href: '#/',
     sections: [
-      ['about', 'About the server', 'about', false, 'Icon, name and description from Server. Shows once there’s an icon or a description.'],
+      ['about', 'About the server', 'about', false, 'Icon, name and description from Server. Shown when Server → Header is on (on by default once there’s an icon).'],
       ['now', 'Right now', 'tiles', false, 'The number tiles and who’s online'],
       ['timeline', 'Players online', 'line', true],
       ['daily', 'Daily activity', 'bars', true],
@@ -533,12 +533,14 @@ applyLayout(layoutSaved, { redraw: false });
 
 // The top of the Activity page: the server's icon, name and description (Admin → Server), as saved, or as
 // they're being changed there.
+// Shown only when the owner switches it on; until they choose, it's on once there's an icon.
+const bannerOn = (setting, iconUrl) => (setting === '1' ? true : setting === '0' ? false : !!iconUrl);
 function renderAbout() {
   const f = srv.draft;
   const about = f ? f.about.trim() : MCS.about || '';
   const iconUrl = f && f.icon !== undefined ? f.icon || null : MCS.icon || null;
   const img = $('#about-icon');
-  $('#about-card').hidden = !about && !iconUrl;
+  $('#about-card').hidden = !bannerOn(f ? f.banner : MCS.banner || '', iconUrl) || (!about && !iconUrl);
   $('#about-name').textContent = (f?.name.trim() || MCS.name || '');
   $('#about-desc').textContent = about;
   $('#about-desc').hidden = !about;
@@ -6383,6 +6385,43 @@ function setMe(r) {
   if (site.perms && !site.perms.view) showError(`This account (${r.email}) doesn’t have access to the dashboard. Ask an admin to allow it.`);
 }
 
+// Picking a jar of the server mod to download: the Minecraft version the server runs, then the mod version
+// (newest first). downloads is MOD.downloads (src/modinfo.gen.js: every jar in public/downloads, newest first);
+// suggested is the file to start on (built for the server's Minecraft version, when the dashboard knows it).
+function modPicker(downloads, { suggested = null, latest = null } = {}) {
+  const list = downloads || [];
+  const wrap = el('div', { class: 'mod-pick' });
+  if (!list.length) { wrap.append(el('p', { class: 'muted', text: 'No jars are on this site yet.' })); return wrap; }
+  const labels = [...new Set(list.map((d) => d.label))];
+  const start = list.find((d) => d.file === suggested) || list[0];
+  const game = el('select', { class: 'adm-input', 'aria-label': 'Minecraft version' }, ...labels.map((l) => el('option', { value: l, text: `Minecraft ${l}` })));
+  const ver = el('select', { class: 'adm-input', 'aria-label': 'Mod version' });
+  const link = el('a', { class: 'btn btn-primary', download: '' });
+  const hint = el('span', { class: 'muted mod-pick-hint' });
+  game.value = start.label;
+  const fillVersions = (keep) => {
+    const here = list.filter((d) => d.label === game.value);
+    ver.replaceChildren(...here.map((d) => el('option', { value: d.file, text: `mcstats ${d.version}${d.version === latest ? ' (newest)' : ''}` })));
+    ver.value = here.some((d) => d.file === keep) ? keep : here[0].file;
+  };
+  const show = () => {
+    const d = list.find((x) => x.file === ver.value);
+    link.href = `/downloads/${encodeURIComponent(d.file)}`;
+    link.setAttribute('download', d.file);
+    link.textContent = `Download ${d.file}`;
+    hint.textContent = [`Fabric, server side`, d.java && `Java ${d.java.replace('>=', '')}+`, d.loader && `Fabric Loader ${d.loader.replace('>=', '')}+`].filter(Boolean).join(' · ');
+  };
+  game.addEventListener('change', () => { fillVersions(null); show(); });
+  ver.addEventListener('change', show);
+  fillVersions(start.file);
+  show();
+  wrap.append(el('div', { class: 'mod-pick-row' },
+    el('label', { class: 'mod-pick-field' }, el('span', { class: 'muted', text: 'Minecraft' }), game),
+    el('label', { class: 'mod-pick-field' }, el('span', { class: 'muted', text: 'Mod version' }), ver)),
+  el('div', { class: 'mod-pick-row' }, link, hint));
+  return wrap;
+}
+
 // A newer version of the server's mod (src/modupdate.js), on every page for admins. An ordinary one can be
 // put away until the next version comes out (remembered in this browser only); an urgent one stays.
 const MOD_SEEN_KEY = 'mcstats:mod-update-seen';
@@ -6406,6 +6445,7 @@ function renderModUpdate() {
     `The server runs mcstats ${u.current}; ${u.latest} is out${u.behind > 1 ? ` (${u.behind} releases newer)` : ''}`
       + (u.urgent ? ' and fixes something serious, so update it soon. ' : '. '),
     el('a', { href: '#/admin/mod', text: 'See what changed' }),
+    ...(u.jar_url ? [' · ', el('a', { href: u.jar_url, download: u.jar || '', text: `Download ${u.latest}` })] : []),
     ...(u.urgent ? [] : [' · ', later]));
   box.hidden = false;
 }
@@ -6754,7 +6794,7 @@ function applyLook(accent, tabs) {
 }
 // icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
 const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
-  about: d.about || '', icon: undefined, layout: fullLayout(d.layout) });
+  about: d.about || '', banner: d.banner || '', icon: undefined, layout: fullLayout(d.layout) });
 // What Save would change, one line each.
 function srvChanges() {
   const d = srv.data, f = srv.draft;
@@ -6769,6 +6809,7 @@ function srvChanges() {
   if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
   if (f.about.trim() !== (d.about || '')) out.push(f.about.trim() ? (d.about ? 'A new description' : 'A description') : 'No description');
   if (f.icon !== undefined) out.push(f.icon ? (d.icon ? 'A new icon' : 'An icon') : 'Remove the icon');
+  if (f.banner !== (d.banner || '')) out.push(f.banner === '1' ? 'Show the header on the Activity page' : 'Hide the header on the Activity page');
   out.push(...layoutChanges(d.layout, f.layout));
   for (const a of d.known_addons || []) {
     if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
@@ -6819,6 +6860,7 @@ async function srvSave() {
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
   if (f.about.trim() !== (d.about || '')) body.about = f.about.trim();
   if (f.icon !== undefined) body.icon = f.icon;
+  if (f.banner !== (d.banner || '')) body.banner = f.banner === '1';
   if (layoutChanges(d.layout, f.layout).length) body.layout = f.layout;
   srv.busy = true;
   srv.errors = {};
@@ -6838,6 +6880,7 @@ async function srvSave() {
     }
     // what every page shows from here on
     MCS.about = r.about;
+    MCS.banner = r.banner || '';
     MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
     layoutSaved = fullLayout(r.layout);
     // a new address is a new page; a new name is on every page's title: load it afresh
@@ -7105,10 +7148,17 @@ function renderServerAdmin(focusKey) {
   aboutBox.value = f.about;
   const aboutCount = el('span', { class: 'srv-count', text: `${f.about.length} / 280` });
   aboutBox.addEventListener('input', () => { f.about = aboutBox.value; aboutCount.textContent = `${f.about.length} / 280`; renderAdminBar(); });
+  // whether the header (icon, name, description) shows at the top of the Activity page: the owner's choice
+  const bannerBox = el('input', { type: 'checkbox', 'data-fk': 'srv:banner', disabled: owner ? null : '' });
+  bannerBox.checked = bannerOn(f.banner, iconNow);
+  bannerBox.addEventListener('change', () => { f.banner = bannerBox.checked ? '1' : '0'; redraw('srv:banner'); });
+  const bannerField = field('Header', el('label', { class: 'srv-check' }, bannerBox, el('span', { text: 'Show the icon, name and description at the top of the Activity page' })),
+    ownerOnly || 'On by default once there’s an icon. It needs an icon or a description to show.', 'banner');
   const details = card('Server', null,
     field('Name', text('name', { type: 'text', maxlength: '60', autocomplete: 'off', 'aria-label': 'Name' }), 'Shown at the top of its pages and in emails.', 'name'),
     iconField,
     field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
+    bannerField,
     field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 
@@ -7173,10 +7223,11 @@ function renderServerAdmin(focusKey) {
 
   /* ---- the mod: what the Minecraft server runs to fill these pages in ---- */
   const mod = d.mod ? card('Mod', 'runs on the Minecraft server; players don’t install anything',
-    field(`mcstats ${d.mod.version}`, el('div', { class: 'srv-mod' },
-      el('a', { class: 'btn', href: d.mod.jar_url, download: d.mod.jar, text: `Download ${d.mod.jar}` }),
-      el('a', { href: '/mod', text: 'What it needs and how to install it' })),
-      `For Minecraft ${d.mod.minecraft}.x on Fabric. The newest version; if the server has an older one, replace its jar in mods/ and restart.`),
+    field(`mcstats ${d.mod.version}`, el('div', {},
+      d.mod.downloads ? modPicker(d.mod.downloads, { suggested: d.mod.jar, latest: d.mod.version })
+        : el('a', { class: 'btn', href: d.mod.jar_url, download: d.mod.jar, text: `Download ${d.mod.jar}` }),
+      el('div', { class: 'srv-mod' }, el('a', { href: '/mod', text: 'What it needs and how to install it' }))),
+      'Pick the Minecraft version the server runs. If the server has an older mod, replace its jar in mods/ and restart.'),
     owner ? field('Key', el('div', { class: 'srv-mod' }, el('a', { href: `/new?server=${encodeURIComponent(d.slug)}&step=4`, text: 'Make a new key in setup' })),
       'The key in the mod’s config file is what ties it to this server. A new one stops the old one working at once.') : null) : null;
 
@@ -8444,6 +8495,17 @@ function renderAdmin() {
           : empty('Nothing has happened to it lately.')));
   };
 
+  // every jar the site has, by Minecraft version and mod version, starting on the one the server needs
+  const downloadCard = () => {
+    const m = d.mod;
+    if (!m) return null;
+    const runs = d.link?.minecraft;
+    return card('Download the mod', runs ? `the server runs Minecraft ${runs}` : 'for the server, not for players',
+      modPicker(m.downloads, { suggested: m.suggested, latest: m.version }),
+      el('p', { class: 'adm-note' }, 'Put the jar in the server’s mods folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
+        el('a', { href: '/mod', text: 'What it needs' })));
+  };
+
   // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update
   const updateCard = () => {
     const mu = d.mod_update;
@@ -8473,7 +8535,7 @@ function renderAdmin() {
     players: playersView,
     teams: () => [teamsCard(), rosterCard()],
     moderation: () => [rulesCard(), deletedCard(), uncountedCard()],
-    mod: () => [updateCard(), linkCard(), gapsCard()],
+    mod: () => [updateCard(), downloadCard(), linkCard(), gapsCard()],
   };
   const root = $('#admin');
   const listTop = root.querySelector('.adm-plist')?.scrollTop ?? null;

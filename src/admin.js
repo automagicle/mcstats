@@ -11,7 +11,8 @@ import { fillGaps } from './gapfill.js';
 import { clearCache } from './cache.js';
 import { tellPresence } from './presence.js';
 import { linkProbe, linkStatus } from './link.js';
-import { modUpdate } from './modupdate.js';
+import { modJar, modUpdate } from './modupdate.js';
+import { MOD } from './modinfo.gen.js';
 import { teamRows } from './teams.js';
 import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
@@ -38,12 +39,13 @@ export const isAdmin = (env, who) => !!who?.email && !!who?.perms?.admin;
 export async function me(env, who) {
   const admin = isAdmin(env, who);
   // admins are told on every page when the server's mod has a newer version (the admin page has the details)
-  const u = admin ? modUpdate((await linkStatus(env))?.last_version) : null;
+  const status = admin ? await linkStatus(env) : null;
+  const u = admin ? modUpdate(status?.last_version, undefined, status?.minecraft) : null;
   return json({
     email: who.email, admin, super: !!(who.perms?.super || who.perms?.owner),
     role: who.perms?.role ?? null, perms: who.perms ?? null,
     server: env.TENANT ? { slug: env.TENANT.slug, name: env.TENANT.name } : null,
-    mod_update: u && { current: u.current, latest: u.latest, urgent: u.urgent, behind: u.behind },
+    mod_update: u && { current: u.current, latest: u.latest, urgent: u.urgent, behind: u.behind, jar: u.jar, jar_url: u.jar_url },
   });
 }
 
@@ -81,7 +83,10 @@ export async function adminState(env, season) {
     uncounted: uncounted.results,
     deleted: deleted.results,
     link,
-    mod_update: modUpdate(link?.last_version), // a newer mod to install, with what changed (src/modupdate.js)
+    mod_update: modUpdate(link?.last_version, undefined, link?.minecraft), // a newer mod to install, with what changed (src/modupdate.js)
+    // every jar the site has, for the Mod and data page's download picker
+    // suggested: the newest jar for the Minecraft version the server's mod last said it runs on
+    mod: { version: MOD.version, minecraft_built: MOD.minecraft_built, downloads: MOD.downloads, server_minecraft: link?.minecraft ?? null, suggested: modJar(link?.minecraft).file },
     chat_rules: await rulesState(db), // which chat log lines are left out (src/chatrules.js)
   });
 }

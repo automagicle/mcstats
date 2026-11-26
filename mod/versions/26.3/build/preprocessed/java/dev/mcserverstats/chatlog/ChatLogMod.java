@@ -70,8 +70,12 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		Path dir = FabricLoader.getInstance().getConfigDir();
 		String version = FabricLoader.getInstance().getModContainer("mcstats_chat")
 				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("dev");
+		// The game's version goes in the User-Agent too (2.3.0), so the dashboard can offer the jar built for it.
+		String minecraft = FabricLoader.getInstance().getModContainer("minecraft")
+				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
+		String agent = "mcstats-chat/" + version + " (Minecraft " + minecraft + ")";
 		uploader = new Uploader(dir.resolve("mcstats-chat.properties"), dir.resolve("mcstats-chat-pending.json"), version);
-		link = new WebChatLink(uploader::config, uploader::linkDownFor, "mcstats-chat/" + version, new WebChatLink.Handler() {
+		link = new WebChatLink(uploader::config, uploader::linkDownFor, agent, new WebChatLink.Handler() {
 			@Override
 			public CompletableFuture<String> say(String name, String text, java.util.function.BooleanSupplier claim) {
 				return webMessage(name, text, claim);
@@ -98,7 +102,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 					// the dashboard asks for the view over the web chat connection, so without it nobody could
 					return c.ready() && c.webChat() ? c.liveview() : LiveSettings.DEFAULT.off();
 				},
-				() -> relayTarget(uploader.config(), "mcstats-chat/" + version),
+				() -> relayTarget(uploader.config(), agent),
 				() -> link.sendLiveInfo());
 		link.live(new WebChatLink.Live() {
 			@Override

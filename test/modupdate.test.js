@@ -1,6 +1,6 @@
 // Telling admins about a newer mod (src/modupdate.js), from mod/CHANGELOG.md (src/changelog.js).
 import { describe, expect, it } from 'vitest';
-import { compareVersions, modUpdate, modUpdateMessage } from '../src/modupdate.js';
+import { compareGame, compareVersions, gameLabel, inRange, modJar, modUpdate, modUpdateMessage } from '../src/modupdate.js';
 import { MOD } from '../src/modinfo.gen.js';
 import { parseChangelog } from '../src/changelog.js';
 
@@ -31,7 +31,15 @@ Something new.
 - First release.
 `;
 
-const mod = { version: '1.2.0', jar: 'mcstats-chat-1.2.0.jar', releases: parseChangelog(CHANGELOG) };
+const mod = {
+  version: '1.2.0', jar: 'mcstats-chat-1.2.0+mc26.2.jar', minecraft_built: '26.2', releases: parseChangelog(CHANGELOG),
+  downloads: [
+    { file: 'mcstats-chat-1.2.0+mc26.2.jar', version: '1.2.0', minecraft: '~26.2', label: '26.2.x' },
+    { file: 'mcstats-chat-1.2.0+mc1.21.11.jar', version: '1.2.0', minecraft: '1.21.11', label: '1.21.11' },
+    { file: 'mcstats-chat-1.2.0+mc1.21.10.jar', version: '1.2.0', minecraft: '>=1.21.9 <=1.21.10', label: '1.21.9–1.21.10' },
+    { file: 'mcstats-chat-1.1.0.jar', version: '1.1.0', minecraft: '~26.2', label: '26.2.x' },
+  ],
+};
 
 describe('changelog', () => {
   it('reads each release, its sections and whether it is urgent', () => {
@@ -61,7 +69,9 @@ describe('mod update', () => {
 
   it('lists the releases since, and is urgent if any of them is', () => {
     const u = modUpdate('1.0.0', mod);
-    expect(u).toMatchObject({ current: '1.0.0', latest: '1.2.0', urgent: true, behind: 2, jar_url: '/downloads/mcstats-chat-1.2.0.jar' });
+    expect(u).toMatchObject({ current: '1.0.0', latest: '1.2.0', urgent: true, behind: 2, jar_url: '/downloads/mcstats-chat-1.2.0+mc26.2.jar' });
+    // a server that said it runs 1.21.10 is pointed at the jar built for it
+    expect(modUpdate('1.0.0', mod, '1.21.10').jar).toBe('mcstats-chat-1.2.0+mc1.21.10.jar');
     expect(u.urgent_why).toEqual(['1.2.0: Fixes the token being written to the log.']);
     expect(modUpdate('1.1.0', mod).releases.map((r) => r.version)).toEqual(['1.2.0']);
   });
@@ -69,8 +79,42 @@ describe('mod update', () => {
   it('makes a small message for the mod', () => {
     const m = modUpdateMessage('0.0.1', 3);
     expect(m).toMatchObject({ type: 'update', current: '0.0.1', latest: MOD.version, jar: `/downloads/${MOD.jar}` });
+    // the jar the site serves is a file it has
+    expect(MOD.downloads.map((d) => d.file)).toContain(MOD.jar);
     expect(m.changes.length).toBeLessThanOrEqual(3);
     expect(JSON.stringify(modUpdateMessage('0.0.1')).length).toBeLessThan(8192); // the mod drops bigger messages
     expect(modUpdateMessage(MOD.version)).toBe(null);
+  });
+});
+
+describe('Minecraft versions', () => {
+  it('compares them part by part', () => {
+    expect(compareGame('1.21.11', '1.21.9')).toBe(1);
+    expect(compareGame('26.1', '1.21.11')).toBe(1);
+    expect(compareGame('26.2', '26.2.0')).toBe(0);
+  });
+
+  it('reads Fabric ranges', () => {
+    expect(inRange('26.2.1', '~26.2')).toBe(true);
+    expect(inRange('26.3', '~26.2')).toBe(false);
+    expect(inRange('1.21.10', '>=1.21.9 <=1.21.10')).toBe(true);
+    expect(inRange('1.21.11', '>=1.21.9 <=1.21.10')).toBe(false);
+    expect(inRange('26.1.2', '>=26.1 <26.2')).toBe(true);
+    expect(inRange('1.21.11', '1.21.11')).toBe(true);
+    expect(inRange(null, '1.21.11')).toBe(false);
+  });
+
+  it('labels them as people say them', () => {
+    expect(gameLabel('~26.2')).toBe('26.2.x');
+    expect(gameLabel('>=26.1 <26.2')).toBe('26.1.x');
+    expect(gameLabel('>=1.21.6 <=1.21.8')).toBe('1.21.6–1.21.8');
+    expect(gameLabel('1.21.5')).toBe('1.21.5');
+  });
+
+  it('picks the jar for a server', () => {
+    expect(modJar('1.21.11', null, mod).file).toBe('mcstats-chat-1.2.0+mc1.21.11.jar');
+    expect(modJar(null, null, mod).file).toBe('mcstats-chat-1.2.0+mc26.2.jar'); // unknown: the default build
+    expect(modJar('1.20.1', null, mod).file).toBe('mcstats-chat-1.2.0+mc26.2.jar'); // nothing built for it
+    expect(modJar('26.2', '1.1.0', mod)).toMatchObject({ file: 'mcstats-chat-1.1.0.jar', url: '/downloads/mcstats-chat-1.1.0.jar' });
   });
 });

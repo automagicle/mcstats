@@ -2865,8 +2865,10 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 /* /new: the address with its free-or-taken line, and the private-or-public choice */
 .wiz-url { display: flex; align-items: stretch; background: var(--surface-2); border: 1px solid var(--edge); }
 .wiz-url:focus-within { outline: 2px solid var(--series-1); outline-offset: -1px; }
-.wiz-url-host { display: flex; align-items: center; padding: 0 0 0 9px; font-size: 15px; color: var(--muted); white-space: nowrap; }
-.wiz-url-input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); padding: 8px 9px 8px 1px; outline: none; }
+.wiz-url-host { display: flex; align-items: center; padding: 0 0 0 10px; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.wiz-url .wiz-url-input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); padding: 8px 10px 8px 0; outline: none; box-shadow: none; }
+/* the box itself shows focus (.wiz-url:focus-within); the global input outline would draw a second ring inside it */
+.wiz-url .wiz-url-input:focus-visible { outline: none; }
 .wiz-slug-status { font-size: 12.5px; color: var(--muted); min-height: 1.45em; }
 .wiz-slug-status.ok { color: var(--good); }
 .wiz-slug-status.bad { color: var(--critical); }
@@ -3103,3 +3105,13 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .lay-tile.off { background: var(--surface-2); color: var(--muted); }
 @media (max-width: 800px) { .lay-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lay-plan { padding: 8px; } }
 @media (max-width: 520px) { .lay-block { grid-column: 1 / -1; } }
+
+/* the server mod's download picker (public/app.js modPicker, public/site.js modPicker): Minecraft version, mod version, download */
+.mod-pick { display: grid; gap: 10px; margin: 2px 0 8px; }
+.mod-pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.mod-pick-field { display: grid; gap: 3px; font-size: 12px; min-width: 0; }
+.mod-pick-field select { min-width: 180px; max-width: 100%; }
+.mod-pick .btn { text-decoration: none; }
+.mod-pick-hint { font-size: 12px; }
+.srv-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.srv-check input { margin: 0; }
