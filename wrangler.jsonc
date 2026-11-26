@@ -9,7 +9,7 @@
   "workers_dev": true,
   "preview_urls": false,
 
-  // Static pages from ./public: the landing page (/), joining (/join), making a server (/new) and the account (/account).
+  // Static pages from ./public: the landing page (/), joining (/join), making a server (/new), the account (/account) and the mod (/mod).
   // The Worker runs first for the API, every server's pages (/s/<server>/...), the old season-1 archive
   // address (/s1/, now under the first server), and the stats page's file, which is only served inside a server.
   "assets": {

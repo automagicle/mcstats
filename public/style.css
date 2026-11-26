@@ -2286,6 +2286,23 @@ p.site-more { margin-bottom: 0; }
 .acct-page .site-h2 { margin: 28px 0 8px; }
 .acct-page .site-form { max-width: 380px; }
 .acct-page .site-row { margin-top: 10px; }
+
+/* the mod's own page (/mod), and where the other pages point to it */
+.mod-get { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 6px; }
+.mod-get .btn { text-decoration: none; }
+.mod-page .site-h2 { margin: 26px 0 10px; }
+.wiz-checks.mod-steps { counter-reset: mod; }
+.mod-steps > li { counter-increment: mod; }
+.mod-head { cursor: default; }
+.mod-head::before {
+  content: counter(mod);
+  flex: none; width: 24px; font: 400 20px/1 var(--px-20); color: var(--muted);
+}
+.home-modline { max-width: none !important; margin: 22px auto 0 !important; font-size: 14px !important; color: var(--muted) !important; }
+.home-modline a { color: var(--ink-2); text-underline-offset: 3px; }
+.home-modline a:hover { color: var(--ink); }
+.srv-mod { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.srv-mod .btn { text-decoration: none; }
 .auth-show { font-size: 13px; }
 .auth-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 0; }
 .auth-link {

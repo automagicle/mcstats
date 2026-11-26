@@ -1,6 +1,6 @@
 // Admin → Server: the server's own details, changed from its dashboard.
 //
-//   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, can, … }
+//   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, mod, can, … }
 //   POST /api/admin/server   any of { name, accent, tab_style }                 admins
 //                            and { slug, public, password + confirm }           owners
 //                            and { addons: [ids] }                              the site's operators
@@ -21,6 +21,7 @@ import {
 import { limit, tooMany } from './limiter.js';
 import { ADDONS, addonList } from './addons.js';
 import { lookOf } from './look.js';
+import { MOD } from './modinfo.gen.js';
 
 // Why the address can't be changed, or null. The old shared mod token finds the first server by its address
 // (LEGACY_SLUG), so that server stays put until it has a key of its own and the shared token is gone.
@@ -41,6 +42,8 @@ function state(t, row, perms) {
     // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
     can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
     slug_locked: slugLock(t),
+    // the mod this site offers (src/modinfo.gen.js, read from mod/): for the Mod card's download
+    mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built },
     ...(perms.super && { known_addons: Object.entries(ADDONS).map(([id, a]) => ({ id, name: a.name, about: a.about })) }),
   };
 }

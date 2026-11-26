@@ -412,6 +412,13 @@ npx wrangler d1 execute mcstats --remote --command "INSERT OR REPLACE INTO playe
 npx wrangler d1 execute mcstats --remote --command "DELETE FROM player_aliases WHERE alias = 'OldName'"
 ```
 
+## Getting the mod
+
+The jar is in `public/downloads/` (kept in git, so a deploy from a push serves it). People find it at **`/mod`**: the
+download, what the server needs (read from the mod itself) and where the key comes from. `/mod` is linked from the home
+page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Server → Mod** (for its admins)
+and a small "Server owners: get the mod" link in the footer. Players never need it, and nothing else points them at it.
+
 ## Sign-in
 
 Two things, separately:

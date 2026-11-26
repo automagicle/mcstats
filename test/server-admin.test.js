@@ -17,6 +17,8 @@ describe('who can change what', () => {
   it('members and viewers can’t see or change the server’s details', async () => {
     const a = await makeServer('sa-members');
     expect((await settings(a, await viewerCookie(a))).status).toBe(403);
+    // admins are offered the mod to download; it isn't something viewers are shown
+    expect((await (await settings(a, await idCookie(a, a.owner))).json()).mod).toMatchObject({ jar_url: expect.stringMatching(/^\/downloads\/mcstats-chat-[\d.]+\.jar$/) });
     const member = await invite(a, 'member@example.org', 'member');
     expect((await settings(a, member)).status).toBe(403);
     expect((await settings(a, member, { accent: 'blue' })).status).toBe(403);

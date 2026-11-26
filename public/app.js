@@ -1974,7 +1974,9 @@ function renderLive() {
     SEASON === CURRENT_SEASON
       ? el('a', { href: seasonHref(1), text: 'Season 1 archive' })
       : el('a', { href: seasonHref(CURRENT_SEASON), text: 'Current season' }),
-    ...(site.admin ? [' · ', el('a', { href: '#/admin', text: 'Admin' })] : []));
+    ...(site.admin ? [' · ', el('a', { href: '#/admin', text: 'Admin' })] : []),
+    // for whoever runs a server and came looking: said plainly, so players know it isn't for them
+    ' · ', el('a', { href: '/mod', text: 'Server owners: get the mod' }));
   renderSeasonNote();
 }
 
@@ -2073,7 +2075,7 @@ function renderOnlineChips() {
   if (!archived() && !now.live && last && last.up && last.online > last.listed) {
     warn.replaceChildren(
       `The server reports ${last.online} players but only lists ${last.listed} by name, so some playtime isn't being counted. `,
-      'Installing mcstats-chat 1.7.0 or newer on the server gives the full list (the mod reports everyone in the tab list).'
+      'Installing ', el('a', { href: '/mod', text: 'the mcstats mod' }), ' (1.7.0 or newer) on the server gives the full list: the mod reports everyone in the tab list.'
     );
     warn.hidden = false;
   } else {
@@ -6484,6 +6486,15 @@ function renderServerAdmin(focusKey) {
       tabs('line', 'Line', 'The current tab is a shade greyer, with a line in the accent color under it.'),
       tabs('frame', 'Frame', 'The current tab is set in, with a frame around it and no color.')), null, 'tab_style'));
 
+  /* ---- the mod: what the Minecraft server runs to fill these pages in ---- */
+  const mod = d.mod ? card('Mod', 'runs on the Minecraft server; players don’t install anything',
+    field(`mcstats ${d.mod.version}`, el('div', { class: 'srv-mod' },
+      el('a', { class: 'btn', href: d.mod.jar_url, download: d.mod.jar, text: `Download ${d.mod.jar}` }),
+      el('a', { href: '/mod', text: 'What it needs and how to install it' })),
+      `For Minecraft ${d.mod.minecraft}.x on Fabric. The newest version; if the server has an older one, replace its jar in mods/ and restart.`),
+    owner ? field('Key', el('div', { class: 'srv-mod' }, el('a', { href: `/new?server=${encodeURIComponent(d.slug)}&step=4`, text: 'Make a new key in setup' })),
+      'The key in the mod’s config file is what ties it to this server. A new one stops the old one working at once.') : null) : null;
+
   /* ---- add-ons: the site's operators only ---- */
   const extras = d.known_addons?.length ? card('Add-ons', 'features only some servers have; only the site’s operators see this',
     ...d.known_addons.map((a) => {
@@ -6518,7 +6529,7 @@ function renderServerAdmin(focusKey) {
   }
   drawBar();
 
-  root.replaceChildren(details, access, look, ...(extras ? [extras] : []), bar);
+  root.replaceChildren(details, access, look, ...(mod ? [mod] : []), ...(extras ? [extras] : []), bar);
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
 }
 
