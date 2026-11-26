@@ -1,9 +1,6 @@
 // The site's own API, under /api/site/: joining a server, and making and setting up servers (/new).
 //
 //   POST /api/site/join               { server, password }  the viewer cookie for that server's pages
-//   POST /api/site/code               { email }             a sign-in code, for /new
-//   POST /api/site/verify             { email, code }       signed in to /new (mcs_site, Path=/api/site/)
-//   POST /api/site/logout
 //   GET  /api/site/me                 { email, servers: [{ slug, name, step }], max }
 //   GET  /api/site/mod                what to install, from mod/ (src/modinfo.gen.js)
 //   GET  /api/site/slug?name=…        { slug, ok, error? }  whether that address is free (signed in only)
@@ -15,18 +12,19 @@
 //   POST /api/site/servers/<slug>/key       a new mod key, shown once; the old one stops working at once
 //   POST /api/site/servers/<slug>/settings  { NAME, MC_SERVER, PUBLIC, TZ_NAME, CURRENT_SEASON, …, password, confirm }
 //   POST /api/site/servers/<slug>/invite    { email, role }  add an admin or member, and email them
-//   POST /api/site/servers/<slug>/open      signed in on the server's own pages, as its owner
-// Everything under /servers/<slug> is for that server's owner (or a super admin) only.
+//   POST /api/site/servers/<slug>/open      let in to the server's own pages (the viewer cookie)
+// Everything but /join and /mod needs an mcstats account to be signed in (src/account.js); everything under
+// /servers/<slug> is for that server's owner (or a super admin) only.
 import { MOD } from './modinfo.gen.js';
 import {
-  checkPassword, cleanEmail, clearCookie, codeHash, CODE_MINUTES, CODE_TRIES, cookie, DAY, EMAIL_RE, hashPassword, ID_DAYS,
-  MAX_PASSWORD, MIN_PASSWORD, newApiKey, newCode, passwordStamp, sameString, serverPath, sessionReady, sha256Hex, signToken,
-  SITE_DAYS, SITE_PATH, VIEW_DAYS, verifyToken, parseCookies,
+  checkPassword, cleanEmail, cookie, DAY, EMAIL_RE, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newApiKey, passwordStamp,
+  serverPath, sessionReady, sha256Hex, signToken, VIEW_DAYS,
 } from './session.js';
+import { accountOf } from './account.js';
 import { forgetSlug, newServerId, serverBySlug, serversOwnedBy, slugify, slugProblem } from './directory.js';
 import { tenantStub } from './tenantenv.js';
 import { ipKey, limit, tooMany } from './limiter.js';
-import { codeEmail, sendEmail } from './email.js';
+import { sendEmail } from './email.js';
 import { isSuper } from './roles.js';
 import { json } from './util.js';
 
@@ -55,10 +53,7 @@ async function body(request, url, max = 4096) {
   }
 }
 
-async function siteEmail(request, env) {
-  const p = await verifyToken(env, parseCookies(request).mcs_site, 'site');
-  return p?.e ?? null;
-}
+const siteEmail = async (request, env) => (await accountOf(request, env))?.email ?? null;
 
 // The file the mod reads, filled in for this server.
 export function configFor(origin, key) {
@@ -97,46 +92,6 @@ export async function handleSite(request, env, url) {
     if (!ok) return json({ error: JOIN_FAILED }, 401);
     const token = await signToken(env, { k: 'view', s: row.id, p: passwordStamp(row), x: Math.floor(Date.now() / 1000) + VIEW_DAYS * DAY });
     return withCookies({ ok: true, url: serverPath(row.slug) }, [cookie('mcs_view', token, { path: serverPath(row.slug), maxAge: VIEW_DAYS * DAY })]);
-  }
-
-  if (path === '/code') {
-    const r = await body(request, url);
-    if (r instanceof Response) return r;
-    const email = cleanEmail(r.b.email);
-    if (!EMAIL_RE.test(email)) return json({ error: 'That isn’t an email address.' }, 400);
-    const lim = await limit(env, [[`site-code:${email}`, 5, 3600], [`code-ip:${await ipKey(env, request)}`, 20, 3600]]);
-    if (!lim.ok) return tooMany(lim.retry);
-    const code = newCode();
-    await env.DIRECTORY.prepare(
-      'INSERT INTO login_codes (email, code_hash, expires_at, tries) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, tries = 0'
-    ).bind(email, await codeHash('site', email, code), Math.floor(Date.now() / 1000) + CODE_MINUTES * 60).run();
-    if (!(await sendEmail(env, { to: email, ...codeEmail(code, 'mcstats') }))) return json({ error: 'The email couldn’t be sent. Try again in a minute.' }, 502);
-    return json({ ok: true });
-  }
-
-  if (path === '/verify') {
-    const r = await body(request, url);
-    if (r instanceof Response) return r;
-    const email = cleanEmail(r.b.email);
-    const code = String(r.b.code ?? '').replace(/\s/g, '');
-    const lim = await limit(env, [[`verify-ip:${await ipKey(env, request)}`, 30, 600]]);
-    if (!lim.ok) return tooMany(lim.retry);
-    const now = Math.floor(Date.now() / 1000);
-    const wrong = json({ error: 'That code isn’t right, or it has expired.' }, 400);
-    const row = EMAIL_RE.test(email) ? await env.DIRECTORY.prepare('SELECT code_hash, expires_at, tries FROM login_codes WHERE email = ?').bind(email).first() : null;
-    if (!row || row.expires_at < now || row.tries >= CODE_TRIES || !/^\d{6}$/.test(code)) return wrong;
-    if (!(await sameString(row.code_hash, await codeHash('site', email, code)))) {
-      await env.DIRECTORY.prepare('UPDATE login_codes SET tries = tries + 1 WHERE email = ?').bind(email).run();
-      return wrong;
-    }
-    await env.DIRECTORY.prepare('DELETE FROM login_codes WHERE email = ?').bind(email).run();
-    const token = await signToken(env, { k: 'site', e: email, x: now + SITE_DAYS * DAY });
-    return withCookies({ ok: true, email }, [cookie('mcs_site', token, { path: SITE_PATH, maxAge: SITE_DAYS * DAY })]);
-  }
-
-  if (path === '/logout') {
-    if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-    return withCookies({ ok: true }, [clearCookie('mcs_site', SITE_PATH)]);
   }
 
   const email = await siteEmail(request, env);
@@ -283,7 +238,7 @@ export async function handleSite(request, env, url) {
     await sendEmail(env, {
       to: who,
       subject: `You’re ${role === 'admin' ? 'an admin' : 'a member'} of ${row.name} on mcstats`,
-      text: `${email} added you to ${row.name} on mcstats as ${role === 'admin' ? 'an admin' : 'a member'}.\n\nOpen ${url.origin}/join?server=${row.slug}, choose "Sign in with email", and use this address (${who}).\n\n${where}\n`,
+      text: `${email} added you to ${row.name} on mcstats as ${role === 'admin' ? 'an admin' : 'a member'}.\n\nSign in to mcstats with this address (${who}) to get in. If you don’t have an account yet, choose "Create an account" there:\n\n${url.origin}/account?${new URLSearchParams({ next: serverPath(row.slug) })}\n\n${where}\n`,
     });
     return json({ ok: true });
   }
@@ -291,10 +246,9 @@ export async function handleSite(request, env, url) {
   if (action === '/open') {
     const now = Math.floor(Date.now() / 1000);
     const view = await signToken(env, { k: 'view', s: row.id, p: passwordStamp(row), x: now + VIEW_DAYS * DAY });
-    const id = await signToken(env, { k: 'id', s: row.id, e: email, x: now + ID_DAYS * DAY });
     await setStep(STEPS);
     const p = serverPath(row.slug);
-    return withCookies({ ok: true, url: p }, [cookie('mcs_view', view, { path: p, maxAge: VIEW_DAYS * DAY }), cookie('mcs_id', id, { path: p, maxAge: ID_DAYS * DAY })]);
+    return withCookies({ ok: true, url: p }, [cookie('mcs_view', view, { path: p, maxAge: VIEW_DAYS * DAY })]);
   }
 
   return json({ error: 'not found' }, 404);

@@ -2,9 +2,8 @@
 import { env, runInDurableObject, SELF } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import {
-  call, chatEvent, chatTexts, cookieOf, idCookie, makeServer, newKey, ORIGIN, siteCookie, upload, viewerCookie,
+  accountCookie, call, chatEvent, chatTexts, cookieOf, idCookie, makeServer, newKey, ORIGIN, siteCookie, upload, viewerCookie,
 } from './helpers.js';
-import { codeHash } from '../src/session.js';
 
 const tenant = (s) => env.TENANT.get(env.TENANT.idFromName(s.id));
 const both = (...cookies) => cookies.filter(Boolean).join('; ');
@@ -134,9 +133,9 @@ describe('admins and members', () => {
     expect((await call(`/s/${a.slug}/api/admin?season=1`, { cookie: ownerA })).status).toBe(200);
     expect((await (await call(`/s/${a.slug}/api/me`, { cookie: ownerA })).json()).admin).toBe(true);
 
-    // A's sign-in cookie on B: not let in at all
+    // A's owner, signed in, on B: not let in at all
     expect((await call(`/s/${b.slug}/api/admin?season=1`, { cookie: ownerA })).status).toBe(401);
-    // signed in on B with the same email (a genuine B cookie) and able to look: still nobody there
+    // the same account, able to look at B: still nobody there
     const onB = both(await viewerCookie(b), await idCookie(b, a.owner));
     const me = await (await call(`/s/${b.slug}/api/me`, { cookie: onB })).json();
     expect(me.admin).toBe(false);
@@ -165,28 +164,32 @@ describe('admins and members', () => {
     expect((await call(`/api/site/servers/${b.slug}/key`, { method: 'POST', cookie: a.cookie, body: {} })).status).toBe(404);
   });
 
-  it('signing in with an email code makes a member of that server only', async () => {
+  it('a signed-in account is nobody on a server until it asks to be a member, and then only there', async () => {
     const a = await makeServer('code-a');
     const b = await makeServer('code-b');
+    const player = await accountCookie('player@example.org');
+    const enter = (server, cookie) => call(`/s/${server.slug}/api/auth/enter`, { method: 'POST', cookie, body: {} });
+    // signed in, but can't see A: nothing, and no member is made
+    expect((await call(`/s/${a.slug}/api/me`, { cookie: player })).status).toBe(401);
+    expect((await enter(a, player)).status).toBe(401);
+    // nobody signed in: nothing to make a member of
     const viewA = await viewerCookie(a);
-    const sent = await call(`/s/${a.slug}/api/auth/code`, { method: 'POST', cookie: viewA, body: { email: 'player@example.org' } });
-    expect(sent.status).toBe(200);
-    // the code went by email; put a known one in its place
-    await runInDurableObject(tenant(a), async (_o, state) => {
-      state.storage.sql.exec('UPDATE login_codes SET code_hash = ? WHERE email = ?', await codeHash(a.id, 'player@example.org', '123456'), 'player@example.org');
-    });
-    expect((await call(`/s/${a.slug}/api/auth/verify`, { method: 'POST', cookie: viewA, body: { email: 'player@example.org', code: '654321' } })).status).toBe(400);
-    const ok = await call(`/s/${a.slug}/api/auth/verify`, { method: 'POST', cookie: viewA, body: { email: 'player@example.org', code: '123456' } });
-    expect(ok.status).toBe(200);
-    expect(ok.headers.getSetCookie().find((c) => c.startsWith('mcs_id='))).toMatch(/Path=\/s\/code-a\//);
-    const id = cookieOf(ok, 'mcs_id');
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: both(viewA, id) })).json()).role).toBe('member');
-    // the same cookie on B: nothing
-    expect((await call(`/s/${b.slug}/api/me`, { cookie: id })).status).toBe(401);
-    const onB = await (await call(`/s/${b.slug}/api/me`, { cookie: both(await viewerCookie(b), id) })).json();
+    expect((await enter(a, viewA)).status).toBe(401);
+    // joined with the password: can look, and is still nobody until they ask
+    const onA = both(viewA, player);
+    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: onA })).json()).email).toBe(null);
+    expect((await enter(a, onA)).status).toBe(200);
+    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: onA })).json()).role).toBe('member');
+    // a member gets in with the account alone, from any browser
+    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: player })).json()).role).toBe('member');
+    // on B: still nothing, and looking at B doesn't make them a member of it
+    expect((await call(`/s/${b.slug}/api/me`, { cookie: player })).status).toBe(401);
+    const onB = await (await call(`/s/${b.slug}/api/me`, { cookie: both(await viewerCookie(b), player) })).json();
     expect(onB.email).toBe(null);
-    // and the code can't be used twice
-    expect((await call(`/s/${a.slug}/api/auth/verify`, { method: 'POST', cookie: viewA, body: { email: 'player@example.org', code: '123456' } })).status).toBe(400);
+    // asking twice changes nothing: an admin who asks stays an admin
+    const ownerA = await accountCookie(a.owner);
+    expect((await enter(a, ownerA)).status).toBe(200);
+    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: ownerA })).json()).role).toBe('owner');
   });
 });
 

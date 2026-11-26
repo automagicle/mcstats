@@ -163,7 +163,7 @@ export async function handleApi(request, env, url, ctx) {
     // a few minutes (src/cache.js); the current hour's peak is always read fresh. From the start of
     // tracking, "seen" is everyone first seen before it ended; later seasons count who has a session in them.
     const hourNow = Math.floor(Date.now() / 3600_000) * 3600;
-    const slow = await cached(db, `status:${season.n ?? 'all'}:${hourNow}`, 300, async () => {
+    const slow = await cached(db, `status2:${season.n ?? 'all'}:${hourNow}`, 300, async () => {
       const totals = lo === 0
         ? await db.prepare(`SELECT COUNT(DISTINCT lower(${canonName('p.name')})) AS players FROM players p WHERE first_seen < ? AND ${notHidden('p.name')}`).bind(hi).first()
         : await db.prepare(
@@ -173,7 +173,8 @@ export async function handleApi(request, env, url, ctx) {
       const done = await hourlyWithoutHidden(db, await db.prepare(
         'SELECT hour_ts, samples, up_samples, online_sum, peak FROM hourly WHERE hour_ts > ? AND hour_ts < ? ORDER BY hour_ts'
       ).bind(lo - 3600, Math.min(hi, hourNow)).raw());
-      return { players: totals?.players ?? 0, peak: done.reduce((n, r) => Math.max(n, r[4]), 0) };
+      // online_sum is player-minutes: everyone's time on the server, added up
+      return { players: totals?.players ?? 0, peak: done.reduce((n, r) => Math.max(n, r[4]), 0), minutes: done.reduce((n, r) => n + r[3], 0) };
     });
     const totals = { players: slow.players };
     const first = await db.prepare('SELECT MIN(ts) AS ts FROM snapshots WHERE ts >= ? AND ts < ?').bind(lo, hi).first();
@@ -194,6 +195,7 @@ export async function handleApi(request, env, url, ctx) {
       players_total: totals?.players ?? 0,
       data_start: first?.ts ?? null,
       peak_ever: peak?.n ?? 0,
+      played_minutes: nowRows.reduce((n, r) => n + r[3], slow.minutes ?? 0), // the whole season so far
       server_event: serverEvent ?? null,
       season: season.info,
     });

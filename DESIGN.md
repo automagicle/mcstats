@@ -16,8 +16,9 @@ icons, the grass-block logo) without dressing up as the game.
   like the shadow under text in the game. Nothing has a curved radius, a blur or a gradient.
 - **Soft greys, not black and white.** Light mode is grey-on-grey ("day"), dark mode is near-black
   slate ("deepslate"). Neither uses pure white or pure black for a surface.
-- **Blue means everyone together.** Any other strong colour on a page belongs to a team, or to a
-  state (good, warning, critical). No green as decoration.
+- **One accent, and it means everyone together.** Grass green by default; a server can wear blue or a
+  colour of its own instead (see "Accent and tab style"). Any other strong colour on a page belongs to a
+  team, or to a state (good, warning, critical).
 - **Tight.** Panels are 14px apart, padding is small, and rows are close. Favour more data on screen
   over breathing room. The space should feel efficently used (though not busy/cluttered) even on smaller windows and phones. However, remember to incorperate spacing where visually nessesary; don't make it cluttered that the user will be overwhelmed.
 
@@ -44,16 +45,37 @@ Always use the variable, never the hex. Dark follows the system unless the theme
 | `--pit` | `#aab0b8` | `#3b4149` | The flat drop shadow under panels and badges |
 | `--pit-float` | `rgba(20,24,30,.24)` | `rgba(0,0,0,.55)` | The shadow under floating layers |
 | `--hover` | `rgba(26,29,33,.06)` | `rgba(255,255,255,.06)` | Hover wash on rows and tabs |
-| `--series-1` | `#2f7de0` | `#4a90e8` | Blue: the accent, primary buttons, focus rings, links, "everyone" in charts |
+| `--accent-green` | `#3d8a26` | `#62b443` | The green accent (the default, and the site's own pages) |
+| `--accent-blue` | `#2f7de0` | `#4a90e8` | The blue accent |
+| `--series-1` | the accent in use | | Primary buttons, focus rings, links, "everyone" in charts, the line under whatever's picked. Never use `--accent-green` or `--accent-blue` directly |
+| `--accent-ink` | `#ffffff` | green `#0e1d08`, blue `#ffffff` | Text on the accent (white can't be read on the night's green) |
 | `--series-2` | `#ea6a33` | `#e0703a` | Second chart series, the chat-time cursor |
 | `--series-3` | `#dd9a00` | `#d9a02a` | Third chart series |
-| `--accent-ink` | `#ffffff` | `#ffffff` | Text on blue |
 | `--good` | `#1fa64a` | `#3fbf5a` | Server up, positive state |
 | `--warning` | `#f2ad1c` | `#f0b429` | Warnings, advancement markers, Liveview's controls being on |
 | `--critical` | `#dc4343` | `#e5534b` | Errors, deaths, destructive actions, unread badge |
-| `--lv0`…`--lv4` | `#e5e7ea` `#bcd6f7` `#7fb1ef` `#3f86e3` `#1f5fb5` | `#14171a` `#173d6e` `#2565b5` `#4f96e8` `#a4cbf7` | Heatmap steps, near zero to high |
+| `--lv0` | `#e5e7ea` | `#14171a` | Heatmap: near zero |
+| `--lv-green-1`…`4` | `#c9e6b9` `#93cf74` `#5aa83c` `#2f7a1c` | `#1d4519` `#2f7524` `#4fa537` `#8fdb6a` | Heatmap steps in green |
+| `--lv-blue-1`…`4` | `#bcd6f7` `#7fb1ef` `#3f86e3` `#1f5fb5` | `#173d6e` `#2565b5` `#4f96e8` `#a4cbf7` | Heatmap steps in blue |
+| `--lv1`…`--lv4` | the accent's steps | | What heatmaps use (with `--lv0`). Never use the green or blue steps directly |
+| `--picked` | `--raise` with 20% `--ink` | same | Background of whatever's picked (current tab, pressed segment, chosen option) |
+| `--picked-line` | `inset 0 -2px 0 var(--series-1)` | same | The 2px line in the accent under it |
 | `--team-red` | `#d93a33` | `#f27a72` | Fallback team colours; real ones come from Admin → Teams |
 | `--team-blue` | `#2a6fe3` | `#6ea8f5` | (each team has a light and a dark colour) |
+
+### Accent and tab style
+
+Each server picks these on Admin → Server; the Worker puts the choice on `<html>` before the page is drawn
+([src/look.js](src/look.js)), and the stylesheet's "accent" block turns it into `--series-1` and `--lv1`…`--lv4`.
+
+| On `<html>` | Values | What it does |
+| --- | --- | --- |
+| `data-accent` | absent or `green` (default), `blue`, `custom` | Which accent `--series-1` and the heatmap steps are. `custom` reads the colour from `--accent-custom` (set inline, with `--accent-ink` worked out so text on it can be read); it is used as given by day, mixed 16% towards white by night, and its heatmap steps are mixed from it (30%, 55%, 78%, 100% over `--lv0`) |
+| `data-tabs` | absent or `line` (default), `frame` | How the current tab and a pressed segment are marked. `line`: `--picked` with the frame and `--picked-line`. `frame`: no colour; the top tabs are set in (`--surface-2` with the frame), segments raised (`--raise`) |
+
+The site's own pages (`/`, `/join`, `/new`) carry neither, so they are green with the line. Write new components
+against `--series-1`, `--lv*`, `--picked` and `--picked-line` and they follow whatever a server chose. A chosen
+option that isn't a tab (a swatch, Private/Public) is always `--picked` with the line, in either tab style.
 
 Layering, from back to front: `--page` → `--surface` (panel) → `--surface-2` (set in) or `--raise`
 (set above). A chart sits directly on `--surface`.
@@ -136,14 +158,16 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Component | Class | Exact values |
 | --- | --- | --- |
 | Wordmark | `.brand` | "mcstats", `400 30px/1 var(--px-30)`, 24px logo, 10px gap; 20px face on phones |
-| Tab | `.tabs a` | 14px/600, `padding: 5px 12px`, `--ink-2`; current: `--ink` on `--surface-2` with frame |
+| Tab | `.tabs a` | 14px/600, `padding: 5px 12px`, `--ink-2`; current: `--ink`, marked by the server's tab style (line: `--picked`, frame, `--picked-line`; frame: `--surface-2` with frame) |
 | Number tile | `.tile` | `padding: 10px 16px 11px`; label 13px/500 `--ink-2`; value `400 40px/1.1 var(--px-40)`; sub 12.5px `--muted` |
 | Panel | `.card` | see Shape; title `h2` 15px/700; `.card-sub` 13px `--muted` |
 | Player badge | `.chip` | `padding: 2px 11px 2px 2px`, 8px gap, 24px head, 13px/550, `--raise`; hover mixes in 18% `--ink` |
-| Segmented control | `.seg` | `padding: 2px; gap: 2px`; buttons 26px tall, `padding: 0 10px`, 13px; pressed is `--raise`, 600 |
+| Segmented control | `.seg` | `padding: 2px; gap: 2px`; buttons 26px tall, `padding: 0 10px`, 13px; pressed is 600 and marked by the tab style (line: `--picked` with `--picked-line`; frame: `--raise`) |
 | Icon button | `.icon-btn` | 30×30px, `--surface-2`; hover `--grid`; disabled 35% opacity |
 | Button | `.btn` | 13px/600, `padding: 6px 14px`, `--raise` with frame; hover `--surface-2` |
 | Primary button | `.btn-primary` | `--series-1` background, `--accent-ink` text, cut corners + drop; hover `brightness(1.08)` |
+| Admin field | `.srv-fields` > `.site-field` | Admin → Server: fields stacked 14px apart in a 640px column; label 13px/600 `--ink-2`, hint 12.5px `--muted`, error 13.5px `--critical`; text boxes 14px, `padding: 6px 9px`, up to 340px wide |
+| Colour swatch | `.srv-swatch` | a raised button (`--raise`, frame), `padding: 6px 12px 6px 8px`, 16px colour square, 13px/600; chosen: `--picked` with `--picked-line` |
 | Quiet button | `.btn-quiet` | transparent, `--muted`, `padding: 4px 10px`; hover `--surface-2` |
 | Text input | `.adm-input` | 13px, `padding: 4px 8px`, 1px `--edge` border, `--surface-2` |
 | Dropdown | `select` | as input, native arrow removed; own 10×6px pixel arrow `#8a929c`, 9px from the right, `padding-right: 28px` |
@@ -218,27 +242,51 @@ lines up.
 
 The home page (`/`, [public/index.html](public/index.html), [public/home.js](public/home.js),
 [public/home3d.js](public/home3d.js)) introduces mcstats with its own dashboard, not with paragraphs. Each server's
-stats stay at `/s/<server>/`. Nothing on it calls the server.
+stats stay at `/s/<server>/`. Nothing on it calls a server; the only requests are the game textures its example
+players wear (`/api/mc/`, the few `src/mcassets.js` allows without a sign-in).
 
-- **Hero**: one centred title (`--px-50`, `--px-40` on phones) , one sentence, **Create a server** and **Join a server**. Under it, the Activity page of
-  a made-up server (Birchwood SMP) in a window frame (frame + lift), over pixel hills drawn on a canvas.
-- **Sections**: a short `--px-40` heading and one sentence in a 300px sticky column, beside a working example built
-  from the dashboard's own classes: a player's page with their 3D model (built like `player3d.js`, same joints, pose
-  and hold transform) and their gear in game-style inventory slots with the game's tooltip; the chat log, whose
-  message box adds your line with a `web` tag and gets a reply; and Liveview, a small block world where three players
-  walk and the camera follows one (drag to look, **Players** to follow someone else, **Stop** to stay put).
-- **More**: three panels (busiest hours, fights, the password box), a closing call to action, and a footer of grass
-  over the game's darkened dirt.
+**The examples are the dashboard, not pictures of it.** Each one is built from the dashboard's own classes and
+markup, fed by one made-up server (Birchwood SMP, nine players) so every number agrees with every other. When the
+dashboard changes, the example changes with it; a look-alike `.home-*` class for something the dashboard already
+has is a bug.
+
+- **Hero**: one centred title (Jersey 20 at 60px, three times its size; `--px-50` on phones), one sentence at
+  19px and regular weight, a step greyer than the title (ink mixed 62/38 with `--ink-2`), with no shadow or halo, **Create a server** and **Join a server**. Behind
+  it, the game's sky: one flat layer of see-through cloud slabs laid out by the game's cloud texture, seen from the
+  ground and thinning toward the horizon, all drifting one way. Night (dark theme) has darker, thinner clouds, stars,
+  and now and then a spell of light rain over 70 to 90% of the sky's width (about 20 seconds on, 30 off). The sky runs on under the top of the example and fades out into the page there,
+  while the example's backdrop fades in, so no edge shows where the sky stops. Under it, the Activity page in a window frame (frame + lift): the `.now` panel (tiles and online badges),
+  and the Players online chart with its real range control (calendar, 6h to 90d, earlier and later), series rules
+  and hover tooltip listing who was on.
+- **A player's page**: the real layout (3D model card, head and status, the four tiles, Combat; the
+  rest of the page is left out to keep the example short). The model is `player3d.js`'s, in the game's textures. Under it the held weapon is named in its
+  game colours with the game's tooltip (enchantments included) on hover, focus or tap, and the list beside it puts
+  another carried item in the hand. Gear is written out per player so it makes sense together: late-game players in
+  enchanted, trimmed netherite with named weapons, new ones in leather and iron with stone tools.
+- **The chat log**: real rows (grouping, join and leave lines, deaths in the red band, advancements and kill weapons
+  in game colours with tooltips), the message box, which adds your line and gets a reply, and the who's-online bar.
+- **More**: three panels: Busiest times (the real `.weekgrid`), Fights (the real sortable `.cb-table`, updated as
+  deaths happen in the chat), and the join form. Then a closing call to action, and a footer of grass over dirt.
+- Clicking a player anywhere opens the dashboard's player card (`.pcard`).
 
 What is different here and nowhere else:
 
-- **No blue.** `--series-1` and the heatmap steps are grass green on this page (charts, focus, links).
+- **Green.** The site's own pages always wear the default accent (charts, focus, links), whatever any server chose.
 - **Buttons are the dashboard's `.btn`**; the main one is the same raised button, not filled.
 - **Picked means greyer with a green line under it**: a pressed segment, the current tab, the chosen player
-  (`--picked`, `--picked-line`).
+  (`--picked`, `--picked-line`): the "line" tab style, which is also every server's default.
 - Titles carry the game's flat text shadow (3px, `--title-shadow`).
-- Skins, armor, items and blocks are pixel pictures drawn in code (the game's own textures are only served to a
-  server's signed-in visitors).
+- An example steps down by the width of its own frame (container queries at 760px and 540px), where the dashboard
+  steps down by the window's.
+- Left out on purpose: number odometers, the chart's slide and pinch zoom, and the cards a first look doesn't need
+  (advancements, the daily activity bars, the chat log's own graph).
+
+## Add-ons
+
+Features only some servers have (Egg SMP's eggs) live in `public/addons/<id>/` with their own stylesheet, loaded
+after the site's on those servers only ([src/addons.js](src/addons.js)). An add-on's styles use the same tokens and
+shapes as everything else, and its classes carry its own prefix (`.egg-…`). Where it copies the game (an egg's
+in-game tooltip), it follows the in-game tooltip exception above.
 
 ## Motion
 
@@ -249,9 +297,10 @@ Short and functional: 0.2–0.35s, `cubic-bezier(0.2, 0.8, 0.3, 1)` (a slight ov
 ## Checklist for a new page or feature
 
 1. Wrap content in `.card` panels, 14px apart; use `.card-head`, `h2`, `.card-sub` for the header.
-2. Colours only from the tokens above; check both themes with the switch in the top bar.
+2. Colours only from the tokens above; check both themes with the switch in the top bar, and both accents and
+   tab styles (Admin → Server tries them on the page as you pick).
 3. Big numbers and titles in a Jersey face at its own size; everything else Archivo.
 4. No `border-radius`, blur, gradient or soft shadow. Pick the row from the Shape table that matches.
 5. Reuse `.seg`, `.btn`, `.icon-btn`, `.chip`, `.adm-input`, `.tooltip` before writing a new control.
-6. Blue for "everyone" and for actions; team colours only for teams.
+6. The accent (`--series-1`) for "everyone" and for actions; team colours only for teams.
 7. Check at 800px and 400px wide.

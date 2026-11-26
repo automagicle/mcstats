@@ -18,7 +18,7 @@ It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay o
 - **Seasons**: a server's main page shows its current season; `/s/<server>/s1/` is its season 1 archive. Seasons split
   the recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
 - **Privacy**: looking at a server needs its join password (or the owner can make it public); chatting from the
-  website and the admin pages need an email sign-in on that server. The mod's uploads need that server's key.
+  website and the admin pages need an mcstats account (email and password) that's a member of that server. The mod's uploads need that server's key.
 
 The look of the dashboard (colors, type, the 2px pixel shapes, spacing, components) is written down in [DESIGN.md](DESIGN.md).
 
@@ -30,24 +30,28 @@ npx wrangler login
 npx wrangler d1 create mcstats-directory     # paste its database_id into wrangler.jsonc (DIRECTORY)
 npm run dir:migrate:remote
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
-npx wrangler secret put RESEND_API_KEY        # sends sign-in codes; EMAIL_FROM's domain must be verified in Resend
+npx wrangler secret put RESEND_API_KEY        # sends account codes; EMAIL_FROM's domain must be verified in Resend
 npx wrangler secret put SUPER_ADMIN_EMAIL     # you: can do everything on any server you sign in to
 npm run build:mod                             # the mod jar that /new offers (needs Java 25)
 npm run deploy
 ```
 
-Then open the site, choose **Create a server**, and follow the steps: sign in with your email, name the server, pick
+Then open the site, choose **Create a server**, and follow the steps: create your mcstats account (or sign in), name the server, pick
 its address (`/s/<address>/`, checked as you type) and whether its stats are **private** (players need its join
 password) or **public** (anyone with the address can look; no password needed), install the mod, paste the key it
 shows into the mod's config, and wait for the first upload. Players of a private server join at `/join` with the
 server's name and password; a public server's stats are simply at its address. A public server can be made private
 later once it has a password.
 
-Updating an existing deployment: run `npm run dir:migrate:remote` (adds `has_password`, migration 0002) before deploying.
+Updating an existing deployment: `npm run deploy` brings the directory database up to date first (it runs
+`wrangler d1 migrations apply mcstats-directory --remote`, then deploys), so new code never meets an old database.
+Deploying with `wrangler deploy` directly skips that: run `npm run dir:migrate:remote` yourself first, or every
+request that looks a server up fails with HTTP 500 (`no such column`).
 
 Nothing else is set per deployment: each server's address, time zone, seasons and chat resets are its own settings
 (the **Optional setup** step on `/new`, or `POST /api/site/servers/<server>/settings` with `MC_SERVER`, `TZ_NAME`,
-`CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS`, `CHAT_RESETS`, `PUBLIC`).
+`CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS`, `CHAT_RESETS`, `PUBLIC`). Its name, address, join password and
+look are changed from its own dashboard (Admin → Server, below).
 
 `npm test` runs the tests (Vitest inside the Workers runtime), including the ones that check servers stay apart.
 
@@ -66,7 +70,7 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
    Uploads from the mod wait (it keeps them) until the copy is checked; the script prints each table's row count
    on both sides and only finishes if they all match.
 4. Give players `/join`, the name `eggsmp` and the join password. Old links to `/s1/` go to `/s/eggsmp/s1/`.
-5. When you're ready, make the first server a key of its own on `/new` (sign in with the owner email) and put it
+5. When you're ready, make the first server a key of its own on `/new` (signed in to the owner's account) and put it
    in the mod's `token=`; then the old `CHAT_INGEST_TOKEN` secret can be deleted.
 
 ## How servers are kept apart
@@ -75,14 +79,16 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
   lives only in its own Durable Object's SQLite (`src/tenant.js`), named by a random id. Its migrations
   (`src/tenant/schema.js`) run inside it when it starts; a stored version number says which have run. Its web chat,
   live updates and Liveview objects are named by the same id, so they can't reach another server's either.
-- **The directory** (`DIRECTORY`, a D1 database: `directory-migrations/`) only says which servers exist: slug, name,
-  hashed join password, hashed mod key, owner, created date. No stats. A D1 database rather than one directory object,
+- **The directory** (`DIRECTORY`, a D1 database: `directory-migrations/`) says which servers exist (slug, name,
+  hashed join password, hashed mod key, owner, created date) and holds the mcstats accounts (email, hashed password,
+  hashed session tokens: see [Sign-in](#sign-in)). No stats. A D1 database rather than one directory object,
   because every page load looks a server up and one object would make every request in the world wait in one line.
 - **Which server** a request is for is decided once, in the Worker (`src/index.js`): from the address (`/s/<server>/`)
   for pages, and only from the key (`mcs_<server id>_…`) for the mod. A server named in a body or query string is ignored.
-- **Cookies** are signed with a key derived from `SESSION_SECRET` and the server's id, and sent only to that server's
-  pages (`Path=/s/<server>/`, HttpOnly, Secure, SameSite=Lax). Joining A gives nothing on B; signing in on A makes you
-  nobody on B.
+- **The viewer cookie** (from joining with a server's password) is signed with a key derived from `SESSION_SECRET` and
+  the server's id, and sent only to that server's pages (`Path=/s/<server>/`, HttpOnly, Secure, SameSite=Lax). Joining A
+  gives nothing on B. An mcstats **account** is signed in site-wide, but it's nobody on a server until it's a member
+  there: being a member of A makes you nobody on B.
 - **Roles** are per server: `owner`, `admin`, `member` (src/roles.js), each a starting set of the five permissions.
   Every admin check asks "is this email an admin *of this server*".
 - **Caches** are per server: the `cache` table is in each server's own database, and Liveview's assets are cached
@@ -135,7 +141,45 @@ log is left empty.
 
 ## Admin page
 
-`#/admin` (linked in the footer for admins only) has two parts.
+`#/admin` (linked in the footer for admins only) has four tabs: **Settings** (below), **Server**, **Analytics** and,
+for owners, **Roles**.
+
+### Server (the server's own details)
+
+Admin → **Server** (`src/serveradmin.js`, `GET`/`POST /api/admin/server`) changes the server itself. Like Settings it
+is a draft with a Save bar; nothing changes until Save.
+
+| What | Who | Notes |
+| --- | --- | --- |
+| **Name** | admins | Shown at the top of its pages and in emails. |
+| **Address** (`/s/<address>/`) | owners | Moves the server: the old address stops existing and everyone joins again at the new one (cookies are per address). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
+| **Private or public** | owners | A public server can only be made private once it has a join password. |
+| **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
+| **Accent color** | admins | Green (the default), blue, or any color (`#rrggbb`). |
+| **Tab style** | admins | Line (the default: the current tab is greyer with a line in the accent color under it) or Frame (set in, framed, no color). |
+| **Add-ons** | the site's operators (`SUPER_ADMIN_EMAIL`) | Features only some servers have; see Add-ons below. |
+
+The look is tried on the page as you pick, and put back if you leave without saving. Once saved, the Worker writes it
+on the page's `<html>` before anything is drawn (`data-accent`, `data-tabs`; `src/look.js`), so there's no flash of
+another color. DESIGN.md has the tokens.
+
+### Add-ons
+
+Features only some servers have are kept out of the dashboard every server gets:
+
+- `public/addons/<id>/` holds the add-on: `addon.js` (registers itself on `window.MCS_ADDONS`), its stylesheet and its data.
+- `src/addons.js` lists the add-ons the site has.
+- A server's `ADDONS` setting names the ones it has. The Worker puts only those on its page (`src/index.js`), ahead
+  of `app.js`, which asks them at a handful of named places (search `app.js` for "add-ons" for the list of hooks:
+  a tag beside a player's team, a line under their 3D model, what the model holds in its off hand, a card beside
+  Combat, a column on the roster, and options for the sample data). With no add-ons those places are simply empty.
+
+**Egg SMP** (`public/addons/eggsmp/`) is the one add-on so far: each player's egg on their page, in their model's
+hand with its particles, and an Egg column on the roster. The first server (the one copied in from the single-server
+version) has it switched on; servers made on `/new` don't. The roster's `egg` column and the gear report's `egg`
+field are still stored for every server (they're simply empty elsewhere), so switching the add-on off and on loses nothing.
+
+### Settings
 
 **Settings** (the teams, the season's players with their teams and eggs, each player's teams over time, hidden
 players and merged accounts) are a draft: nothing changes on the site until **Save** is pressed, in the bar at the
@@ -193,7 +237,7 @@ signing in on it; owners add admins and members here (or on `/new`), switch sing
 "Changed" means someone's ticks differ from their role's; **Reset** puts them back. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
 is only half of it, and that half can't be given from the dashboard.
 
-**Super admins** are the sign-in emails in the `SUPER_ADMIN_EMAIL` secret (comma-separated): the site's operators.
+**Super admins** are the account emails in the `SUPER_ADMIN_EMAIL` secret (comma-separated): the site's operators.
 Signed in on any server, they can do everything there and can't be changed from the page:
 
 ```bash
@@ -373,14 +417,45 @@ npx wrangler d1 execute mcstats --remote --command "DELETE FROM player_aliases W
 Two things, separately:
 
 - **Looking**: the server's join password, on `/join`. It gives a cookie for that server's pages, good for 30 days or
-  until the owner changes the password. An owner can make a server public instead.
-- **Being someone**: **Sign in** at the top of a server's page sends a 6-digit code by email (through Resend; it works
-  for 10 minutes and 5 tries). Anyone who can look becomes a **member** of that server by signing in; owners make
-  admins on the Roles tab or on `/new`. People an owner added can also sign in from `/join` ("Added by email?")
-  without the password.
+  until the owner changes the password. An owner can make a server public instead. No account needed.
+- **Being someone**: an **mcstats account**, an email address and a password, signed in for the whole site at
+  `/account` (**Sign in** at the top of any page leads there). One account is used on every server; what it may do on
+  each is that server's own business (Roles, above). Someone who can look at a server becomes a **member** of it by
+  choosing to (**Sign in** on its page, then "Continue as…"): it's asked for rather than automatic, because a server's
+  owner can see its members' emails. People an owner added by email get in by signing in to an account with that
+  address, without the join password.
 
 **Sending chat** also needs the email to be on the season's roster (see Teams above); anyone else sees the message box
-disabled with the reason. Making servers (`/new`) is a sign-in of its own, by email code too.
+disabled with the reason. Making servers (`/new`) needs an account too.
+
+### Accounts (`src/account.js`, `src/password.js`)
+
+- **Making one** needs a 6-digit code emailed to the address (through Resend; it works once, for 10 minutes, and allows
+  5 tries), with a link that carries the same code after the `#` of `/account`, which is never sent to a server. The
+  code proves the address is yours; then you choose the password. This matters because access goes by email: an
+  account for an address nobody proved would be someone else's access. **Forgot password** is the same thing: a code,
+  then a new password, which also signs the account out everywhere.
+- **Passwords** are never stored or logged. What's kept is PBKDF2-HMAC-SHA512 with a per-account random salt, 300,000
+  iterations in all (three chained calls, because the Workers runtime allows 100,000 per call), then HMAC'd with a key
+  derived from `SESSION_SECRET`, so a copy of the database alone isn't enough to start guessing. The parameters are
+  written into each hash; a hash made with older ones is replaced at the next sign-in. A password needs 8 to 200
+  characters and can't be one of the most common ones or the email itself.
+- **Sessions**: the cookie (`__Host-mcs`: HttpOnly, Secure, SameSite=Lax, 30 days) holds a random token and nothing
+  else. The directory keeps the token's SHA-256 and which account it is, so nothing in the database can be used as a
+  cookie, and a session can be ended from the server: **Sign out** deletes it, **Sign out everywhere** and a new
+  password delete them all. (An ended session may still be honoured for up to 10 seconds, the time who's-signed-in is
+  remembered in memory.)
+- **Guessing** is slowed: a wrong password and an address with no account get the same answer, taking the same time;
+  asking for a code says the same thing either way; sign-in tries are limited per email and address (10 in 10
+  minutes), per email, and per address. Requests that change anything must come from the site's own pages (Origin and
+  `Sec-Fetch-Site` are checked, and only JSON is taken).
+- **Changing `SESSION_SECRET`** makes every password stop matching (it's part of the hash) and ends the viewer
+  cookies. Everyone gets back in with **Forgot password**; nothing else is lost.
+- **Before accounts**, signing in was an emailed code per server. Those cookies (`mcs_id`, `mcs_site`) aren't read any
+  more, so everyone who was signed in that way is signed out and makes an account with the same email; their roles
+  and servers are still theirs, since those go by email.
+- **Later**: signing in with Google or Discord would add a table of (provider, their id for you) → account; an
+  account's password is allowed to be empty for that.
 
 Cloudflare Access isn't used any more; the mod's `access_client_id` / `access_client_secret` settings are only for a
 dashboard still behind it.
@@ -390,7 +465,7 @@ dashboard still behind it.
 ```bash
 printf 'SESSION_SECRET=local-session-secret-0123456789abcdef\nEMAIL_DEV_LOG=1\nOPS_TOKEN=local-ops-token-0123456789abcdef0123\nCHAT_INGEST_TOKEN=local-dev-token-0123456789abcdef0123456789\n' > .dev.vars
 npm run dir:migrate:local
-npm run dev               # http://localhost:8787: Create a server; sign-in codes are printed in this terminal
+npm run dev               # http://localhost:8787: Create a server; account codes are printed in this terminal
 ```
 
 `EMAIL_DEV_LOG=1` prints emails instead of sending them. `DEV_NO_AUTH=1` (with an optional `DEV_EMAIL=`) lets
@@ -439,18 +514,18 @@ connections; the page reconnects by itself.
     deaths slide in as they're logged.
   A kill is a death the game credits to another player (being knocked off a cliff counts). Deaths logged before mod
   1.4.0 are worked out from the message itself.
-- **Player pages: egg and combat**: an **egg card** (what the player's Egg SMP egg does: passive, primary, secondary
-  and their cost, from `public/eggdata.js`, plus its level and energy as the mod last reported them) and a **combat
+- **Player pages: egg and combat**: an **egg card** (servers with the Egg SMP add-on only: what the player's egg does: passive, primary, secondary
+  and their cost, from `public/addons/eggsmp/eggdata.js`, plus its level and energy as the mod last reported them) and a **combat
   card** (kills, deaths, K/D and where that ranks, who they kill most, who kills them most, what else kills them, and
   their latest kills and deaths: like the chat log, the newest at the bottom with its time, a line where the day
   changes, and older ones loading as you scroll up).
   **Show the full in-game description** on the egg card unfolds the egg's item tooltip word for word as the game
-  shows it, at the player's level and energy (either level can be looked at). It comes from `public/eggtips.js`,
+  shows it, at the player's level and energy (either level can be looked at). It comes from `public/addons/eggsmp/eggtips.js`,
   which `python3 scripts/egg-tooltips.py [path to the Egg SMP datapack]` writes from the datapack's own tooltip
   reader (`tools/generate_tooltips.py`); run it again when the datapack changes.
 - **3D player model**: player pages show the player in 3D with their skin, the armor they last wore (trims, leather dye
   and the enchantment shimmer included), their best weapon in the main hand (mace, then trident, sword, spear, axe,
-  pickaxe, shovel; better material first) and their egg in the off hand (the one they carry, else their roster egg). It turns a
+  pickaxe, shovel; better material first) and, with the Egg SMP add-on, their egg in the off hand (the one they carry, else their roster egg). It turns a
   little toward the mouse. Under it, the weapon's name is in the game's colors with its in-game tooltip on hover, and
   their egg is on the line below. With mod 1.9.0 or newer, each weapon and tool comes with its tooltip, enchantments
   included. Before that, a named item takes its colors and tooltip from the latest death message that named it (their

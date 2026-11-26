@@ -22,19 +22,20 @@
   --bar: #f2f3f5;
   --stage: #dcdfe3;
   --floor: rgba(20, 24, 30, 0.1);
-  --series-1: #2f7de0;
+  /* The accent: green, blue, or a server's own colour, picked per server on Admin → Server. --series-1
+     and the heatmap steps --lv1…4 are whichever is on (see "accent" below the themes). */
+  --accent-green: #3d8a26;
+  --accent-blue: #2f7de0;
+  --accent-ink: #ffffff;
   --series-2: #ea6a33;
   --series-3: #dd9a00;
-  --accent-ink: #ffffff;
   --good: #1fa64a;
   --critical: #dc4343;
   --warning: #f2ad1c;
-  /* sequential blue, near-zero -> high */
+  /* heatmap steps, near-zero -> high, in each accent */
   --lv0: #e5e7ea;
-  --lv1: #bcd6f7;
-  --lv2: #7fb1ef;
-  --lv3: #3f86e3;
-  --lv4: #1f5fb5;
+  --lv-green-1: #c9e6b9; --lv-green-2: #93cf74; --lv-green-3: #5aa83c; --lv-green-4: #2f7a1c;
+  --lv-blue-1: #bcd6f7; --lv-blue-2: #7fb1ef; --lv-blue-3: #3f86e3; --lv-blue-4: #1f5fb5;
   --hover: rgba(26, 29, 33, 0.06);
   --cursor: var(--series-2); /* the chat log's time on its graph */
   --team-red: #d93a33;
@@ -84,17 +85,16 @@
     --bar: #0c0e10;
     --stage: #0e1012;
     --floor: rgba(255, 255, 255, 0.07);
-    --series-1: #4a90e8;
+    --accent-green: #62b443;
+    --accent-blue: #4a90e8;
     --series-2: #e0703a;
     --series-3: #d9a02a;
     --good: #3fbf5a;
     --critical: #e5534b;
     --warning: #f0b429;
     --lv0: #14171a;
-    --lv1: #173d6e;
-    --lv2: #2565b5;
-    --lv3: #4f96e8;
-    --lv4: #a4cbf7;
+    --lv-green-1: #1d4519; --lv-green-2: #2f7524; --lv-green-3: #4fa537; --lv-green-4: #8fdb6a;
+    --lv-blue-1: #173d6e; --lv-blue-2: #2565b5; --lv-blue-3: #4f96e8; --lv-blue-4: #a4cbf7;
     --hover: rgba(255, 255, 255, 0.06);
     --team-red: #f27a72;
     --team-blue: #6ea8f5;
@@ -117,21 +117,49 @@
   --bar: #0c0e10;
   --stage: #0e1012;
   --floor: rgba(255, 255, 255, 0.07);
-  --series-1: #4a90e8;
+  --accent-green: #62b443;
+  --accent-blue: #4a90e8;
   --series-2: #e0703a;
   --series-3: #d9a02a;
   --good: #3fbf5a;
   --critical: #e5534b;
   --warning: #f0b429;
   --lv0: #14171a;
-  --lv1: #173d6e;
-  --lv2: #2565b5;
-  --lv3: #4f96e8;
-  --lv4: #a4cbf7;
+  --lv-green-1: #1d4519; --lv-green-2: #2f7524; --lv-green-3: #4fa537; --lv-green-4: #8fdb6a;
+  --lv-blue-1: #173d6e; --lv-blue-2: #2565b5; --lv-blue-3: #4f96e8; --lv-blue-4: #a4cbf7;
   --hover: rgba(255, 255, 255, 0.06);
   --team-red: #f27a72;
   --team-blue: #6ea8f5;
 }
+
+/* ---------- accent ----------
+   Green unless the page says otherwise. A server's pages carry its choice on <html> (src/look.js):
+   data-accent="blue", or "custom" with its colour in --accent-custom (and --accent-ink to read on it).
+   A custom colour is used as given by day and lightened a little by night, like the two built in; its
+   heatmap steps are mixed from it. */
+:root {
+  --series-1: var(--accent-green);
+  --lv1: var(--lv-green-1); --lv2: var(--lv-green-2); --lv3: var(--lv-green-3); --lv4: var(--lv-green-4);
+  /* anything picked (the current tab, a pressed segment): a shade greyer, with a line in the accent under it */
+  --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%);
+  --picked-line: inset 0 -2px 0 var(--series-1);
+}
+:root[data-accent="blue"] {
+  --series-1: var(--accent-blue);
+  --lv1: var(--lv-blue-1); --lv2: var(--lv-blue-2); --lv3: var(--lv-blue-3); --lv4: var(--lv-blue-4);
+}
+:root[data-accent="custom"] {
+  --series-1: var(--accent-custom, var(--accent-green));
+  --lv1: color-mix(in oklab, var(--series-1) 30%, var(--lv0));
+  --lv2: color-mix(in oklab, var(--series-1) 55%, var(--lv0));
+  --lv3: color-mix(in oklab, var(--series-1) 78%, var(--lv0));
+  --lv4: var(--series-1);
+}
+:root[data-theme="dark"][data-accent="custom"] { --series-1: color-mix(in oklab, var(--accent-custom, var(--accent-green)) 84%, white); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"])[data-accent="custom"] { --series-1: color-mix(in oklab, var(--accent-custom, var(--accent-green)) 84%, white); } }
+/* white can't be read on the night's green, so text on it is dark */
+:root[data-theme="dark"]:not([data-accent="blue"]) { --accent-ink: #0e1d08; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-accent="blue"]) { --accent-ink: #0e1d08; } }
 
 * { box-sizing: border-box; }
 
@@ -663,6 +691,7 @@ tr.link:hover td { background: var(--hover); }
   cursor: pointer;
 }
 .tile-select:hover { background: var(--surface-2); }
+.tile-sub .tile-select { margin-left: 0; width: auto; font-size: inherit; field-sizing: content; } /* the period in a tile's small line (player-hours, all time) */
 .strip-bg { fill: var(--surface-2); rx: 0; }
 .strip-on { fill: var(--series-1); }
 .strip-tick { stroke: var(--axis); stroke-width: 1; }
@@ -691,6 +720,13 @@ tr.link:hover td { background: var(--hover); }
 }
 .tabs a:hover { color: var(--ink); background: var(--hover); }
 .tabs a[aria-current="page"] { color: var(--ink); background: var(--surface-2); box-shadow: var(--frame); }
+/* How the current tab and a pressed segment are marked, which a server picks on Admin → Server
+   (data-tabs on <html>, src/look.js). "line", the default: greyer with a line in the accent under it.
+   "frame": the rules as written everywhere else in this file (set in, or raised, with a frame). */
+:root:not([data-tabs="frame"]) .tabs a[aria-current="page"],
+:root:not([data-tabs="frame"]) .seg button[aria-pressed="true"],
+:root:not([data-tabs="frame"]) .adm-tabs a[aria-selected="true"],
+:root:not([data-tabs="frame"]) .adv-tabs button[aria-selected="true"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
 .tab-badge {
   display: inline-block;
   min-width: 18px;
@@ -1408,7 +1444,6 @@ body.archived .chat-card .chat-scroll { padding-bottom: 0; }
 .p-model-note { padding: 8px 12px 10px; border-top: 1px solid var(--edge); font-size: 12px; text-align: center; line-height: 1.45; }
 .p-model-held { font-weight: 600; color: var(--ink-2); display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
 .p-weapon { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.p-model-egg { font-weight: 600; }
 .p-model-when { margin-top: 2px; }
 .p-gear-toggle { flex: none; display: inline-flex; align-items: center; gap: 2px; font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
   padding: 3px 4px 3px 6px; border: 0; background: var(--surface-2); color: var(--muted); cursor: pointer; }
@@ -1428,10 +1463,6 @@ body.archived .chat-card .chat-scroll { padding-bottom: 0; }
 .gear-sub { grid-column: 2; font-size: 11px; }
 .gear-sub:empty { display: none; }
 .item-tip .it-note { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgb(255 255 255 / 0.15); color: #aaa; font-size: 11px; white-space: normal; max-width: 260px; }
-.p-egg { color: var(--egg, inherit); }
-/* egg colors are bright; in light mode they're darkened to stay readable */
-:root:not([data-theme="dark"]) .p-egg { color: color-mix(in oklab, var(--egg, currentColor) 70%, #000); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .p-egg { color: var(--egg, inherit); } }
 
 @media (max-width: 800px) {
   .player-top .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1600,46 +1631,14 @@ body.archived .chat-card .chat-scroll { padding-bottom: 0; }
 .dl-time:hover { color: var(--series-1); text-decoration: underline; }
 .death-log .chat-empty { padding: 40px 16px; }
 
-/* ---------- player page: egg and combat ---------- */
+/* ---------- player page: an add-on's card, and combat ---------- */
 
-.grid2.p-egg-combat { grid-template-columns: 340px minmax(0, 1fr); align-items: stretch; }
-.grid2.p-egg-combat.no-egg { grid-template-columns: minmax(0, 1fr); }
+.grid2.p-side-combat { grid-template-columns: 340px minmax(0, 1fr); align-items: stretch; }
+.grid2.p-side-combat.no-side { grid-template-columns: minmax(0, 1fr); }
+.addon-card[hidden] { display: none; }
 .card-link { font-size: 13px; color: var(--series-1); text-decoration: none; white-space: nowrap; }
 .card-link:hover { text-decoration: underline; }
 
-.egg-card[hidden] { display: none; }
-.egg-head { display: flex; align-items: center; gap: 12px; }
-.egg-icon { flex: none; width: 44px; height: 44px; image-rendering: pixelated; }
-.egg-title { min-width: 0; margin-right: auto; }
-.egg-title h2 { font-size: 16px; }
-.egg-facts { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.egg-facts:empty { display: none; }
-.egg-fact { display: flex; align-items: center; gap: 7px; font-size: 12.5px; white-space: nowrap; }
-.egg-fact-label { color: var(--muted); }
-.egg-pips { display: inline-flex; gap: 3px; }
-.egg-pips i { width: 9px; height: 9px; box-shadow: inset 0 0 0 1.5px var(--axis); }
-.egg-pips i.on { background: var(--series-3); box-shadow: none; }
-.egg-cracked { padding: 0 6px; background: color-mix(in srgb, var(--critical) 14%, transparent); color: var(--critical); font-size: 11px; font-weight: 700; }
-.egg-rows { display: grid; gap: 9px; margin-top: 14px; }
-.egg-row-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
-.egg-tag { padding: 0 5px; background: var(--surface-2); font-size: 10.5px; font-weight: 600; }
-.egg-row-text { margin-top: 1px; font-size: 13px; line-height: 1.42; color: var(--ink-2); }
-.egg-row-text strong { color: var(--ink); font-weight: 650; }
-.egg-cost { display: inline-block; margin-left: 6px; padding: 0 6px; background: var(--surface-2); color: var(--ink-2); font-size: 11.5px; white-space: nowrap; }
-.egg-row.locked .egg-row-text { opacity: 0.55; }
-.egg-none { margin-top: 12px; font-size: 13px; }
-/* the egg's tooltip as the game shows it, folded under the summary */
-.egg-game-wrap { margin-top: 12px; }
-.egg-game-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 8px; border: 0; background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.egg-game-toggle:hover { color: var(--ink); background: var(--grid); }
-.egg-game { margin-top: 10px; }
-.egg-game[hidden] { display: none; }
-.egg-game-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
-.egg-game-note { font-size: 12.5px; }
-.egg-game-tip { max-height: 440px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 10px 12px; background: #150a1f;
-  box-shadow: inset 0 0 0 1px #100010, inset 0 0 0 3px #2f0a6b; font-size: 12px; line-height: 1.5; outline: none; }
-.egg-game-tip:focus-visible { box-shadow: inset 0 0 0 1px #100010, inset 0 0 0 3px #7a4be0; }
-.egg-asof { margin-top: 12px; font-size: 11.5px; }
 
 .pcb-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--edge); box-shadow: var(--frame); }
 .pcb-stat { padding: 8px 12px 9px; background: var(--surface); min-width: 0; }
@@ -1665,7 +1664,7 @@ a.pcb-who:hover { text-decoration: underline; }
 @media (max-width: 900px) {
   .combat { grid-template-columns: minmax(0, 1fr); }
   .death-log { position: static; height: auto; max-height: 72vh; }
-  .grid2.p-egg-combat { grid-template-columns: minmax(0, 1fr); }
+  .grid2.p-side-combat { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   /* narrow: tighter number columns, and only the sorted heading keeps its arrow, so names have room */
@@ -1682,8 +1681,6 @@ a.pcb-who:hover { text-decoration: underline; }
   .fb-legend { font-size: 12px; }
   .pcb-lists { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .pcb-value { font: 400 30px/1.15 var(--px-30); }
-  .egg-head { flex-wrap: wrap; }
-  .egg-facts { flex-direction: row; gap: 12px; width: 100%; }
 }
 
 /* ---------- advancements (a player's page) ---------- */
@@ -1873,6 +1870,41 @@ a.pcb-who:hover { text-decoration: underline; }
 .adm-subhead { margin: 16px 0 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
 
 /* Admin: the Settings / Analytics tabs, and the Analytics tab */
+/* Admin → Server: the server's own details. Fields are stacked 14px apart in a 640px column, built from
+   the site pages' field, address box and two-option choice (.site-field, .wiz-url, .wiz-vis). */
+.srv-fields { display: grid; gap: 14px; max-width: 640px; }
+.srv-input { width: 100%; max-width: 340px; padding: 6px 9px; font-size: 14px; }
+.srv-input:disabled, .srv-url-input:disabled { color: var(--muted); cursor: not-allowed; }
+.srv-url { max-width: 440px; }
+.srv-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.srv-row .srv-input { flex: 1 1 180px; max-width: 220px; }
+.srv-vis { max-width: 560px; }
+.wiz-vis-opt:has(.wiz-vis-radio:disabled) { cursor: not-allowed; opacity: 0.6; }
+.srv-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 2px; }
+.srv-swatch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border: 0; background: var(--raise); color: var(--ink);
+  font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--frame); cursor: pointer; }
+.srv-swatch:hover { background: var(--surface-2); }
+.srv-swatch i { width: 16px; height: 16px; }
+.srv-swatch[aria-pressed="true"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
+.srv-swatch:focus-visible, .srv-color:focus-visible { outline: 2px solid var(--series-1); outline-offset: 3px; }
+.srv-custom { display: inline-flex; align-items: center; gap: 8px; }
+.srv-color { width: 34px; height: 30px; padding: 0; border: 1px solid var(--edge); border-radius: 0; background: var(--surface-2); cursor: pointer; }
+.srv-color::-webkit-color-swatch-wrapper { padding: 3px; }
+.srv-color::-webkit-color-swatch { border: 0; border-radius: 0; }
+.srv-color::-moz-color-swatch { border: 0; border-radius: 0; }
+.srv-hex { width: 84px; padding: 5px 8px; font-variant-numeric: tabular-nums; }
+/* the two tab styles, each drawn as itself whatever the page is wearing */
+.srv-demo { display: flex; gap: 6px; padding: 4px 2px 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.srv-demo span { padding: 3px 9px; }
+.srv-demo .on { color: var(--ink); }
+.srv-demo-line .on { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
+.srv-demo-frame .on { background: var(--surface-2); box-shadow: var(--frame); }
+.wiz-vis-opt:has(.wiz-vis-radio:checked) .srv-demo-line .on { background: var(--surface); }
+.srv-addon { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; cursor: pointer; }
+.srv-addon input { margin: 3px 0 0; }
+.srv-addon > span { display: grid; gap: 2px; }
+#server-admin .adm-savebar { margin-top: 14px; }
+
 .adm-top { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin: 0 0 6px; }
 .adm-top .adm-title { margin: 0; }
 .adm-tabs a { font-size: 13px; color: var(--ink-2); padding: 4px 12px; text-decoration: none; }
@@ -2159,7 +2191,7 @@ a.pcb-who:hover { text-decoration: underline; }
 .card, .now, .tiles, .pcb-stats { box-shadow: var(--frame), var(--drop); }
 .now > .tiles { box-shadow: none; }
 .seg, .icon-btn, .live, .search-btn, .theme-toggle, .adv-tabs, .adm-periods, .pc-stat,
-.dl-open, .egg-game-toggle { --pc: var(--surface-2); box-shadow: var(--pixel); }
+.dl-open { --pc: var(--surface-2); box-shadow: var(--pixel); }
 .seg button[aria-pressed="true"], .adv-tabs button[aria-selected="true"], .adm-tabs a[aria-selected="true"] { --pc: var(--raise); }
 .btn-primary, .btn-primary:hover:not(:disabled), .chat-send:not(:disabled) { --pc: var(--series-1); box-shadow: var(--pixel), var(--drop-sm); }
 .chat-send:disabled { --pc: var(--grid); box-shadow: var(--pixel); }
@@ -2242,6 +2274,34 @@ select:not([multiple]) {
 .site-more { margin-top: 18px; }
 .site-more summary { cursor: pointer; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
 .site-more[open] summary { margin-bottom: 12px; }
+p.site-more { margin-bottom: 0; }
+
+/* signing in to an mcstats account (/account, the first step of /new) */
+.top-acct[hidden] { display: none; }
+@media (max-width: 640px) {
+  .top-acct { padding: 6px 4px; }
+}
+.auth { display: grid; gap: 12px; max-width: 380px; }
+.auth-title { margin: 0; }
+.acct-page .site-h2 { margin: 28px 0 8px; }
+.acct-page .site-form { max-width: 380px; }
+.acct-page .site-row { margin-top: 10px; }
+.auth-show { font-size: 13px; }
+.auth-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 0; }
+.auth-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.auth-link:hover { color: var(--ink); }
+.auth-link:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 .site-main code { font-size: 0.92em; background: var(--surface-2); padding: 1px 4px; overflow-wrap: anywhere; }
 
 /* the create-a-server steps: a list of steps beside the current one */
@@ -2307,13 +2367,18 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
 html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: 24px; }
 @media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
 
-.home-hero { position: relative; isolation: isolate; padding: 104px 0 64px; text-align: center; touch-action: pan-y; }
+.home-hero { position: relative; isolation: isolate; padding: 104px 0 56px; text-align: center; touch-action: pan-y; }
 html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 
 /* the sky behind the hero: a day and a night gradient, cross-faded when the theme changes, with the
-   clouds, sun, moon, stars and rain on a canvas above (public/home.js) */
+   clouds, sun, moon, stars and rain on a canvas above (public/home.js). It runs on under the top of the
+   example below and the whole of it (rain included) fades out into the page there, so there's no edge
+   where the sky stops; the example's backdrop fades in over the same stretch. */
+.home-hero { --sky-under: 220px; }
 .home-sky {
-  position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden;
+  position: absolute; z-index: -1; top: 0; bottom: calc(-1 * var(--sky-under)); left: 50%; width: 100vw; transform: translateX(-50%); overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sky-under) - 110px), transparent calc(100% - 30px));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sky-under) - 110px), transparent calc(100% - 30px));
   --sky-day: linear-gradient(to bottom, #6aa0e6, #a6c6ef 62%, #e3e5e8);
   --sky-night: linear-gradient(to bottom, #081228, #121d36 62%, #111315);
   background: var(--sky-day);
@@ -2323,37 +2388,41 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-sky[style*="transition: none"]::before { transition: none; }
 @media (prefers-reduced-motion: reduce) { .home-sky::before { transition: none; } }
 .home-sky canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-:root:not([data-theme="dark"]) .home-hero .home-lede { color: var(--ink); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .home-hero .home-lede { color: var(--ink-2); } }
-.home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 14px; font: 400 50px/1 var(--px-50); }
+.home-titlewrap { position: relative; max-width: 17ch; margin: 0 auto 16px; font: 400 60px/1 var(--px-40); } /* Jersey 20 at three times its size */
 .home-title { font: inherit; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
-.home-lede { margin: 0 auto 26px; font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 44ch; text-wrap: balance; }
+/* the line under the title sits on the sky with no shadow: larger than body text, at regular weight, a step greyer than the title */
+.home-lede { margin: 0 auto 28px; font-size: 19px; font-weight: 400; line-height: 1.45; color: color-mix(in srgb, var(--ink) 62%, var(--ink-2)); max-width: 44ch; text-wrap: balance; }
 .home-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
 
 /* the dashboard, framed like a window */
-.home-shot { position: relative; overflow: hidden; padding: 64px 56px 56px; background: var(--stage); }
+.home-shot { position: relative; overflow: hidden; padding: 28px 56px 56px; background: linear-gradient(to bottom, transparent, var(--stage) 240px); }
 .home-window { position: relative; background: var(--page); box-shadow: var(--frame), var(--lift); }
 .home-wbar { display: flex; align-items: center; gap: 16px; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--edge); }
 .home-wbrand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); white-space: nowrap; }
 .home-wbrand .logo { width: 16px; height: 16px; }
 .home-wtabs a { font-size: 13px; padding: 4px 10px; }
 .home-wbar .live { margin-left: auto; }
-.home-dot { background: var(--good) !important; }
-.home-wbody { padding: 14px 14px 16px; }
-.home-chips { margin: 0 0 14px; }
-.home-chips .chip { cursor: pointer; }
-.home-wcard { margin: 0; }
-.home-plot { position: relative; height: 110px; cursor: crosshair; }
-.home-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.home-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; fill: none; }
-.home-line { stroke: var(--series-1); stroke-width: 2; vector-effect: non-scaling-stroke; fill: none; }
-.home-area { fill: color-mix(in srgb, var(--series-1) 16%, transparent); }
-.home-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--axis); pointer-events: none; }
-.home-marker { position: absolute; left: 0; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--series-1); box-shadow: 0 0 0 2px var(--surface); }
-.home-tip { position: absolute; top: 4px; left: 10px; padding: 5px 8px; white-space: nowrap; font-size: 12.5px; background: var(--surface); box-shadow: var(--frame), var(--lift); }
-.home-tip.flip { left: auto; right: 10px; }
-.home-ticks { display: flex; justify-content: space-between; padding-top: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* inside a window is a page of the dashboard, in its own classes: only the page's own padding is set here */
+.home-wbody { padding: 14px 16px 18px; }
+.home-wbody > :last-child { margin-bottom: 0; }
+/* The dashboard's layout steps down by the window's width (at 800px and 560px). A page shown in a frame
+   here steps down by the frame's width instead, with the same values, a little later so the widest
+   frame beside a heading (780px) keeps the full layout. */
+.home-window { container-type: inline-size; }
+@container (max-width: 760px) {
+  .home-wbody .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-wbody .tile { padding: 9px 12px 10px; }
+  .home-wbody .tile-value { font: 400 30px/1.15 var(--px-30); }
+  .home-wbody .now > .chips { padding: 10px 12px 12px; }
+  .home-wbody .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .home-wbody .recent-card { height: auto; min-height: 0; }
+  .home-wbody .recent-card #p-recent { flex: none; max-height: 420px; }
+}
+@container (max-width: 540px) {
+  .home-wbody .pcb-lists { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .home-wbody .pcb-value { font: 400 30px/1.15 var(--px-30); }
+}
 
 /* a section: a short heading and one sentence beside its example */
 .home-feature { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; align-items: start; padding: 96px 0 0; }
@@ -2364,46 +2433,37 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-fvis { margin: 0; }
 .home-pick { display: flex; flex-wrap: wrap; gap: 14px 16px; margin-top: 22px; }
 .home-pick .chip { border: 0; font: inherit; font-size: 13px; font-weight: 550; color: var(--ink); cursor: pointer; }
-.home-pick .chip:focus-visible, .home-chips .chip:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; }
+.home-pick .chip:focus-visible, .home-window .chip:focus-visible, .home-chat .chip:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; }
 
-/* the example player's page */
-.home-profile { padding: 16px 16px 18px; }
+/* the example player's page: the page itself is the dashboard's (.player-top, .card, …) */
 .home-swap > * { animation: rise-in 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
-.home-pname { font: 400 40px/0.95 var(--px-40); margin-bottom: 4px; }
-.home-pstatus { display: flex; align-items: center; gap: 6px; }
-.home-profile .tiles { margin-bottom: 18px; }
-.home-pgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; }
-.home-bars { width: 100%; height: 64px; }
-.home-bars rect { cursor: default; }
-.home-bars rect:hover { fill: var(--ink); }
-.pc-hours .home-bars { height: 46px; }
-.home-prow table { font-size: 13.5px; }
-.home-prow td { padding: 5px 8px 5px 0; }
-.home-pfights { margin: 0; }
+.home-pname { margin: 0 0 2px; font: 400 40px/0.95 var(--px-40); overflow-wrap: anywhere; } /* the page's h1; this page has its own */
+.home-page .back { margin-bottom: 10px; }
 
 /* the example chat log */
-.home-chat { height: 470px; }
-.home-chat-head { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); overflow-x: auto; scrollbar-width: none; }
-.home-chat .msg-name { cursor: pointer; }
-.home-adv { color: var(--series-3); font-weight: 600; }
-.home-adv-ch { color: #a855c7; } /* challenges are purple in the game's chat */
+.home-chat { height: 540px; }
 
 /* smaller things, side by side */
 .home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 96px 0 0; }
 .home-mini { margin: 0; padding: 18px 18px 20px; display: flex; flex-direction: column; }
 .home-mini h3 { font: 400 30px/1.05 var(--px-30); margin: 0 0 4px; }
 .home-mini > p { margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }
-.home-week { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 2px; font-size: 10.5px; color: var(--muted); margin-top: auto; }
-.home-week .dlabel { text-align: center; }
-.home-week .hlabel { text-align: right; padding-right: 4px; line-height: 10px; font-variant-numeric: tabular-nums; }
-.home-week .wcell { height: 10px; }
-.home-kd { margin-top: auto; font-size: 13.5px; }
-.home-kd td { padding: 5px 8px 4px 0; }
-.home-kd th { padding-left: 0; }
-.home-lock { display: flex; gap: 10px; align-items: center; margin-top: auto; }
-.home-lock-field { flex: 1; display: flex; align-items: center; height: 34px; padding: 0 10px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); letter-spacing: 0.15em; }
-.home-lock-field i { width: 1px; height: 16px; margin-left: 2px; background: var(--series-1); }
-.home-lock .btn { padding: 8px 16px; }
+/* The Combat page's leaderboard in a panel as narrow as a phone: the sizes it has on one (its 560px step). */
+.home-mini .cb-table th:first-child { width: 22px; }
+.home-mini .cb-table th.num { width: 46px; }
+.home-mini .cb-table th.num:nth-child(4) { width: 58px; }
+.home-mini .cb-table th.num:nth-child(5) { width: 50px; }
+.home-mini .cb-table th.sortable button { padding: 5px 4px; gap: 3px; }
+.home-mini .cb-table th.sortable:not(.sorted) .sort-arrow { display: none; }
+.home-mini .cb-table td { padding-left: 4px; padding-right: 6px; }
+.home-mini .cb-table .pname { gap: 6px; }
+.home-mini .cb-table .pname img { width: 16px; height: 16px; }
+/* the join page's form, already filled in */
+.home-join { margin: 0; }
+.home-join .site-input { display: flex; align-items: center; min-height: 36px; }
+.home-pass { letter-spacing: 0.15em; }
+.home-pass i { width: 1px; height: 16px; margin-left: 2px; background: var(--series-1); }
+.home-join .site-go { text-decoration: none; }
 
 .home-end { padding: 110px 0 96px; text-align: center; }
 .home-end p { margin: 0 auto 26px; font-size: 16px; color: var(--ink-2); max-width: 44ch; }
@@ -2424,64 +2484,30 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 @media (max-width: 600px) {
   .home-top-join { display: none; }
   .home-hero { padding: 44px 0 32px; }
-  .home-lede { font-size: 15.5px; }
+  .home-lede { font-size: 17px; }
   .home-ftext h2, .home-end h2 { font: 400 30px/1.05 var(--px-30); }
-  .home-pname { font: 400 30px/1 var(--px-30); }
-  .home-pgrid { grid-template-columns: minmax(0, 1fr); }
-  .home-chat { height: 440px; }
+  .home-chat { height: 500px; }
   .home-wbody { padding: 12px 10px 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .home-swap > * { animation: none; } }
 
 /* ---- the landing page's Minecraft dress ----
-   On the site's own pages (home, /join, /new: body.site) the accent is grass green instead of blue (pressed
-   states, focus, charts) and buttons stay the dashboard's own, not filled. On the home page only: Titles carry the game's flat text shadow, and the page ends on a strip of grass over dirt. */
-body.site {
-  --series-1: #3d8a26;
-  --lv1: #c9e6b9; --lv2: #93cf74; --lv3: #5aa83c; --lv4: #2f7a1c;
-  --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent);
-}
-:root[data-theme="dark"] body.site { --series-1: #62b443; --lv1: #1d4519; --lv2: #2f7524; --lv3: #4fa537; --lv4: #8fdb6a; --title-shadow: #000; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --series-1: #62b443; --lv1: #1d4519; --lv2: #2f7524; --lv3: #4fa537; --lv4: #8fdb6a; --title-shadow: #000; } }
+   The site's own pages (home, /join, /new: body.site) wear the default accent, grass green (pressed
+   states, focus, charts), and their buttons stay the dashboard's own, not filled. On the home page only: Titles carry the game's flat text shadow, and the page ends on a strip of grass over dirt. */
+body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
+:root[data-theme="dark"] body.site { --title-shadow: #000; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --title-shadow: #000; } }
 .home-title, .home-ftext h2, .home-end h2, .home-mini h3 { text-shadow: 3px 3px 0 var(--title-shadow); }
 .home-mini h3 { text-shadow: 2px 2px 0 var(--title-shadow); }
 
 /* buttons are the dashboard's own (.btn); the main one is the same raised button, not blue. Anything
    picked (a pressed segment, the current tab, the chosen player) turns a shade greyer with a green line under it. */
-body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --picked-line: inset 0 -2px 0 var(--series-1); }
 .site .btn-primary, .site .btn-primary:hover:not(:disabled) { --pc: var(--edge); background: var(--raise); color: var(--ink); box-shadow: var(--frame); filter: none; }
 .site .btn-primary:hover:not(:disabled) { background: var(--surface-2); }
 .home-cta { padding: 9px 20px; font-size: 14px; }
-.site .seg button[aria-pressed="true"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
-.home .tabs a[aria-current="page"] { background: var(--picked); box-shadow: var(--frame), var(--picked-line); }
 .home-pick .chip[aria-pressed="true"] { --pc: var(--picked); background: var(--picked); color: var(--ink); box-shadow: var(--pixel), var(--picked-line), var(--drop-sm); }
 .home .chat-send, .home .chat-send:not(:disabled) { --pc: var(--edge); background: var(--raise); color: var(--ink); box-shadow: var(--frame); }
 .home .chat-send:disabled { background: var(--surface-2); color: var(--muted); }
-
-/* the game's item tooltip, over the model's gear: near-black purple box, two-tone purple border, the
-   game's font with its flat shadow; the name colored by rarity, enchantments grey */
-.home-mctip {
-  position: fixed; z-index: 50; max-width: 260px; padding: 5px 8px 6px;
-  background: rgba(16, 0, 16, 0.94);
-  box-shadow: 0 0 0 2px rgba(16, 0, 16, 0.94), inset 0 0 0 2px #2c0a5e, inset 0 2px 0 2px #5000a0;
-  font: 400 20px/1.05 var(--px-20); color: #aaaaaa; text-shadow: 2px 2px 0 #2a2a2a; pointer-events: none;
-}
-.home-mctip[hidden] { display: none; }
-.home-mctip b { display: block; margin-bottom: 3px; font-weight: 400; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; }
-.home-mctip b.r-uncommon { color: #ffff55; text-shadow: 2px 2px 0 #3f3f15; }
-.home-mctip b.r-rare { color: #55ffff; text-shadow: 2px 2px 0 #153f3f; }
-.home-mctip b.r-epic { color: #ff55ff; text-shadow: 2px 2px 0 #3f153f; }
-.home-mctip span { display: block; }
-.home-mctip .mctip-trim { margin-top: 3px; }
-.home-mctip .mctip-trim i { display: block; padding-left: 8px; font-style: normal; }
-
-/* the profile: model and inventory beside the numbers */
-.home-profile { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px 18px; align-items: start; }
-.home-pleft { display: grid; gap: 10px; }
-.home-model-card { width: auto; }
-.home-model { min-height: 280px; }
-.home-pinfo .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.home-pinfo .tile-value { font: 400 30px/1.15 var(--px-30); }
 
 .home-foot { display: block; padding: 0; border: 0; color: #c8c8c8; }
 .home-foot-grass {
@@ -2498,12 +2524,8 @@ body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --pi
 .home-foot-brand { color: #fff; }
 .home-foot-by { color: #fff; }
 
-@media (max-width: 700px) {
-  .home-profile { grid-template-columns: minmax(0, 1fr); }
-  .home-pleft { grid-template-columns: minmax(0, 1fr); max-width: 320px; }
-}
 @media (max-width: 600px) {
-  .home-titlewrap { font: 400 40px/1.02 var(--px-40); }
+  .home-titlewrap { font: 400 50px/1 var(--px-50); }
   .home-hero { padding-top: 56px; }
 }
 
@@ -2561,12 +2583,6 @@ body.site { --picked: color-mix(in srgb, var(--raise) 80%, var(--ink) 20%); --pi
   .wiz-check-head input:checked { animation: wiz-tick 0.25s cubic-bezier(0.2, 0.8, 0.3, 1.2); }
 }
 @keyframes wiz-tick { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
-
-/* hero text stays readable over a passing cloud: a soft halo in the sky's own color */
-.home-hero .home-lede { text-shadow: 0 0 6px var(--halo), 0 0 12px var(--halo), 0 0 2px var(--halo); }
-body.site { --halo: #a6c6ef; }
-:root[data-theme="dark"] body.site { --halo: #121d36; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.site { --halo: #121d36; } }
 
 /* switching themes cross-fades the whole page (public/site.js) */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.8s; animation-timing-function: ease-in-out; }

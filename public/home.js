@@ -1,10 +1,15 @@
 // The landing page (/): an example server, Birchwood SMP, shown with the dashboard's own parts.
-// Nothing here talks to the server: the players, their numbers and the chat are made up below, and the
-// same name always gets the same numbers. The pieces are:
-//   the hero window   the Activity page: tiles, who's online (a player joins or leaves now and then), today's chart
+// Nothing here talks to the server. The players, their sessions, gear, fights and chat are made up
+// below, and every number on the page is worked out from them, so the pieces agree with each other:
+// who the chart's tooltip lists, a player's page, the fights table. The pieces are:
+//   the hero window   the Activity page: tiles, who's online (a player joins or leaves now and then),
+//                     and the Players online chart with its range control
 //   #players          a player's page; pick another player, or click a name anywhere on the page
-//   #chat             the chat log with its filter, and a message box that "sends" and gets a reply
-//   #more             busiest hours, fights, and the password box
+//                     for their card and its View profile button
+//   #chat             the chat log, and a message box that "sends" and gets a reply
+//   #more             busiest times, the fights table, and the join form
+// Each piece is built as public/app.js builds the real one, with the dashboard's own classes
+// (public/style.css); the function it follows is named beside it.
 (() => {
   const $ = (id) => document.getElementById(id);
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -20,20 +25,91 @@
     e.append(...kids.flat().filter((x) => x != null && x !== false));
     return e;
   };
+  const sv = (tag, attrs = {}, ...kids) => {
+    const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    e.append(...kids);
+    return e;
+  };
+  const icon = (paths, size = 16) => sv('svg', {
+    width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', fill: 'none', stroke: 'currentColor',
+    'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  }, ...paths.map((d) => sv('path', { d })));
+  const title = (s) => s.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const any = (list) => list[Math.floor(Math.random() * list.length)];
+
+  // the same name always rolls the same numbers
+  function rng(seed) {
+    let s = 0;
+    for (const c of seed) s = (s * 31 + c.charCodeAt(0)) >>> 0;
+    return () => {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------------- the example's clock ----------------
+     Times are minutes from this morning's midnight (earlier days are negative). It's evening on the
+     example server when the page opens, whatever the time really is, and its clock runs from there. */
+
+  const DAY = 1440;
+  const OPENED = Date.now();
+  const now = () => 20 * 60 + 34 + Math.floor((Date.now() - OPENED) / 60000);
+  const today = () => Math.floor(now() / DAY);
+  const SEASON_DAYS = 91;
+  const START = -SEASON_DAYS * DAY; // the server's first day
+  const MIDNIGHT = new Date();
+  MIDNIGHT.setHours(0, 0, 0, 0);
+  const mod = (n, m) => ((n % m) + m) % m;
+  const at = (t) => new Date(MIDNIGHT.getFullYear(), MIDNIGHT.getMonth(), MIDNIGHT.getDate() + Math.floor(t / DAY), 0, mod(t, DAY));
+  const hourOf = (t) => Math.floor(mod(t, DAY) / 60);
+  const dowOf = (t) => at(t).getDay();
+  const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // written as the dashboard writes them: "8:34 PM", "Nov 24", "9p", "1h 5m", "3h ago"
+  const fmts = new Map();
+  const fmt = (t, opts) => {
+    const key = JSON.stringify(opts);
+    if (!fmts.has(key)) fmts.set(key, new Intl.DateTimeFormat('en-US', opts));
+    return fmts.get(key).format(at(t));
+  };
+  const clock = (t) => fmt(t, { hour: 'numeric', minute: '2-digit' });
+  const hourName = (hr, short) => `${hr % 12 || 12}${hr < 12 ? (short ? 'a' : ' AM') : (short ? 'p' : ' PM')}`;
+  const dur = (mins) => {
+    const m = Math.round(mins);
+    return m < 60 ? `${m}m` : m >= 6000 ? `${Math.floor(m / 60).toLocaleString()}h` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
+  };
+  const ago = (t) => {
+    const m = now() - t;
+    return m < 3 ? 'just now' : m < 60 ? `${m}m ago` : m < DAY ? `${Math.round(m / 60)}h ago` : `${Math.round(m / DAY)}d ago`;
+  };
+  const fmtHours = (hrs) => (hrs >= 100 ? Math.round(hrs).toLocaleString() : hrs >= 10 ? hrs.toFixed(0) : hrs.toFixed(1));
+  // [start, end) cut into pieces that each fall inside one hour
+  function eachHourChunk(start, end, fn) {
+    for (let t = start; t < end;) {
+      const next = Math.min(end, (Math.floor(t / 60) + 1) * 60);
+      fn(t, next - t);
+      t = next;
+    }
+  }
 
   /* ---------------- the players ---------------- */
 
-  // skin: one of the game's nine default skins, [arm model, name], drawn from the game's own texture
+  // skin: one of the game's nine default skins, [arm model, name], drawn from the game's own texture.
+  // plays: how likely they're on on a weekday and at the weekend, the hour they usually start, and for
+  // how many minutes. today: this day's sessions as [start, end]; no end means they're on now.
   const PLAYERS = [
-    { name: 'oakleaf', skin: ['wide', 'steve'] },
-    { name: 'Pebble_', skin: ['slim', 'alex'] },
-    { name: 'kestrel', skin: ['wide', 'kai'] },
-    { name: 'minty', skin: ['slim', 'noor'] },
-    { name: 'Saltwater', skin: ['wide', 'sunny'] },
-    { name: 'nightowl_', skin: ['wide', 'zuri'] },
-    { name: 'Brickhouse', skin: ['wide', 'efe'] },
-    { name: 'dandelion', skin: ['slim', 'makena'] },
-    { name: 'Quartzy', skin: ['slim', 'ari'] },
+    { name: 'oakleaf', skin: ['wide', 'steve'], plays: [0.6, 0.85, 18, 95], today: [[1030, 1078]] },
+    { name: 'Pebble_', skin: ['slim', 'alex'], plays: [0.9, 0.95, 17, 165], today: [[1008]] },
+    { name: 'kestrel', skin: ['wide', 'kai'], plays: [0.75, 0.9, 18, 130], today: [[1022]] },
+    { name: 'minty', skin: ['slim', 'noor'], plays: [0.55, 0.8, 18, 85], today: [[1015]] },
+    { name: 'Saltwater', skin: ['wide', 'sunny'], plays: [0.65, 0.85, 20, 100], today: [[1212]] },
+    { name: 'nightowl_', skin: ['wide', 'zuri'], plays: [0.7, 0.85, 21, 150], today: [[8, 97]] },
+    { name: 'Brickhouse', skin: ['wide', 'efe'], plays: [0.35, 0.75, 15, 75], today: [[790, 868]] },
+    { name: 'dandelion', skin: ['slim', 'makena'], plays: [0.45, 0.7, 17, 70], today: [[1040, 1114]] },
+    { name: 'Quartzy', skin: ['slim', 'ari'], plays: [0.5, 0.8, 16, 95], today: [[925, 1052]] },
   ];
   const byName = new Map(PLAYERS.map((p) => [p.name, p]));
   const skinPath = (p) => `entity/player/${p.skin[0]}/${p.skin[1]}`;
@@ -57,265 +133,754 @@
     faceOf(p).then((url) => { if (url) img.src = url; });
     return img;
   };
-  // what public/player3d.js draws: their skin, armor and held items
-  const specOf = (p, gear) => ({ name: p.name, skin: { path: skinPath(p), slim: p.skin[0] === 'slim' }, ...gear });
 
-  // the same name always rolls the same numbers
-  function rng(seed) {
-    let s = 0;
-    for (const c of seed) s = (s * 31 + c.charCodeAt(0)) >>> 0;
-    return () => {
-      s = (s + 0x6d2b79f5) >>> 0;
-      let t = s;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  // Every session since the server's first day, oldest first: [start, end], end null while they're on.
+  // Past days are rolled from their habits; today's are written out above, to match the chat log.
+  function sessionsOf(p) {
+    if (p.sessions) return p.sessions;
+    const r = rng(`${p.name}:plays`), out = [];
+    const [weekday, weekend, hour, mins] = p.plays;
+    for (let d = -(SEASON_DAYS - 1 - Math.floor(r() * 6)); d < 0; d++) {
+      const dow = dowOf(d * DAY), free = dow === 0 || dow === 6;
+      if (r() > (free || dow === 5 ? weekend : weekday)) continue;
+      const start = d * DAY + hour * 60 + Math.round((r() - 0.5) * 140);
+      // at the weekend, sometimes an afternoon sitting as well
+      if (free && r() < 0.4) {
+        const a = start - 220 - Math.round(r() * 110);
+        out.push([a, a + 25 + Math.round(r() * 70)]);
+      }
+      const end = Math.min(start + Math.round(mins * (0.35 + r() * 1.3)), -10); // never into today's
+      if (end > start) out.push([start, end]);
+    }
+    out.push(...p.today.map(([a, b]) => [a, b ?? null]));
+    return (p.sessions = out);
+  }
+  const online = new Set(PLAYERS.filter((p) => sessionsOf(p).at(-1)[1] === null).map((p) => p.name));
+  const playedBetween = (p, from, to) => sessionsOf(p).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b ?? now(), to) - Math.max(a, from)), 0);
+  // how many were on in each minute from..to (to itself isn't counted)
+  function counts(from, to) {
+    const d = new Int16Array(to - from + 1);
+    for (const p of PLAYERS) {
+      for (const [a, b] of sessionsOf(p)) {
+        const s = Math.max(a, from), e = Math.min(b ?? Infinity, to);
+        if (e > s) { d[s - from]++; d[e - from]--; }
+      }
+    }
+    let n = 0;
+    return Array.from({ length: to - from }, (_, i) => (n += d[i]));
+  }
+  // names on at minute t (or at any point in the `len` minutes from t)
+  const whoAt = (t, len = 1) => PLAYERS.filter((p) => sessionsOf(p).some(([a, b]) => a < t + len && (b ?? Infinity) > t)).map((p) => p.name);
+
+  /* ---------------- tooltips (app.js: showTip, playerList, itemTip) ---------------- */
+
+  const tip = h('div', { class: 'tooltip', role: 'tooltip', hidden: true });
+  document.body.append(tip);
+  // Clicking what a tooltip is for freezes it where it is, so it can be read; it stays until a click
+  // anywhere else (or Escape).
+  let tipPinned = false, tipSkipPin = false;
+  const tipHeads = new Map(); // reused across redraws so heads don't blink while the pointer moves
+  function playerList(names) {
+    const list = h('div', { class: 'tip-players' });
+    for (const name of names.slice(0, 10)) {
+      if (!tipHeads.has(name)) tipHeads.set(name, head(byName.get(name), 14));
+      list.append(h('div', { class: 'tip-player' }, tipHeads.get(name), h('span', { text: name })));
+    }
+    if (names.length > 10) list.append(h('div', { class: 'tip-more', text: `+${names.length - 10} more` }));
+    return list;
+  }
+  // rows: [{ value, label, color } | { players } | { node, adv }]
+  function showTip(x, y, rows) {
+    if (tipPinned) return;
+    tip.replaceChildren(...rows.map((r) => (r.players ? playerList(r.players) : r.node ? r.node : h('div', { class: 'row' },
+      r.color ? h('span', { class: 'key', style: `background:${r.color}` }) : null,
+      r.value != null ? h('span', { class: 'tv', text: r.value }) : null,
+      r.label ? h('span', { class: 'tl', text: r.label }) : null))));
+    tip.classList.toggle('tip-item', rows.some((r) => r.node && !r.adv)); // an item's tooltip looks like the game's
+    tip.classList.toggle('tip-adv', rows.some((r) => r.adv));
+    tip.hidden = false;
+    const w = tip.offsetWidth, ht = tip.offsetHeight;
+    let left = x + 14, top = y - ht - 10;
+    if (left + w > innerWidth - 8) left = x - w - 14;
+    if (top < 8) top = y + 18;
+    if (top + ht > innerHeight - 8) top = Math.max(8, innerHeight - ht - 8);
+    tip.style.left = `${Math.max(8, left)}px`;
+    tip.style.top = `${top}px`;
+  }
+  const hideTip = () => { if (!tipPinned) tip.hidden = true; };
+  function closeTip() {
+    tipPinned = false;
+    tip.classList.remove('pinned');
+    tip.hidden = true;
+  }
+  document.addEventListener('click', (e) => {
+    const skip = tipSkipPin;
+    tipSkipPin = false;
+    if (skip || tipPinned || tip.hidden || tip.contains(e.target) || e.target.closest?.('a[href]')) return;
+    tipPinned = true;
+    tip.classList.add('pinned');
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!tipPinned || tip.contains(e.target)) return;
+    closeTip();
+    tipSkipPin = true;
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tipPinned) closeTip(); });
+  // scrolling the page moves what it was for out from under it
+  addEventListener('scroll', closeTip, { passive: true });
+  function cellTips(root, selector, rowsOf) {
+    const over = (e) => {
+      const t = e.target.closest?.(selector);
+      if (!t || !root.contains(t)) return hideTip();
+      showTip(e.clientX, e.clientY, rowsOf(t));
     };
+    root.addEventListener('pointermove', over);
+    root.addEventListener('pointerdown', over);
+    root.addEventListener('pointerleave', hideTip);
   }
-  const hours = (m) => ((m = Math.round(m)) < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h${Math.round(m % 60) ? ` ${Math.round(m % 60)}m` : ''}`);
-  const clock = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`;
 
-  /* ---------------- who's online (the hero window) ---------------- */
+  // A name in the game's color, as the dashboard shows them (app.js, mcStyle): exact on the light page
+  // (pale ones get the game's text shadow), lightened where it needs it on the dark one.
+  const lum = (rgb) => {
+    const [r, g, b] = rgb.map((v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  const toHex = (rgb) => `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  function mc(color, text) {
+    const n = parseInt(color.slice(1), 16), rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    let dark = rgb;
+    for (let k = 0; k <= 1 && contrast(lum(dark), 0.01) < 4; k += 0.05) dark = rgb.map((c) => c + (255 - c) * k);
+    const shadow = contrast(lum(rgb), 0.96) < 2 ? `1px 1px 0 ${toHex(rgb.map((c) => c / 4))}` : 'none';
+    return h('span', { class: 'mc', style: `--cl:${color};--cs:${shadow};--cd:${toHex(dark)}`, text });
+  }
+  // An item's tooltip as the game draws it: lines of { t, c?, i? } pieces. Hovering (or focusing, or
+  // tapping) the node shows it.
+  const itemTipNode = (lines) => h('div', { class: 'item-tip' }, ...lines.map((line, k) => h('div', { class: `it-line${k ? '' : ' it-name'}` },
+    ...(line.length ? line.map((p) => h('span', { style: `${p.c ? `color:${p.c};` : ''}${p.i ? 'font-style:italic' : ''}`, text: p.t })) : [' ']))));
+  function hoverTip(node, rows) {
+    node.classList.add('has-tip');
+    node.tabIndex = 0;
+    const show = (e) => showTip(e.clientX, e.clientY, rows());
+    node.addEventListener('pointerenter', show);
+    node.addEventListener('pointermove', show);
+    node.addEventListener('pointerleave', hideTip);
+    node.addEventListener('focus', () => { const r = node.getBoundingClientRect(); showTip(r.left, r.top, rows()); });
+    node.addEventListener('blur', hideTip);
+    return node;
+  }
 
-  const online = new Set(['Pebble_', 'kestrel', 'minty', 'Saltwater']);
-  const NOW = 20 * 60 + 30; // the example's "now"
-  // players on, every half hour of today until now
-  const today = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 1, 0, 1, 2, 2, 3, 2, 2, 1, 1, 1, 1, 2, 3, 4, 5, 5, 6, 5, 4, 5, 4, 4, 4];
+  /* ---------------- what they wear and carry ----------------
+     Each player's gear fits how far along they are. Early game: leather, chainmail and iron, stone and
+     iron tools, nothing enchanted. Mid: iron and diamond, a few low enchantments. Late: diamond and
+     netherite, fully enchanted and trimmed, a named weapon, a totem.
+     armor: head, chest, legs, feet as a material, * when enchanted, #rrggbb for dyed leather.
+     carry: the weapons and tools on them as [item, its custom name or null, ...enchantments]. */
 
-  const chips = $('w-chips');
+  const GEAR = {
+    Pebble_: { armor: ['netherite*', 'netherite*', 'netherite*', 'netherite*'], trim: ['spire', 'amethyst'], off: 'totem_of_undying', carry: [
+      ['netherite_sword', 'Excalibur', 'Sharpness V', 'Sweeping Edge III', 'Looting III', 'Unbreaking III', 'Mending'],
+      ['netherite_axe', null, 'Sharpness V', 'Efficiency V', 'Unbreaking III', 'Mending'],
+      ['netherite_pickaxe', null, 'Efficiency V', 'Fortune III', 'Unbreaking III', 'Mending']] },
+    nightowl_: { armor: ['netherite*', 'netherite*', 'diamond*', 'netherite*'], trim: ['ward', 'emerald'], off: 'totem_of_undying', carry: [
+      ['diamond_spear', 'Stargazer', 'Sharpness V', 'Lunge III', 'Unbreaking III', 'Mending'],
+      ['netherite_axe', null, 'Efficiency V', 'Unbreaking III', 'Mending'],
+      ['netherite_pickaxe', null, 'Efficiency V', 'Silk Touch', 'Unbreaking III', 'Mending']] },
+    kestrel: { armor: ['diamond*', 'netherite*', 'diamond*', 'diamond*'], trim: ['flow', 'copper'], off: 'shield', carry: [
+      ['mace', 'Bonk', 'Density IV', 'Wind Burst II', 'Unbreaking III'],
+      ['diamond_sword', null, 'Sharpness IV', 'Looting III', 'Unbreaking III'],
+      ['diamond_pickaxe', null, 'Efficiency IV', 'Unbreaking III']] },
+    Quartzy: { armor: ['iron*', 'diamond*', 'iron*', 'iron*'], trim: ['coast', 'quartz'], off: 'shield', carry: [
+      ['diamond_sword', null, 'Sharpness II', 'Knockback I'],
+      ['diamond_pickaxe', null, 'Efficiency III', 'Fortune II'],
+      ['iron_axe', null]] },
+    Saltwater: { armor: ['diamond*', 'diamond', 'iron', 'iron*'], off: 'water_bucket', carry: [
+      ['diamond_sword', null, 'Sharpness III', 'Unbreaking II'],
+      ['iron_pickaxe', null, 'Efficiency III', 'Unbreaking II'],
+      ['iron_axe', null]] },
+    oakleaf: { armor: ['iron', 'iron*', 'iron', 'iron'], off: 'lava_bucket', carry: [
+      ['iron_sword', null, 'Sharpness II', 'Unbreaking I'],
+      ['iron_pickaxe', null, 'Efficiency II'],
+      ['stone_axe', null]] },
+    minty: { armor: ['iron', 'iron', 'chainmail', 'iron'], off: 'shield', carry: [
+      ['iron_sword', null, 'Smite III'],
+      ['iron_axe', null],
+      ['iron_pickaxe', null, 'Efficiency I', 'Unbreaking I']] },
+    dandelion: { armor: ['leather#f8c627', 'iron', 'leather#5e7c16', 'iron'], off: 'shears', carry: [
+      ['stone_sword', null],
+      ['iron_pickaxe', null]] },
+    Brickhouse: { armor: [null, 'iron', 'leather#a06540', 'leather#a06540'], off: 'bread', carry: [
+      ['stone_sword', null],
+      ['iron_pickaxe', null],
+      ['stone_axe', null]] },
+  };
+  const SLOTS = ['head', 'chest', 'legs', 'feet'], PIECES = ['helmet', 'chestplate', 'leggings', 'boots'];
+  // The best weapon they carry comes first: mace, then sword, spear, axe, pickaxe; better material
+  // first (app.js, weaponRank). It's the one in the model's hand until another is picked.
+  const KINDS = ['mace', 'trident', 'sword', 'spear', 'axe', 'pickaxe'], MATERIALS = ['netherite', 'diamond', 'iron', 'copper', 'stone'];
+  const kindOf = (it) => it.id.split('_').pop();
+  const weaponRank = (it) => KINDS.indexOf(kindOf(it)) * 100 + MATERIALS.indexOf(it.id.split('_')[0]) * 2 + (it.glint ? 0 : 1);
+  // Items as the server mod reports them, which is what public/player3d.js draws.
+  function gearOf(p) {
+    if (p.gear) return p.gear;
+    const g = GEAR[p.name], armor = {};
+    g.armor.forEach((a, i) => {
+      if (!a) return;
+      const [, mat, shine, dye] = /^([a-z]+)(\*)?(#\w+)?$/.exec(a);
+      armor[SLOTS[i]] = {
+        id: `${mat}_${PIECES[i]}`, asset: mat, glint: !!shine,
+        ...(dye && { dye: parseInt(dye.slice(1), 16) }),
+        // a trim the same color as its armor would vanish, so the game uses a darker shade there
+        ...(g.trim && { trim: { pattern: g.trim[0], palette: g.trim[1] === mat ? `${mat}_darker` : g.trim[1] } }),
+      };
+    });
+    const carry = g.carry.map(([id, name, ...enchants]) => ({ id, name, enchants, glint: enchants.length > 0 }))
+      .sort((a, b) => weaponRank(a) - weaponRank(b));
+    const offhand = { id: g.off, ...(g.off === 'shield' && { special: 'shield' }) };
+    return (p.gear = { armor, carry, offhand });
+  }
+  const picked = new Map(); // player -> the weapon picked from the list under their model
+  const heldOf = (p) => picked.get(p.name) ?? gearOf(p).carry[0];
+  const specOf = (p) => ({ name: p.name, skin: { path: skinPath(p), slim: p.skin[0] === 'slim' }, armor: gearOf(p).armor, mainhand: heldOf(p), offhand: gearOf(p).offhand });
+
+  // Its name in the game's colors (aqua when enchanted, magenta for the mace) and its tooltip as the
+  // game draws it: the name (slanted when it's a custom one), the enchantments in grey, then what it
+  // does in the main hand, in green.
+  const itemName = (it) => it.name || title(it.id);
+  const itemColor = (it) => (it.id === 'mace' ? '#ff55ff' : it.glint ? '#55ffff' : '#ffffff');
+  const TIERS = ['stone', 'iron', 'diamond', 'netherite'];
+  const HAND = { sword: [[5, 6, 7, 8], [1.6, 1.6, 1.6, 1.6]], axe: [[9, 9, 9, 10], [0.8, 0.9, 1, 1]], pickaxe: [[3, 4, 5, 6], [1.2, 1.2, 1.2, 1.2]], mace: [[6], [0.6]] };
+  function tipLines(it) {
+    const stats = HAND[kindOf(it)], tier = Math.max(0, TIERS.indexOf(it.id.split('_')[0]));
+    const lines = [[{ t: itemName(it), c: itemColor(it), ...(it.name && { i: 1 }) }], ...it.enchants.map((e) => [{ t: e, c: '#aaaaaa' }])];
+    if (stats) {
+      lines.push([], [{ t: 'When in Main Hand:', c: '#aaaaaa' }],
+        [{ t: ` ${stats[0][tier]} Attack Damage`, c: '#00aa00' }], [{ t: ` ${stats[1][tier]} Attack Speed`, c: '#00aa00' }]);
+    }
+    return lines;
+  }
+  const itemTip = (node, it) => hoverTip(node, () => [{ node: itemTipNode(tipLines(it)) }]);
+
+  /* ---------------- fights ---------------- */
+
+  // What kills players besides each other: [what the dashboard calls it, the game's death message].
+  const MOB_DEATHS = [
+    ['Creeper', 'was blown up by Creeper'], ['Zombie', 'was slain by Zombie'], ['Skeleton', 'was shot by Skeleton'],
+    ['Drowning', 'drowned'], ['Fall', 'fell from a high place'], ['Fall', 'hit the ground too hard'],
+    ['Witch', 'was killed by Witch using magic'], ['Enderman', 'was slain by Enderman'], ['Fire', 'burned to death'],
+    ['Warden', 'was obliterated by a sonically-charged shriek whilst trying to escape Warden'], ['Cactus', 'was pricked to death'],
+    ['Anvil', 'was squashed by a falling anvil'], ['Drowned', 'was impaled by Drowned'], ['Lava', 'tried to swim in lava'],
+    ['Fireworks', 'went off with a bang'], ['Pillager', 'was shot by Pillager'], ['Piglin Brute', 'was slain by Piglin Brute'],
+    ['Ghast', 'was fireballed by Ghast'], ['Bee', 'was stung to death'], ['Void', 'fell out of the world'],
+    ['Starvation', 'starved to death'], ['Suffocation', 'suffocated in a wall'], ['Freezing', 'was frozen to death'],
+    ['Lightning', 'was struck by lightning'], ['Elytra', 'experienced kinetic energy'], ['Vindicator', 'was slain by Vindicator'],
+    ['Evoker', 'was killed by Evoker using magic'], ['Breeze', 'was shot by Breeze'], ['Lava', 'discovered the floor was lava'],
+    ['Sweet Berry Bush', 'was poked to death by a sweet berry bush'], ['Fall', 'fell off some vines'], ['Hoglin', 'was slain by Hoglin'],
+  ];
+  // Every death this season, oldest first: { who, by (the player who did it), cause (anything else) }.
+  // Before today: who killed whom how often, and a few deaths each to the world, more for the less geared.
+  const DEATHS = [];
+  for (const [by, who, n] of [['Pebble_', 'kestrel', 5], ['Pebble_', 'nightowl_', 3], ['Pebble_', 'Saltwater', 3], ['Pebble_', 'Quartzy', 2],
+    ['nightowl_', 'Pebble_', 2], ['nightowl_', 'kestrel', 3], ['nightowl_', 'Saltwater', 2], ['kestrel', 'Saltwater', 2], ['kestrel', 'nightowl_', 2],
+    ['kestrel', 'minty', 1], ['Saltwater', 'kestrel', 1], ['Saltwater', 'Quartzy', 2], ['Quartzy', 'minty', 1], ['minty', 'oakleaf', 1]]) {
+    for (let i = 0; i < n; i++) DEATHS.push({ who, by });
+  }
+  for (const p of PLAYERS) {
+    const r = rng(`${p.name}:deaths`);
+    const n = (GEAR[p.name].trim ? 2 : 5) + Math.floor(r() * 5);
+    for (let i = 0; i < n; i++) DEATHS.push({ who: p.name, cause: MOB_DEATHS[Math.floor(r() * 16)][0] });
+  }
+  // everyone's kills and deaths (app.js, combatPlayers)
+  const fighters = () => PLAYERS.map((p) => {
+    const kills = DEATHS.filter((d) => d.by === p.name).length, mine = DEATHS.filter((d) => d.who === p.name);
+    return { name: p.name, kills, deaths: mine.length, pvpDeaths: mine.filter((d) => d.by).length, kd: kills / Math.max(1, mine.length) };
+  });
+  const fmtKd = (p) => (p.kills + p.deaths === 0 ? '–' : p.kd.toFixed(2));
+
+  /* ---------------- the hero window: the Activity page ---------------- */
+
+  // A player badge (app.js, makeChip). Clicking one opens their card.
   function chip(p, fresh) {
-    const c = h('a', { class: `chip${fresh && !reduced() ? ' chip-enter' : ''}`, href: '#players', 'data-name': p.name },
-      head(p, 24), p.name, h('span', { class: 'since', text: fresh ? 'just now' : `${hours(20 + p.name.length * 9)}` }));
-    c.addEventListener('click', () => showPlayer(p.name));
-    return c;
+    return h('a', { class: `chip${fresh && !reduced() ? ' chip-enter' : ''}`, href: '#players', 'data-name': p.name, 'data-card': p.name },
+      head(p, 24), h('span', { class: 'chip-name', text: p.name }), h('span', { class: 'since', text: `since ${clock(sessionsOf(p).at(-1)[0])}` }));
   }
-  chips.append(...[...online].map((n) => chip(byName.get(n), false)));
-
-  const Y = (n) => 96 - n * 14;
-  function drawChart() {
-    let d = `M0 ${Y(today[0])}`;
-    for (let i = 1; i < today.length; i++) if (today[i] !== today[i - 1]) d += `H${i * 30}V${Y(today[i])}`;
-    d += `H${NOW}`;
-    $('w-line').setAttribute('d', d);
-    $('w-area').setAttribute('d', `${d}V100H0Z`);
+  // Keeps a row of badges in step with who's online: a new one pops in, one that left folds away.
+  function syncChips(list, fresh) {
+    for (const c of list.querySelectorAll('.chip:not(.leaving)')) {
+      if (online.has(c.dataset.name)) continue;
+      if (reduced()) { c.remove(); continue; }
+      c.classList.add('leaving');
+      c.style.width = `${c.offsetWidth}px`;
+      c.classList.add('collapsing');
+      requestAnimationFrame(() => c.classList.add('collapsed'));
+      setTimeout(() => c.remove(), 260);
+    }
+    for (const name of online) {
+      if (!list.querySelector(`.chip:not(.leaving)[data-name="${CSS.escape(name)}"]`)) list.append(chip(byName.get(name), fresh));
+    }
   }
-  drawChart();
 
-  function setCount() {
-    const n = online.size;
+  $('w-week-mode').addEventListener('change', () => renderTiles());
+  function renderTiles() {
+    const n = online.size, t = now();
     $('w-online').textContent = n;
     $('w-live').textContent = `${n} online`;
-    today[today.length - 1] = n;
-    drawChart();
+    $('c-online-n').textContent = `${n} online`;
+    $('w-peak').textContent = Math.max(n, ...counts(today() * DAY, t + 1));
+    // all time, or the last 7 days (app.js, renderTiles)
+    const week = $('w-week-mode').value === '7d';
+    $('w-week-label').textContent = week ? 'Played this week' : 'Total played';
+    $('w-week').textContent = fmtHours(PLAYERS.reduce((sum, p) => sum + playedBetween(p, week ? t - 7 * DAY : START, t), 0) / 60);
+    $('w-seen').textContent = PLAYERS.length;
   }
 
-  // now and then someone joins or leaves, as on a real server
-  setInterval(() => {
-    if (document.hidden) return;
-    const off = PLAYERS.filter((p) => !online.has(p.name));
-    const join = online.size <= 3 || (online.size < 6 && Math.random() < 0.5);
-    if (join) {
-      const p = off[Math.floor(Math.random() * off.length)];
-      online.add(p.name);
-      chips.append(chip(p, true));
-      addPick(p.name); // whoever joins gets a page too
-      addSys('join', p.name, 'joined the game');
-    } else {
-      const names = [...online];
-      const name = names[Math.floor(Math.random() * names.length)];
-      online.delete(name);
-      chips.querySelector(`[data-name="${CSS.escape(name)}"]`)?.remove();
-      addSys('leave', name, 'left the game');
+  /* the Players online chart's range (app.js: TL_PRESETS, resolveWindow, shiftWindow, windowLabel) */
+  const PRESETS = [
+    { v: '6h', count: 360, long: 'Last 6 hours' },
+    // Live it's the last 24 hours; stepping back pages through whole days, midnight to midnight.
+    { v: '24h', count: DAY, long: 'Last 24 hours' },
+    { v: '7d', count: 7 * DAY, long: 'Last 7 days' },
+    { v: '30d', count: 30 * DAY, long: 'Last 30 days' },
+    { v: '90d', count: 90 * DAY, long: 'Last 90 days' },
+  ];
+  // { count (minutes), end (null: up to now), preset, day (a whole day, when paging the 24h range) }
+  let win = { count: DAY, end: null, preset: '24h' };
+  const spanOf = (w) => (w.day != null ? [w.day * DAY, (w.day + 1) * DAY] : [(w.end ?? now()) - w.count, w.end ?? now()]);
+  const isLive = (w) => w.day == null && w.end == null;
+  function shiftWindow(w, dir) {
+    if (w.preset === '24h' && (w.day != null || w.end == null)) {
+      const day = w.day != null ? w.day + dir : dir < 0 ? today() - 1 : null;
+      return day == null || day >= today() ? { count: DAY, end: null, preset: '24h' } : { count: DAY, end: null, preset: '24h', day };
     }
-    setCount();
-    if (current) renderProfile(current);
-  }, 30000); // not often: the log is mostly what players do
+    const end = spanOf(w)[1] + dir * w.count;
+    return { ...w, end: end >= now() - 2 ? null : end }; // within a couple of minutes of now counts as now
+  }
+  function windowLabel(w) {
+    const p = PRESETS.find((x) => x.v === w.preset);
+    if (isLive(w) && p) return p.long;
+    const md = { month: 'short', day: 'numeric' }, hm = { hour: 'numeric', minute: '2-digit' };
+    if (w.day != null) return fmt(w.day * DAY, md);
+    const [from, to] = spanOf(w);
+    if (isLive(w)) return `${fmt(from, { ...md, ...hm })} – now`;
+    const sameDay = Math.floor(from / DAY) === Math.floor((to - 1) / DAY);
+    return `${fmt(from, { ...md, ...hm })} – ${fmt(to, sameDay ? hm : { ...md, ...hm })}`;
+  }
 
-  // hovering the chart shows how many were on then
-  const plot = $('w-plot');
-  const cursor = $('w-cursor');
-  plot.addEventListener('pointermove', (e) => {
-    const r = plot.getBoundingClientRect();
-    const m = Math.max(0, Math.min(NOW, ((e.clientX - r.left) / r.width) * 1440));
-    const n = today[Math.min(today.length - 1, Math.floor(m / 30))];
-    cursor.hidden = false;
-    cursor.style.left = `${(m / 1440) * 100}%`;
-    $('w-marker').style.top = `${Y(n)}%`;
-    const tip = $('w-tip');
-    tip.textContent = `${n} online at ${clock(Math.floor(m / 5) * 5)}`;
-    tip.classList.toggle('flip', m > 1000);
-  });
-  plot.addEventListener('pointerleave', () => { cursor.hidden = true; });
+  // [calendar] [presets | Custom] [‹] [›] (app.js, rangeControl)
+  {
+    const host = $('w-ctl');
+    let pop = null;
+    const set = (w) => { win = w; close(); sync(); drawTimeline(); };
+    const cal = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Choose a date range', title: 'Choose a date range', onclick: () => toggle() },
+      icon(['M2.5 4.5h11v9h-11z', 'M2.5 7.5h11', 'M5.5 2.5v3', 'M10.5 2.5v3']));
+    const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Time range' });
+    const presets = PRESETS.map((p) => [p.v, seg.appendChild(h('button', { type: 'button', text: p.v, onclick: () => set({ count: p.count, end: null, preset: p.v }) }))]);
+    const custom = seg.appendChild(h('button', { type: 'button', text: 'Custom', hidden: true, onclick: () => toggle() }));
+    const prev = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Earlier', title: 'Earlier', onclick: () => set(shiftWindow(win, -1)) }, icon(['M10 3.5 5.5 8l4.5 4.5']));
+    const next = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Later', title: 'Later', onclick: () => set(shiftWindow(win, 1)) }, icon(['M6 3.5 10.5 8 6 12.5']));
+    host.replaceChildren(cal, seg, prev, next);
+    function sync() {
+      for (const [v, b] of presets) b.setAttribute('aria-pressed', String(win.preset === v));
+      custom.hidden = win.preset !== 'custom';
+      custom.setAttribute('aria-pressed', String(win.preset === 'custom'));
+      next.disabled = isLive(win);
+      prev.disabled = spanOf(shiftWindow(win, -1))[0] < START; // nothing was recorded before the first day
+    }
+    function close() {
+      if (!pop) return;
+      pop.remove();
+      pop = null;
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', key);
+    }
+    const outside = (e) => { if (!host.contains(e.target)) close(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    // a time as a datetime-local input writes it, and back
+    const two = (n) => String(n).padStart(2, '0');
+    const local = (t) => { const d = at(t); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`; };
+    const parse = (v) => Math.round((new Date(v) - MIDNIGHT) / 60000);
+    function toggle() {
+      if (pop) return close();
+      const [from, to] = spanOf(win);
+      const field = (t) => h('input', { type: 'datetime-local', min: local(START), max: local(now()), value: local(Math.min(t, now())) });
+      const fromIn = field(from), toIn = field(to);
+      const error = h('div', { class: 'range-error', role: 'alert', hidden: true });
+      pop = h('form', { class: 'range-pop', 'aria-label': 'Choose a date range' },
+        h('label', {}, h('span', { text: 'From' }), fromIn), h('label', {}, h('span', { text: 'To' }), toIn), error,
+        h('div', { class: 'range-actions' },
+          h('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: close }), h('button', { type: 'submit', class: 'btn btn-primary', text: 'Apply' })));
+      pop.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const a = Math.max(START, parse(fromIn.value)), b = Math.min(now(), parse(toIn.value));
+        const bad = !fromIn.value || !toIn.value ? 'Pick both a start and an end.' : b - a < 10 ? 'Pick a range of at least 10 minutes.' : null;
+        if (bad) { error.textContent = bad; error.hidden = false; return; }
+        set({ count: b - a, end: b >= now() - 1 ? null : b, preset: PRESETS.find((p) => p.count === b - a)?.v ?? 'custom' });
+      });
+      host.append(pop);
+      fromIn.focus();
+      document.addEventListener('pointerdown', outside, true);
+      document.addEventListener('keydown', key);
+    }
+    sync();
+    // the clock moves: what the arrows can do is checked again as it does
+    setInterval(sync, 60000);
+  }
 
-  /* ---------------- a player's page ---------------- */
+  // Who was on, minute by minute; over ranges longer than six hours, with the hour's average as a
+  // second line; over ranges longer than eight days, each hour's average and peak (app.js, loadTimeline).
+  function drawTimeline() {
+    const [from, to] = spanOf(win);
+    $('w-label').textContent = windowLabel(win);
+    const c1 = 'var(--series-1)', c2 = 'var(--series-2)', c3 = 'var(--series-3)';
+    const key = (color, text) => h('span', {}, h('span', { class: 'key', style: `background:${color}` }), text);
+    const lo = Math.max(START, from - 30), hi = Math.min(now() + 1, to + 31); // a little past each edge, for the average
+    const each = counts(lo, hi);
+    let opts;
+    if (to - from <= 8 * DAY) {
+      const pts = each.map((v, i) => ({ t: lo + i, v }));
+      const series = [{ name: 'online', cls: '1', color: c1, area: true, pts }];
+      const trend = to - from > 361;
+      if (trend) {
+        // the average over the hour around each minute
+        const avg = [];
+        let a = 0, b = 0, sum = 0;
+        for (const p of pts) {
+          while (b < pts.length && pts[b].t <= p.t + 30) sum += pts[b++].v;
+          while (pts[a].t < p.t - 30) sum -= pts[a++].v;
+          avg.push({ t: p.t, v: sum / (b - a) });
+        }
+        series.push({ name: 'avg (1 hour)', cls: '2', color: c2, pts: avg });
+      }
+      opts = {
+        from, to, step: 1, series, whoAt: (t) => whoAt(t),
+        fmtValue: (v) => (Number.isInteger(v) ? `${v} ${v === 1 ? 'player' : 'players'}` : v.toFixed(1)),
+        fmtTime: (t) => fmt(t, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+      };
+      $('w-legend').replaceChildren(...(trend ? [key(c1, 'Players online'), key(c2, 'Average online (1 hour)')] : []));
+    } else {
+      const avg = [], peak = [];
+      for (let t = Math.ceil(lo / 60) * 60; t < hi; t += 60) {
+        const hour = each.slice(t - lo, t - lo + 60);
+        avg.push({ t, v: hour.reduce((x, y) => x + y, 0) / hour.length });
+        peak.push({ t, v: Math.max(...hour) });
+      }
+      opts = {
+        from, to, step: 60, whoAt: (t) => whoAt(t, 60),
+        series: [{ name: 'average', cls: '1', color: c1, area: true, pts: avg }, { name: 'peak', cls: '3', color: c3, pts: peak }],
+        fmtValue: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)),
+        fmtTime: (t) => `${fmt(t, { weekday: 'short', month: 'short', day: 'numeric' })}, ${hourName(hourOf(t))}`,
+      };
+      $('w-legend').replaceChildren(key(c1, 'Average online'), key(c3, 'Peak online'));
+    }
+    lineChart($('w-chart'), opts);
+  }
 
-  const KILLERS = ['Creeper', 'Skeleton', 'Zombie', 'falling', 'lava', 'Pebble_', 'Drowned'];
-  function statsOf(p) {
-    if (p.stats) return p.stats;
-    const r = rng(p.name);
-    const days = Array.from({ length: 30 }, (_, i) => {
-      const weekend = (i + 2) % 7 >= 5;
-      return r() < 0.25 ? 0 : Math.round((weekend ? 90 : 35) + r() * (weekend ? 200 : 110));
-    });
-    const total = days.reduce((a, b) => a + b, 0) + Math.round(r() * 900);
-    const sessions = Math.max(4, Math.round(total / (35 + r() * 30)));
-    const peak = 15 + Math.floor(r() * 7); // their usual hour
-    const usual = Array.from({ length: 24 }, (_, hr) => {
-      const d = Math.min(Math.abs(hr - peak), 24 - Math.abs(hr - peak));
-      return Math.max(0, Math.round((1 - d / 5) * 100 * (0.7 + r() * 0.3)));
-    });
-    const recent = [0, 1, 2].map((k) => {
-      const start = (peak - 2 + Math.floor(r() * 3)) * 60 + Math.floor(r() * 4) * 15;
-      const len = 25 + Math.round(r() * 150);
-      return { day: ['Today', 'Yesterday', 'Friday'][k], start, len };
-    });
-    days[29] = recent[0].len;
-    p.stats = {
-      days, total, sessions, usual, recent,
-      longest: Math.max(...recent.map((x) => x.len), 160 + Math.round(r() * 120)),
-      messages: Math.round(40 + r() * 300),
-      kills: Math.round(r() * 24), deaths: Math.round(2 + r() * 14),
-      killer: KILLERS[Math.floor(r() * KILLERS.length)],
-      seen: `today at ${clock(recent[0].start + recent[0].len)}`,
+  // The chart itself (app.js, drawLineChart), without the paging slide or pinch zoom.
+  // opts: { from, to, step, series: [{ name, cls, color, area, pts: [{ t, v }] }], fmtValue, fmtTime, whoAt(t) }
+  function lineChart(root, opts) {
+    const { from, to, step, series } = opts, pts0 = series[0].pts;
+    if (root.matches(':hover')) hideTip(); // its tooltip is about a point that's being redrawn
+    if (!pts0.some((p) => p.t >= from - step && p.t <= to + step)) {
+      root.replaceChildren(h('div', { class: 'empty-chart', text: 'No data in this range yet' }));
+      return;
+    }
+    const W = Math.max(280, root.clientWidth), H = root.clientHeight || 240;
+    const m = { l: 30, r: 10, t: 10, b: 24 };
+    const pw = W - m.l - m.r, ph = H - m.t - m.b;
+    // up to the most online in the range, in steps of 5, never less than 0-10 so the scale stays steady
+    let vmax = 0;
+    for (const s of series) for (const p of s.pts) if (p.v > vmax && p.t >= from - step && p.t <= to + step) vmax = p.v;
+    const ymax = Math.max(10, Math.ceil(vmax / 5) * 5);
+    const n2 = (v) => Math.round(v * 100) / 100;
+    const x = (t) => n2(m.l + ((t - from) / (to - from)) * pw), y = (v) => n2(m.t + ph - (v / ymax) * ph);
+    const text = (attrs, s) => { const t = sv('text', { class: 'axis-text', ...attrs }); t.textContent = s; return t; };
+    const svg = sv('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Players online over time' });
+
+    for (let v = 0; v <= ymax; v += 5) {
+      if (v > 0) svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'gridline' }));
+      svg.append(text({ x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }, v));
+    }
+    svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'baseline' }));
+
+    // x ticks: hours for short ranges, midnights for long ones; which get a label depends on the
+    // clock, not on where the range starts
+    const days = (to - from) / DAY;
+    const apart = days <= 0.6 ? 60 : days <= 1.5 ? 180 : DAY;
+    const every = Math.max(1, Math.ceil((to - from) / apart / Math.max(2, Math.floor(pw / 80))));
+    for (let t = Math.ceil(from / 60) * 60; t < to; t += 60) {
+      const hour = hourOf(t);
+      if (!(days <= 0.6 || (days <= 1.5 ? hour % 3 === 0 : hour === 0)) || Math.round(t / apart) % every) continue;
+      svg.append(text({ x: x(t), y: H - 6, 'text-anchor': 'middle' },
+        days <= 1.5 ? hourName(hour, false) : fmt(t, days <= 8 ? { weekday: 'short' } : { month: 'short', day: 'numeric' })));
+    }
+
+    // the lines, clipped to the plot (a little is drawn past each edge)
+    const plot = sv('g', { 'clip-path': 'url(#w-chart-clip)' });
+    svg.append(sv('clipPath', { id: 'w-chart-clip' }, sv('rect', { x: m.l, y: 0, width: pw, height: m.t + ph + 1 })), plot);
+    for (const s of series) {
+      let line = '', area = '', first = null, last = null;
+      const closeArea = () => { if (s.area && first) area += `L${x(last.t)},${y(0)}L${x(first.t)},${y(0)}Z`; };
+      for (const p of s.pts) {
+        const at2 = `${x(p.t)},${y(p.v)}`;
+        if (!last || p.t - last.t > step * 2.5) { // a gap in the data breaks the line
+          closeArea();
+          line += `M${at2}`;
+          if (s.area) area += `M${at2}`;
+          first = p;
+        } else {
+          line += `L${at2}`;
+          if (s.area) area += `L${at2}`;
+        }
+        last = p;
+      }
+      closeArea();
+      if (s.area) plot.append(sv('path', { d: area, class: `area-${s.cls}` }));
+      plot.append(sv('path', { d: line, class: `line-${s.cls}` }));
+    }
+
+    // crosshair and tooltip: the nearest point, each line's value there, the time, and who was on
+    const cross = sv('line', { y1: m.t, y2: m.t + ph, class: 'crosshair', visibility: 'hidden' });
+    const markers = series.map((s) => sv('circle', { r: 4, style: `fill:${s.color}`, class: 'marker', visibility: 'hidden' }));
+    const hit = sv('rect', { x: m.l, y: 0, width: pw, height: H, fill: 'transparent' });
+    svg.append(cross, ...markers, hit);
+    const move = (e) => {
+      const t = from + ((e.clientX - svg.getBoundingClientRect().left - m.l) / pw) * (to - from);
+      const i = Math.max(0, Math.min(pts0.length - 1, Math.round((t - pts0[0].t) / step)));
+      const p = pts0[i], px = x(p.t);
+      cross.setAttribute('x1', px);
+      cross.setAttribute('x2', px);
+      cross.setAttribute('visibility', 'visible');
+      series.forEach((s, k) => {
+        markers[k].setAttribute('cx', px);
+        markers[k].setAttribute('cy', y(s.pts[i].v));
+        markers[k].setAttribute('visibility', 'visible');
+      });
+      const rows = series.map((s) => ({ value: opts.fmtValue(s.pts[i].v), label: s.name, color: series.length > 1 ? s.color : null }));
+      rows.push({ label: opts.fmtTime(p.t) });
+      const who = opts.whoAt(p.t);
+      if (who.length) rows.push({ players: who });
+      showTip(e.clientX, e.clientY, rows);
     };
-    return p.stats;
+    const leave = () => {
+      cross.setAttribute('visibility', 'hidden');
+      for (const mk of markers) mk.setAttribute('visibility', 'hidden');
+      hideTip();
+    };
+    hit.addEventListener('pointermove', move);
+    hit.addEventListener('pointerdown', move);
+    hit.addEventListener('pointerleave', leave);
+    root.replaceChildren(svg);
   }
 
-  const profile = $('p-info');
-  let current = null;
-  function bars(values, { w, hgt, gap, label, now }) {
-    const max = Math.max(1, ...values);
-    const bw = (w - gap * (values.length - 1)) / values.length;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
-    svg.setAttribute('class', 'pc-graph home-bars');
-    svg.setAttribute('preserveAspectRatio', 'none');
-    values.forEach((v, i) => {
-      const bh = v ? Math.max(2, (v / max) * hgt) : 2;
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', i * (bw + gap));
-      rect.setAttribute('y', hgt - bh);
-      rect.setAttribute('width', bw);
-      rect.setAttribute('height', bh);
-      rect.setAttribute('class', `pc-bar${v ? '' : ' zero'}${i === now ? ' now' : ''}`);
-      const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      t.textContent = label(v, i);
-      rect.append(t);
-      svg.append(rect);
+  /* ---------------- a player's page (app.js: showPlayer and what it calls) ---------------- */
+
+  const FEATURED = ['Pebble_', 'oakleaf', 'kestrel', 'Brickhouse']; // late game, mid, late, early
+  let current = FEATURED[0];
+  let three = null, model = null;
+
+  // Little bars, one per hour, with the hour labels under them as text (app.js, hourBars).
+  // A full bar is fullAt minutes, or the biggest bar.
+  function hourBars(bars, labels, aria, H, fullAt = null) {
+    const W = 240, slot = W / bars.length, max = fullAt ?? Math.max(10, ...bars.map((b) => b.v));
+    const svg = sv('svg', { width: '100%', height: H, viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', class: 'pc-graph', role: 'img', 'aria-label': aria });
+    bars.forEach((b, i) => {
+      const bh = Math.max(b.v > 0.5 ? 2 : 1, (b.v / max) * H);
+      svg.append(sv('rect', { x: i * slot + 1, y: H - bh, width: slot - 2, height: bh, class: `pc-bar${b.now ? ' now' : ''}${b.v <= 0.5 ? ' zero' : ''}`, 'data-i': i }));
     });
-    return svg;
+    cellTips(svg, '.pc-bar', (bar) => bars[bar.dataset.i].tip);
+    return h('div', { class: 'pc-hours' }, svg, h('div', { class: 'pc-axis' }, ...labels.map(([f, s]) => h('span', { style: `left:${f * 100}%`, text: s }))));
   }
-  function renderProfile(name) {
-    const p = byName.get(name);
-    const s = statsOf(p);
-    const on = online.has(name);
-    profile.replaceChildren(
-      h('div', { class: 'player-head' },
-        head(p, 64, 'p-avatar'),
-        h('div', {},
-          h('div', { class: 'home-pname', text: p.name }),
-          h('div', { class: 'card-sub home-pstatus' }, on ? h('span', { class: 'pc-dot' }) : null, on ? 'Online now' : `Last seen ${s.seen}`))),
-      h('div', { class: 'tiles' },
-        tile('Total played', hours(s.total), 'this season'),
-        tile('Sessions', s.sessions, `${hours(s.total / s.sessions)} on average`),
-        tile('Longest session', hours(s.longest), 'one sitting'),
-        tile('Messages', s.messages, 'in chat')),
-      h('div', { class: 'home-pgrid' },
-        h('div', {},
-          h('div', { class: 'pc-section', text: 'Last 30 days' }),
-          bars(s.days, { w: 300, hgt: 64, gap: 2, now: 29, label: (v, i) => `${i === 29 ? 'Today' : `${29 - i} days ago`}: ${v ? hours(v) : 'not on'}` })),
-        h('div', {},
-          h('div', { class: 'pc-section' }, 'Usually on ', h('span', { class: 'muted', text: `around ${clock(s.usual.indexOf(Math.max(...s.usual)) * 60)}` })),
-          h('div', { class: 'pc-hours' },
-            bars(s.usual, { w: 300, hgt: 46, gap: 2, label: (v, i) => `${clock(i * 60)}: ${v ? 'often' : 'rarely'}` }),
-            h('div', { class: 'pc-axis' }, ...['00', '06', '12', '18'].map((t, i) => h('span', { style: `left:${i * 25}%`, text: t }))))),
-        h('div', { class: 'home-prow' },
-          h('div', { class: 'pc-section', text: 'Recent sessions' }),
-          h('table', {}, h('tbody', {}, ...s.recent.map((x) => h('tr', {},
-            h('td', { text: x.day }), h('td', { class: 'muted', text: `${clock(x.start)} to ${clock(x.start + x.len)}` }), h('td', { class: 'num', text: hours(x.len) })))))),
-        h('div', { class: 'home-prow' },
-          h('div', { class: 'pc-section', text: 'Fights' }),
-          h('div', { class: 'pc-stats home-pfights' },
-            stat(s.kills, 'kills'), stat(s.deaths, 'deaths'), stat(s.killer, 'killed them most')))));
+  // Hour by weekday, like a week calendar: days across, hours running down (app.js, renderWeekGrid).
+  // grid[dow][hour] = number; describe(value, label) -> tooltip rows
+  function weekGrid(root, grid, describe) {
+    const max = Math.max(0, ...grid.flat());
+    const level = (v) => (v <= 0 || max <= 0 ? 0 : Math.min(4, Math.ceil((v / max) * 4)));
+    const g = h('div', { class: 'weekgrid', role: 'img', 'aria-label': 'Activity by weekday and hour' }, h('span'), DOWS.map((d) => h('span', { class: 'dlabel', text: d })));
+    for (let hr = 0; hr < 24; hr++) {
+      g.append(h('span', { class: 'hlabel', text: hr % 3 ? '' : hourName(hr, true) }));
+      for (let d = 0; d < 7; d++) g.append(h('span', { class: `wcell lv${level(grid[d][hr])}`, 'data-d': d, 'data-h': hr }));
+    }
+    const scale = h('div', { class: 'scale' }, h('span', { class: 'lbl', text: 'Less' }), [0, 1, 2, 3, 4].map((i) => h('span', { class: `sw lv${i}` })), h('span', { class: 'lbl', text: 'More' }));
+    root.replaceChildren(g, scale);
+    // the tooltips are attached once, and read whatever was drawn last
+    const first = !root.week;
+    root.week = { grid, describe };
+    if (!first) return;
+    cellTips(root, '.wcell', (c) => {
+      const d = Number(c.dataset.d), hr = Number(c.dataset.h);
+      return root.week.describe(root.week.grid[d][hr], `${DOWS[d]} ${hourName(hr)}–${hourName((hr + 1) % 24)}`);
+    });
   }
-  const tile = (label, value, sub) => h('div', { class: 'tile' },
-    h('div', { class: 'tile-label', text: label }), h('div', { class: 'tile-value', text: String(value) }), h('div', { class: 'tile-sub', text: sub }));
-  const stat = (v, label) => h('div', { class: 'pc-stat' }, h('div', { class: 'pc-value', text: String(v) }), h('div', { class: 'pc-label', text: label }));
+  // minutes online in each hour of each weekday
+  function weekOf(players) {
+    const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+    for (const p of players) {
+      for (const [a, b] of sessionsOf(p)) eachHourChunk(a, b ?? now(), (t, mins) => { grid[dowOf(t)][hourOf(t)] += mins; });
+    }
+    return grid;
+  }
 
+  const chatsOf = (p) => { // messages they've sent: before today (made up), and in today's log
+    p.chatBase ??= Math.round(40 + rng(`${p.name}:chat`)() * 500);
+    const sent = LOG.filter((m) => m.kind === 'chat' && m.name === p.name).length;
+    return { total: p.chatBase + sent, today: sent };
+  };
+
+  function renderProfile() {
+    const p = byName.get(current), sessions = sessionsOf(p), t = now();
+    const on = online.has(p.name), last = sessions.at(-1), first = sessions[0][0];
+    $('p-head').replaceWith(Object.assign(head(p, 64, 'p-avatar'), { id: 'p-head' }));
+    $('p-name').textContent = p.name;
+    $('p-status').replaceChildren(...(on ? [h('span', { class: 'badge', text: 'Online' }), `since ${clock(last[0])}`] : [`Last seen ${ago(last[1])}`]),
+      ` · first seen ${fmt(first, { month: 'short', day: 'numeric', year: 'numeric' })}`);
+
+    let total = 0, longest = [0, 0];
+    for (const [a, b] of sessions) {
+      const len = (b ?? t) - a;
+      total += len;
+      if (len > longest[0]) longest = [len, a];
+    }
+    $('p-total').textContent = dur(total);
+    $('p-total-sub').textContent = `${dur(playedBetween(p, t - 7 * DAY, t))} in the last 7 days`;
+    $('p-sessions').textContent = sessions.length;
+    $('p-avg').textContent = `avg ${dur(total / sessions.length)}`;
+    $('p-longest').textContent = dur(longest[0]);
+    $('p-longest-sub').textContent = fmt(longest[1], { month: 'short', day: 'numeric', year: 'numeric' });
+    renderChatTile();
+    renderCombat();
+  }
+  // Chat messages sent, all time or today (app.js, renderPlayerChatTile)
+  function renderChatTile() {
+    const c = chatsOf(byName.get(current));
+    $('p-chat').textContent = ($('p-chat-mode').value === 'today' ? c.today : c.total).toLocaleString();
+    const from = START + 16 * 60; // the chat mod went in on the first afternoon
+    $('p-chat-sub').textContent = `data starts ${fmt(from, { month: 'numeric', day: 'numeric' })} ${fmt(from, { hour: 'numeric' }).replace(/\s/g, '').toLowerCase()}`;
+  }
+  $('p-chat-mode').addEventListener('change', renderChatTile);
+
+  // Their kills and deaths, where that puts them among everyone, and who and what is behind them
+  // (app.js, renderPlayerCombat; the list of their latest ones is left out here).
+  function renderCombat() {
+    const everyone = fighters().filter((f) => f.kills + f.deaths > 0), me = everyone.find((f) => f.name === current);
+    const rank = (k) => (!me[k] || everyone.length < 2 ? '' : `#${1 + everyone.filter((f) => f[k] > me[k]).length} of ${everyone.length}`);
+    const stat = (label, value, sub, cls = '') => h('div', { class: `pcb-stat ${cls}` },
+      h('div', { class: 'pcb-label', text: label }), h('div', { class: 'pcb-value', text: value }), h('div', { class: 'pcb-sub', text: sub }));
+    const tally = (list, keyOf) => {
+      const n = new Map();
+      for (const d of list) n.set(keyOf(d), (n.get(keyOf(d)) || 0) + 1);
+      return [...n].sort((a, b) => b[1] - a[1]);
+    };
+    const person = ([who, n]) => h('li', {},
+      h('a', { class: 'pcb-who', href: '#players', 'data-card': who }, head(byName.get(who), 16), h('span', { text: who })), h('span', { class: 'pcb-n', text: `×${n}` }));
+    const thing = ([what, n]) => h('li', {}, h('span', { class: 'pcb-who', text: what }), h('span', { class: 'pcb-n', text: `×${n}` }));
+    const list = (heading, items, render, none) => h('div', { class: 'pcb-list' }, h('h3', { text: heading }),
+      items.length ? h('ul', { class: 'pcb-scroll', tabindex: '0' }, items.map(render)) : h('div', { class: 'muted pcb-none', text: none }));
+    const mine = DEATHS.filter((d) => d.who === current);
+    $('p-combat').replaceChildren(
+      h('div', { class: 'pcb-stats' },
+        stat('Kills', me.kills, rank('kills'), 'kills'),
+        stat('Deaths', me.deaths, me.deaths ? `${me.pvpDeaths} PvP · ${me.deaths - me.pvpDeaths} other` : '', 'deaths'),
+        stat('K/D', fmtKd(me), rank('kd'))),
+      h('div', { class: 'pcb-lists' },
+        list('Killed most', tally(DEATHS.filter((d) => d.by === current), (d) => d.who), person, 'No kills yet'),
+        list('Killed by most', tally(mine.filter((d) => d.by), (d) => d.by), person, 'Never killed by a player'),
+        list('Other deaths', tally(mine.filter((d) => !d.by), (d) => d.cause), thing, 'None')));
+  }
+
+  // Under the model: the weapon in their hand as the game styles it (hover for its tooltip), with a
+  // list of everything else they carry next to it, and when it was reported (app.js, renderModelNote).
+  function renderModelNote() {
+    const p = byName.get(current), all = gearOf(p).carry, held = heldOf(p);
+    closeGearMenu();
+    const toggle = h('button', {
+      type: 'button', class: 'p-gear-toggle', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+      title: `All ${all.length} weapons and tools they carry`, 'aria-label': `All ${all.length} weapons and tools they carry`,
+      onclick: (e) => { e.stopPropagation(); if (gearMenu.hidden) openGearMenu(toggle, p); else closeGearMenu(); },
+    }, h('span', { class: 'p-gear-count', text: all.length }), icon(['M4 6l4 4 4-4'], 12));
+    const on = online.has(p.name);
+    $('p-model-note').replaceChildren(
+      h('div', { class: 'p-model-held' }, itemTip(h('span', { class: 'msg-item p-weapon' }, mc(itemColor(held), itemName(held))), held), toggle),
+      h('div', { class: 'muted p-model-when', text: `Gear updated ${on ? 'just now' : ago(sessionsOf(p).at(-1)[1])}` }));
+  }
+  // The list of everything they carry, each in its game colors (hover for its tooltip); picking one
+  // puts it in the model's hand (app.js, openGearMenu).
+  const gearMenu = h('div', { class: 'gear-menu', role: 'menu', hidden: true });
+  document.body.append(gearMenu);
+  function closeGearMenu() {
+    if (gearMenu.hidden) return;
+    gearMenu.hidden = true;
+    document.querySelector('.p-gear-toggle[aria-expanded="true"]')?.setAttribute('aria-expanded', 'false');
+    hideTip();
+  }
+  function openGearMenu(toggle, p) {
+    const held = heldOf(p);
+    gearMenu.replaceChildren(h('div', { class: 'gear-menu-head', text: 'Weapons and tools they carry' }), ...gearOf(p).carry.map((it, i) => {
+      const on = it === held;
+      const row = h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(on), class: `gear-row${on ? ' picked' : ''}` },
+        h('span', { class: 'gear-check' }, on ? icon(['M3.5 8.5l3 3 6-7'], 12) : null),
+        h('span', { class: 'gear-name msg-item' }, mc(itemColor(it), itemName(it))),
+        h('span', { class: 'gear-sub muted', text: [it.name ? title(it.id) : '', i === 0 ? 'best' : ''].filter(Boolean).join(' · ') }));
+      // its tooltip beside the list
+      const show = () => { const r = row.getBoundingClientRect(); showTip(r.right + 4, r.top + 12, [{ node: itemTipNode(tipLines(it)) }]); };
+      row.addEventListener('pointerenter', show);
+      row.addEventListener('focus', () => { if (row.matches(':focus-visible')) show(); else hideTip(); });
+      row.addEventListener('pointerleave', hideTip);
+      row.addEventListener('click', () => {
+        picked.set(p.name, it);
+        closeGearMenu();
+        renderModelNote();
+        model?.setMainhand(it);
+        $('p-model-note').querySelector('.p-gear-toggle')?.focus({ preventScroll: true });
+      });
+      return row;
+    }));
+    gearMenu.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    const r = toggle.getBoundingClientRect(), { width, height } = gearMenu.getBoundingClientRect();
+    gearMenu.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - width / 2, innerWidth - width - 8))}px`;
+    gearMenu.style.top = `${r.bottom + 6 + height > innerHeight - 8 ? Math.max(8, r.top - height - 6) : r.bottom + 6}px`;
+    (gearMenu.querySelector('.gear-row.picked') || gearMenu.querySelector('.gear-row'))?.focus({ preventScroll: true });
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (!gearMenu.hidden && !gearMenu.contains(e.target) && !e.target.closest('.p-gear-toggle')) closeGearMenu();
+  });
+  gearMenu.addEventListener('keydown', (e) => {
+    const rows = [...gearMenu.querySelectorAll('.gear-row')], i = rows.indexOf(document.activeElement);
+    if (e.key === 'Escape') { closeGearMenu(); $('p-model-note').querySelector('.p-gear-toggle')?.focus(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      rows[(i + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length]?.focus();
+    }
+  });
+  addEventListener('scroll', closeGearMenu, { passive: true });
+  addEventListener('resize', closeGearMenu);
+
+  // a badge per player with a page: the featured four, then everyone who joins while the page is open
   const pick = $('p-pick');
-  const FEATURED = ['oakleaf', 'Pebble_', 'kestrel', 'Brickhouse'];
-  // a chip per player with a page: the featured four, then everyone who joins while the page is open
   function addPick(n) {
     if (pick.querySelector(`[data-name="${CSS.escape(n)}"]`)) return;
     const p = byName.get(n);
     pick.append(h('button', { type: 'button', class: 'chip', 'aria-pressed': String(n === current), 'data-name': n, onclick: () => showPlayer(n, false) }, head(p, 24), n));
-    setTimeout(() => { if (three) three.warm(specOf(p, gearOf(p))); }); // its model is ready before it's picked
+    setTimeout(() => { if (three) three.warm(specOf(p)); }); // its model is ready before it's picked
   }
   for (const n of FEATURED) addPick(n);
   function showPlayer(name, scroll = true) {
     current = name;
-    renderProfile(name);
-    showGear(name);
+    addPick(name);
+    renderProfile();
+    renderModelNote();
+    model?.show(specOf(byName.get(name)));
     for (const b of pick.children) b.setAttribute('aria-pressed', String(b.dataset.name === name));
+    const page = $('p-page');
     if (!reduced()) {
-      profile.classList.remove('home-swap');
-      void profile.offsetWidth;
-      profile.classList.add('home-swap');
+      page.classList.remove('home-swap');
+      void page.offsetWidth;
+      page.classList.add('home-swap');
     }
-    if (scroll) document.getElementById('players').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
-  }
-  current = 'oakleaf';
-  renderProfile(current);
-  pick.firstChild.setAttribute('aria-pressed', 'true');
-
-  /* ---------------- their model and gear (public/home3d.js, loaded as soon as the page is idle) ---------------- */
-
-  let three = null;
-  let model = null;
-  // the salt picks rolls where the four example players between them show off swords, a spear, a mace and a shield
-  const gearOf = (p) => (p.gear ??= three.rollGear(`${p.name}:18`));
-  const article = (n) => (/(Leaves|Shears)$/.test(n) ? 'some' : /^[AEIOU]/.test(n) ? 'an' : 'a');
-  function showGear(name) {
-    if (!three) return;
-    const p = byName.get(name);
-    const g = gearOf(p);
-    model?.show(specOf(p, g));
-    const main = g.mainhand?.name;
-    const off = g.offhand?.name;
-    $('p-held').textContent = main ? `Holding ${article(main)} ${main}${off ? ` and ${article(off)} ${off}` : ''}` : 'Empty-handed';
+    if (scroll) $('players').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
   }
 
-  // The game's item tooltip over whatever piece of gear the pointer is on (tap on touch screens).
-  const roman = (n) => ['', 'I', 'II', 'III', 'IV', 'V'][n] ?? String(n);
-  const tip = h('div', { class: 'home-mctip', role: 'tooltip', hidden: true });
-  document.body.append(tip);
-  let tipSlot = null;
-  function showTip(x, y) {
-    const slot = model?.pick(x, y);
-    const g = current && three ? gearOf(byName.get(current)) : null;
-    const item = slot && g ? (g.armor[slot] ?? g[slot]) : null;
-    if (!item) { tip.hidden = true; tipSlot = null; return; }
-    if (tipSlot !== `${current}:${slot}`) {
-      tipSlot = `${current}:${slot}`;
-      tip.replaceChildren(...[ // the DOM writes a null child as the word "null", so the missing lines are dropped
-        h('b', { class: `r-${item.rarity ?? 'common'}`, text: item.name }),
-        ...(item.enchants ?? []).map(([n, lv]) => h('span', { text: lv > 1 || !['Mending', 'Aqua Affinity', 'Silk Touch'].includes(n) ? `${n} ${roman(lv)}` : n })),
-        item.trim ? h('span', { class: 'mctip-trim' }, 'Upgrade:', h('i', { text: `${title(item.trim.pattern)} Armor Trim` }), h('i', { text: `${title(item.trim.palette.replace('_darker', ''))} Material` })) : null,
-      ].filter(Boolean));
-    }
-    tip.hidden = false;
-    // beside the pointer, as in the game, kept on screen
-    const w = tip.offsetWidth, ht = tip.offsetHeight;
-    const left = x + 14 + w > innerWidth - 8 ? x - 14 - w : x + 14;
-    tip.style.left = `${Math.max(8, left)}px`;
-    tip.style.top = `${Math.max(8, Math.min(innerHeight - ht - 8, y - 20))}px`;
-  }
-  const title = (s) => s.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
-  $('p-model').addEventListener('pointermove', (e) => { if (e.buttons) tip.hidden = true; else if (e.pointerType === 'mouse') showTip(e.clientX, e.clientY); });
-  $('p-model').addEventListener('pointerleave', () => { tip.hidden = true; });
-  $('p-model').addEventListener('click', (e) => { if (e.pointerType !== 'mouse') showTip(e.clientX, e.clientY); });
-  addEventListener('scroll', () => { tip.hidden = true; }, { passive: true });
-
+  /* their model (public/home3d.js, loaded as soon as the page is idle) */
   let loading = null;
   const load3d = () => (loading ??= import('/home3d.js').then((m) => { three = m; return m; }));
   const near = (el, fn) => {
@@ -325,55 +890,60 @@
   // Fetch the 3D code and every texture the first models need while the reader is still up top, so the
   // models are drawn the moment they come near (the WebGL scenes themselves still wait until then).
   (window.requestIdleCallback ?? ((f) => setTimeout(f, 200)))(() => {
-    load3d().then((m) => {
-      for (const p of byName.values()) m.warm(specOf(p, gearOf(p)));
-    }).catch(() => {});
+    load3d().then((m) => { for (const p of PLAYERS) m.warm(specOf(p)); }).catch(() => {});
   });
   near($('profile'), async () => {
     try {
       const m = await load3d();
       model = m.mountPlayer($('p-model'));
-      $('p-model').classList.remove('loading');
-      showGear(current);
+      await model.show(specOf(byName.get(current)));
     } catch {
-      $('p-model').classList.remove('loading');
-      $('p-held').textContent = 'This browser can’t show the 3D model.';
+      $('p-model-card').hidden = true; // no WebGL, or the library couldn't load: the page does without it
     }
+    $('p-model').classList.remove('loading');
   });
 
-  /* ---------------- the chat log ---------------- */
+  /* ---------------- the chat log (app.js: renderChat, msgGroup, sysRow) ---------------- */
 
-  // kind: chat | join | leave | death | advancement. t: minutes into today.
+  // [minutes into today, who, kind, text, and for a death who or what did it]
+  // kind: chat | join | leave | death | advancement
   const LOG = [
-    [17 * 60 + 2, 'kestrel', 'join', 'joined the game'],
-    [17 * 60 + 4, 'Pebble_', 'chat', 'meet at spawn for the raid'],
-    [17 * 60 + 5, 'Pebble_', 'chat', 'bring arrows pls'],
-    [17 * 60 + 5, 'minty', 'chat', 'omw'],
-    [17 * 60 + 9, 'kestrel', 'advancement', 'has made the advancement [Voluntary Exile]'],
-    [17 * 60 + 14, 'minty', 'death', 'was shot by Pillager'],
-    [17 * 60 + 14, 'minty', 'chat', 'NOT the crossbow guys again'],
-    [17 * 60 + 18, 'Pebble_', 'advancement', 'has completed the challenge [Hero of the Village]'],
-    [17 * 60 + 19, 'kestrel', 'chat', 'gg!! free emeralds'],
-    [17 * 60 + 31, 'oakleaf', 'death', 'tried to swim in lava'],
-    [17 * 60 + 32, 'dandelion', 'chat', 'rip oak'],
-    [17 * 60 + 32, 'oakleaf', 'chat', 'my whole inventory 😭'],
-    [17 * 60 + 40, 'oakleaf', 'advancement', 'has made the advancement [Hot Stuff]'],
-    [17 * 60 + 41, 'oakleaf', 'chat', 'thanks game very helpful'],
-    [18 * 60 + 5, 'dandelion', 'advancement', 'has made the advancement [Diamonds!]'],
-    [18 * 60 + 6, 'dandelion', 'chat', 'found a vein of 7 at y -58'],
-    [18 * 60 + 6, 'Pebble_', 'chat', 'coords?? 👀'],
-    [18 * 60 + 7, 'dandelion', 'chat', 'nope'],
-    [18 * 60 + 52, 'kestrel', 'death', 'was blown up by Creeper'],
-    [19 * 60 + 40, 'kestrel', 'death', 'was slain by Pebble_ using [Diamond Sword]'],
-    [19 * 60 + 41, 'kestrel', 'chat', 'that was an accident right'],
-    [19 * 60 + 41, 'Pebble_', 'chat', 'absolutely'],
-    [19 * 60 + 47, 'Pebble_', 'death', 'was slain by kestrel using [Mace]'],
-    [19 * 60 + 47, 'kestrel', 'chat', 'also an accident'],
-    [20 * 60 + 12, 'Saltwater', 'join', 'joined the game'],
-    [20 * 60 + 18, 'minty', 'advancement', 'has made the advancement [We Need to Go Deeper]'],
-    [20 * 60 + 19, 'Saltwater', 'chat', 'portal is next to the big oak btw'],
-    [20 * 60 + 24, 'Saltwater', 'death', 'fell from a high place'],
-  ].map(([t, name, kind, text]) => ({ t, name, kind, text }));
+    [1022, 'kestrel', 'join', 'joined the game'],
+    [1024, 'Pebble_', 'chat', 'meet at spawn for the raid'],
+    [1025, 'Pebble_', 'chat', 'bring arrows pls'],
+    [1025, 'minty', 'chat', 'omw'],
+    [1029, 'kestrel', 'advancement', 'has made the advancement [Voluntary Exile]'],
+    [1030, 'oakleaf', 'join', 'joined the game'],
+    [1034, 'minty', 'death', 'was shot by Pillager', 'Pillager'],
+    [1034, 'minty', 'chat', 'NOT the crossbow guys again'],
+    [1038, 'Pebble_', 'advancement', 'has completed the challenge [Hero of the Village]'],
+    [1039, 'kestrel', 'chat', 'gg!! free emeralds'],
+    [1040, 'dandelion', 'join', 'joined the game'],
+    [1051, 'oakleaf', 'death', 'tried to swim in lava', 'Lava'],
+    [1052, 'dandelion', 'chat', 'rip oak'],
+    [1052, 'oakleaf', 'chat', 'my whole inventory 😭'],
+    [1052, 'Quartzy', 'leave', 'left the game'],
+    [1060, 'oakleaf', 'advancement', 'has made the advancement [Hot Stuff]'],
+    [1061, 'oakleaf', 'chat', 'thanks game very helpful'],
+    [1078, 'oakleaf', 'leave', 'left the game'],
+    [1085, 'dandelion', 'advancement', 'has made the advancement [Diamonds!]'],
+    [1086, 'dandelion', 'chat', 'found a vein of 7 at y -58'],
+    [1086, 'Pebble_', 'chat', 'coords?? 👀'],
+    [1087, 'dandelion', 'chat', 'nope'],
+    [1114, 'dandelion', 'leave', 'left the game'],
+    [1132, 'kestrel', 'death', 'was blown up by Creeper', 'Creeper'],
+    [1180, 'kestrel', 'death', 'was slain by Pebble_ using [Excalibur]', 'Pebble_'],
+    [1181, 'kestrel', 'chat', 'that was an accident right'],
+    [1181, 'Pebble_', 'chat', 'absolutely'],
+    [1187, 'Pebble_', 'death', 'was smashed by kestrel with [Bonk]', 'kestrel'],
+    [1187, 'kestrel', 'chat', 'also an accident'],
+    [1212, 'Saltwater', 'join', 'joined the game'],
+    [1218, 'minty', 'advancement', 'has made the advancement [We Need to Go Deeper]'],
+    [1219, 'Saltwater', 'chat', 'portal is next to the big oak btw'],
+    [1224, 'Saltwater', 'death', 'fell from a high place', 'Fall'],
+  ].map(([t, name, kind, text, cause]) => ({ t, name, kind, text, cause }));
+  const died = (m) => DEATHS.push(byName.has(m.cause) ? { who: m.name, by: m.cause } : { who: m.name, cause: m.cause });
+  LOG.filter((m) => m.kind === 'death').forEach(died);
 
   const SYS = {
     join: ['M7 4.5 10.5 8 7 11.5', 'M2.5 8h8', 'M9.5 2.5h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-3'],
@@ -381,106 +951,75 @@
     death: ['M3 7.2a5 5 0 0 1 10 0v2.3l-1.5 1v2.5h-7v-2.5L3 9.5z', 'M6.2 7.8h.01', 'M9.8 7.8h.01', 'M7 13v-1.5M9 13v-1.5'],
     advancement: ['M8 2.2l1.75 3.6 3.95.55-2.87 2.78.69 3.92L8 11.2l-3.52 1.85.69-3.92L2.3 6.35l3.95-.55z'],
   };
-  function icon(paths) {
-    const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    for (const [k, v] of Object.entries({ width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': 'true', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) s.setAttribute(k, v);
-    for (const d of paths) {
-      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p.setAttribute('d', d);
-      s.append(p);
-    }
-    return s;
-  }
-  const nameLink = (name) => {
-    if (!byName.has(name)) return h('span', { class: 'msg-name', text: name });
-    return h('a', { class: 'msg-name', href: '#players', onclick: () => showPlayer(name), text: name });
-  };
+  // a name opens that player's card
+  const nameLink = (name) => (byName.has(name)
+    ? h('a', { class: 'msg-name', href: '#players', 'data-card': name, text: name })
+    : h('span', { class: 'msg-name', text: name }));
 
-  // the chat log's tooltips (items and advancements), drawn as on a server's own chat log
-  const ctip = h('div', { class: 'tooltip', role: 'tooltip', hidden: true });
-  document.body.append(ctip);
-  function chatTip(node, make, kind) {
-    const show = (x, y) => {
-      ctip.replaceChildren(make());
-      ctip.classList.toggle('tip-item', kind === 'item');
-      ctip.classList.toggle('tip-adv', kind === 'adv');
-      ctip.hidden = false;
-      const w = ctip.offsetWidth, ht = ctip.offsetHeight;
-      let left = x + 14, top = y - ht - 10;
-      if (left + w > innerWidth - 8) left = x - w - 14;
-      if (top < 8) top = y + 18;
-      ctip.style.left = `${Math.max(8, left)}px`;
-      ctip.style.top = `${top}px`;
-    };
-    node.addEventListener('pointerenter', (e) => show(e.clientX, e.clientY));
-    node.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
-    node.addEventListener('pointerleave', () => { ctip.hidden = true; });
-    node.addEventListener('focus', () => { const r = node.getBoundingClientRect(); show(r.left, r.top); });
-    node.addEventListener('blur', () => { ctip.hidden = true; });
+  const log = $('c-log'), list = $('c-list');
+  // the log moving under the pointer leaves a tooltip pointing at nothing
+  log.addEventListener('scroll', () => { if (log.matches(':hover')) hideTip(); }, { passive: true });
+  // A run of messages from one player: head and name once, then their lines.
+  function msgGroup(m) {
+    const p = byName.get(m.name);
+    return h('div', { class: 'msg-group' },
+      p ? h('a', { class: 'msg-lead', href: '#players', tabindex: '-1', 'aria-hidden': 'true', 'data-card': m.name }, head(p, 24, 'chat-head'))
+        : h('span', { class: 'msg-lead' }, h('span', { class: 'logo chat-logo', style: 'width:24px;height:24px' })),
+      h('div', { class: 'msg-body' }, h('div', { class: 'msg-meta' },
+        m.you ? h('span', { class: 'msg-name msg-admin', text: 'You' }) : nameLink(m.name),
+        m.you ? h('span', { class: 'msg-tag', text: 'web', title: 'Sent from this dashboard' }) : null,
+        h('time', { class: 'msg-time', text: clock(m.t) }))));
   }
-  $('c-log').addEventListener('scroll', () => { ctip.hidden = true; }, { passive: true });
-
-  const log = $('c-log');
-  let filter = 'all';
-  let clockNow = NOW;
-  function row(m, prev) {
-    if (m.kind === 'chat') {
-      const line = h('div', { class: 'msg-line' }, h('time', { class: 'msg-gutter', 'aria-hidden': 'true', text: clock(m.t) }), m.text);
-      if (prev && prev.kind === 'chat' && prev.name === m.name && m.t - prev.t < 5) return [line];
-      const p = byName.get(m.name);
-      return [h('div', { class: 'msg-group' },
-        h('span', { class: 'msg-lead' }, p ? head(p, 24, 'chat-head') : h('span', { class: 'logo chat-logo', style: 'width:24px;height:24px' })),
-        h('div', { class: 'msg-body' },
-          h('div', { class: 'msg-meta' }, m.you ? h('span', { class: 'msg-admin', text: 'You' }) : nameLink(m.name),
-            m.you ? h('span', { class: 'msg-tag', text: 'web' }) : null,
-            h('time', { class: 'msg-time', text: clock(m.t) })),
-          line))];
-    }
+  const chatLine = (m) => h('div', { class: 'msg-line' }, h('time', { class: 'msg-gutter', 'aria-hidden': 'true', text: clock(m.t).replace(/\s?[AP]M$/, '') }), m.text);
+  // Joins, leaves, deaths and advancements: one line each. A [bracketed] name is the advancement, or
+  // the named weapon a kill was made with, in the game's colors; pointing at it shows its tooltip.
+  function sysRow(m) {
     const body = h('div', { class: 'sys-text' }, nameLink(m.name), ' ');
-    // a [bracketed] name: the advancement, or the item a kill was made with; pointing at it shows its tooltip
+    // every other player named in it is a link as well
+    const rest = (text) => text.split(new RegExp(`\\b(${PLAYERS.map((p) => p.name).join('|')})(?![\\w])`)).map((s) => (byName.has(s) ? nameLink(s) : s));
     const br = /^(.*?)\[(.+?)\](.*)$/.exec(m.text);
     if (br && m.kind === 'advancement') {
-      const a = ADV_BY_TITLE.get(br[2]) ?? { frame: /challenge/.test(br[1]) ? 'challenge' : /goal/.test(br[1]) ? 'goal' : 'task', title: br[2], desc: '' };
-      const span = h('span', { class: `msg-item has-tip home-adv${a.frame === 'challenge' ? ' home-adv-ch' : ''}`, tabindex: '0', text: `[${br[2]}]` });
-      chatTip(span, () => h('div', { class: `adv-tip done adv-${a.frame}` },
+      const a = ADV_BY_TITLE.get(br[2]) ?? { frame: 'task', title: br[2], desc: '' };
+      const span = hoverTip(h('span', { class: 'msg-item' }, mc(a.frame === 'challenge' ? '#aa00aa' : '#55ff55', `[${br[2]}]`)), () => [{ adv: true, node: h('div', { class: `adv-tip done adv-${a.frame}` },
         h('div', { class: 'adv-tip-title', text: a.title }),
         h('div', { class: 'adv-tip-body' },
           a.desc ? h('div', { class: 'adv-tip-desc', text: a.desc }) : null,
-          h('div', { class: 'adv-tip-when', text: `${a.frame === 'task' ? '' : `${a.frame === 'goal' ? 'Goal' : 'Challenge'} · `}Earned today at ${clock(m.t)}` }))), 'adv');
+          h('div', { class: 'adv-tip-when', text: `${a.frame === 'task' ? '' : `${a.frame === 'goal' ? 'Goal' : 'Challenge'} · `}Earned ${fmt(m.t, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` }))) }]);
       body.append(br[1], span, br[3]);
-    } else if (br && (m.item ??= itemLines(br[2]))) {
-      const lines = m.item;
-      const span = h('span', { class: 'msg-item has-tip', tabindex: '0', style: `color:${lines[0][0].c === '#ffffff' ? 'inherit' : lines[0][0].c}`, text: `[${br[2]}]` });
-      chatTip(span, () => h('div', { class: 'item-tip' }, ...lines.map((line, k) => h('div', { class: `it-line${k ? '' : ' it-name'}` },
-        ...(line.length ? line.map((p) => h('span', { style: `${p.c ? `color:${p.c};` : ''}${p.i ? 'font-style:italic' : ''}`, text: p.t })) : ['\u00a0'])))), 'item');
-      body.append(br[1], span, br[3]);
-    } else body.append(m.text);
-    return [h('div', { class: `msg-sys sys-${m.kind}` }, h('span', { class: 'msg-lead' }, icon(SYS[m.kind])), body, h('time', { class: 'msg-time', text: clock(m.t) }))];
+    } else if (br) {
+      const it = gearOf(byName.get(m.cause)).carry.find((c) => c.name === br[2]);
+      body.append(...rest(br[1]), itemTip(h('span', { class: 'msg-item' }, mc(itemColor(it), `[${br[2]}]`)), it), br[3]);
+    } else body.append(...rest(m.text));
+    return h('div', { class: `msg-sys sys-${m.kind}` }, h('span', { class: 'msg-lead' }, icon(SYS[m.kind], 14)), body, h('time', { class: 'msg-time', text: clock(m.t) }));
   }
-  function renderLog() {
-    const shown = LOG.filter((m) => filter === 'all' || m.kind === filter);
-    const out = [h('div', { class: 'chat-day', text: 'Today' })];
-    shown.forEach((m, i) => out.push(...row(m, shown[i - 1])));
-    if (!shown.length) out.push(h('div', { class: 'chat-empty', text: 'Nothing like that today.' }));
-    log.replaceChildren(...out);
-    log.scrollTop = log.scrollHeight;
+  // One more line at the end of the log: in the last group when it's the same player within five
+  // minutes, else a group or a line of its own.
+  let lastShown = null, group = null;
+  function put(m, fresh) {
+    let node;
+    if (m.kind === 'chat') {
+      const opens = !group || lastShown.kind !== 'chat' || lastShown.name !== m.name || m.t - lastShown.t > 5;
+      if (opens) list.append((group = msgGroup(m)));
+      node = group.lastChild.appendChild(chatLine(m));
+      if (fresh && opens) node = group;
+    } else {
+      group = null;
+      node = list.appendChild(sysRow(m));
+    }
+    if (fresh && !reduced()) node.classList.add('msg-new');
+    lastShown = m;
   }
   function add(m) {
     // follow new messages only when already at the bottom, so reading (or a tooltip) isn't pulled away
     const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-    m.t = clockNow = Math.max(clockNow, LOG.at(-1).t) + 1;
-    const prev = LOG.at(-1);
+    m.t = now();
     LOG.push(m);
-    if (filter !== 'all' && filter !== m.kind) return;
-    const nodes = row(m, filter === 'all' ? prev : null);
-    // a line that continues the last group goes inside it
-    const last = log.lastElementChild;
-    if (nodes[0].classList.contains('msg-line') && last?.classList.contains('msg-group')) last.querySelector('.msg-body').append(nodes[0]);
-    else log.append(...nodes);
-    if (!reduced()) nodes[0].classList.add('msg-new');
+    put(m, true);
+    if (m.kind === 'death') { died(m); renderFights(); }
+    if (m.name === current && (m.kind === 'death' || m.kind === 'chat')) { renderChatTile(); renderCombat(); }
+    else if (m.cause === current) renderCombat();
     if (atEnd || m.you) log.scrollTop = log.scrollHeight;
   }
-  function addSys(kind, name, text) { add({ kind, name, text }); }
 
   // The server keeps going while the page is open: whoever's online talks, fights, dies and earns
   // advancements every few seconds. Some chat is a short back-and-forth between two or three players.
@@ -521,20 +1060,14 @@
     [[0, 'just got killed by a baby zombie'], [1, 'classic'], [2, 'they are the worst']],
     [[0, 'anyone want to raid an ocean monument'], [1, 'what do we need'], [0, 'water breathing and prayers'], [1, 'im in']],
   ];
-  const MOB_DEATHS = [
-    'was blown up by Creeper', 'was slain by Zombie', 'was shot by Skeleton', 'drowned', 'fell from a high place',
-    'hit the ground too hard', 'was killed by Witch using magic', 'was slain by Enderman', 'burned to death',
-    'was obliterated by a sonically-charged shriek whilst trying to escape Warden', 'was pricked to death',
-    'was squashed by a falling anvil', 'was impaled by Drowned', 'tried to swim in lava', 'went off with a bang',
-    'was shot by Pillager', 'was slain by Piglin Brute', 'was fireballed by Ghast', 'was stung to death',
-    'fell out of the world', 'starved to death', 'suffocated in a wall', 'was frozen to death', 'was struck by lightning',
-    'experienced kinetic energy', 'was slain by Vindicator', 'was killed by Evoker using magic', 'was shot by Breeze',
-    'discovered the floor was lava', 'was poked to death by a sweet berry bush', 'fell off some vines', 'was slain by Hoglin',
-  ];
-  const PVP = ['was slain by {a} using [{w}]', 'was shot by {a} using [Bow]', 'was blown up by {a} using [Firework Rocket]',
-    'was knocked into the void by {a}', 'was doomed to fall by {a}', 'was slain by {a}', 'walked into fire while fighting {a}',
-    'drowned while trying to escape {a}', 'was impaled by {a} using [Trident]', 'was smashed by {a} using [Mace]'];
-  const WEAPONS = ['Diamond Sword', 'Netherite Sword', 'Mace', 'Iron Spear', 'Netherite Axe', 'Diamond Spear', 'Trident', 'Excalibur'];
+  // Killed by another player. The game names the weapon only when it has a name of its own.
+  const PVP = ['was slain by {a}', 'was slain by {a}', 'was shot by {a}', 'was knocked into the void by {a}', 'was doomed to fall by {a}',
+    'walked into fire while fighting {a}', 'drowned while trying to escape {a}'];
+  function killedBy(a) {
+    const it = gearOf(byName.get(a)).carry[0];
+    if (!it.name || Math.random() < 0.3) return any(PVP).replace('{a}', a);
+    return it.id === 'mace' ? `was smashed by ${a} with [${it.name}]` : `was slain by ${a} using [${it.name}]`;
+  }
   // [frame, title, what it's for]: the game's own advancements (frame: task, goal or challenge)
   const ADVANCEMENTS = [
     ['task', 'Stone Age', 'Mine Stone with your new Pickaxe'], ['task', 'Getting an Upgrade', 'Construct a better Pickaxe'],
@@ -564,88 +1097,58 @@
     ['challenge', 'Monsters Hunted', 'Kill one of every hostile monster'],
     ['challenge', 'Serious Dedication', 'Use a Netherite Ingot to upgrade a Hoe, and then reevaluate your life choices'],
   ];
-  const ADV_BY_TITLE = new Map(ADVANCEMENTS.map(([frame, title, desc]) => [title, { frame, title, desc }]));
+  const ADV_BY_TITLE = new Map(ADVANCEMENTS.map(([frame, name, desc]) => [name, { frame, title: name, desc }]));
   const ADV_WORDS = { task: 'has made the advancement', goal: 'has reached the goal', challenge: 'has completed the challenge' };
-  const advText = ([frame, title]) => `${ADV_WORDS[frame]} [${title}]`;
 
-  // The items named in deaths, with their tooltips as the game draws them: the name (aqua when
-  // enchanted, magenta for the epic mace, in italics when renamed), the enchantments in grey, then
-  // what it does in the main hand, in green. Each kill rolls its own enchantments.
-  const ITEMS = {
-    'Diamond Sword': { pool: ['Sharpness V', 'Sweeping Edge III', 'Looting III', 'Fire Aspect II', 'Knockback II', 'Unbreaking III', 'Mending'], hand: [7, 1.6] },
-    'Netherite Sword': { pool: ['Sharpness V', 'Sweeping Edge III', 'Looting III', 'Fire Aspect II', 'Unbreaking III', 'Mending'], hand: [8, 1.6] },
-    Excalibur: { base: 'Netherite Sword', renamed: true, pool: ['Sharpness V', 'Fire Aspect II', 'Looting III', 'Unbreaking III', 'Mending'], hand: [8, 1.6] },
-    'Netherite Axe': { pool: ['Sharpness V', 'Efficiency V', 'Unbreaking III', 'Mending'], hand: [10, 1] },
-    'Iron Spear': { pool: ['Sharpness V', 'Lunge III', 'Knockback II', 'Unbreaking III', 'Mending'] },
-    'Diamond Spear': { pool: ['Sharpness V', 'Lunge III', 'Knockback II', 'Unbreaking III', 'Mending'] },
-    Mace: { epic: true, pool: ['Density V', 'Breach IV', 'Wind Burst III', 'Fire Aspect II', 'Unbreaking III', 'Mending'], hand: [6, 0.6] },
-    Trident: { pool: ['Loyalty III', 'Impaling V', 'Channeling', 'Unbreaking III', 'Mending'], hand: [9, 1.1] },
-    Bow: { pool: ['Power V', 'Punch II', 'Flame', 'Infinity', 'Unbreaking III'] },
-    'Firework Rocket': { plain: true, extra: [[{ t: 'Flight Duration: 3', c: '#aaaaaa' }]] },
-  };
-  // Some enchantments can't go together; only the first of each group is kept.
-  const CLASH = [['Density V', 'Breach IV'], ['Loyalty III', 'Riptide III'], ['Infinity', 'Mending']];
-  function itemLines(name) {
-    const it = ITEMS[name];
-    if (!it) return null;
-    let ench = it.plain ? [] : it.pool.filter(() => Math.random() < 0.6);
-    if (!it.plain && !ench.length) ench = [it.pool[0]];
-    for (const group of CLASH) { const keep = ench.find((e) => group.includes(e)); ench = ench.filter((e) => !group.includes(e) || e === keep); }
-    const color = it.epic ? '#ff55ff' : ench.length ? '#55ffff' : '#ffffff';
-    const lines = [[{ t: name, c: color, i: it.renamed ? 1 : 0 }], ...ench.map((e) => [{ t: e, c: '#aaaaaa' }]), ...(it.extra ?? [])];
-    if (it.hand) lines.push([], [{ t: 'When in Main Hand:', c: '#aaaaaa' }], [{ t: ` ${it.hand[0]} Attack Damage`, c: '#00aa00' }], [{ t: ` ${it.hand[1]} Attack Speed`, c: '#00aa00' }]);
-    return lines;
-  }
-  const any = (list) => list[Math.floor(Math.random() * list.length)];
   const coord = () => String(Math.round((Math.random() - 0.5) * 4000));
-  // fills in {a} {b} {c} (other players), {w} (a weapon) and {x} {y} {z} (coordinates)
+  // fills in {a} {b} {c} (other players) and {x} {y} {z} (coordinates)
   const fill = (text, others) => text
     .replace(/\{([abc])\}/g, (_, k) => others['abc'.indexOf(k)] ?? others[0] ?? 'someone')
-    .replace('{w}', any(WEAPONS)).replace('{x}', coord()).replace('{y}', String(Math.round(Math.random() * 120) - 20)).replace('{z}', coord());
+    .replace('{x}', coord()).replace('{y}', String(Math.round(Math.random() * 120) - 20)).replace('{z}', coord());
   const later = (ms, f) => setTimeout(f, ms);
   function happen() {
     const on = [...online];
     if (!on.length) return;
     const who = any(on), roll = Math.random();
     const others = on.filter((n) => n !== who).sort(() => Math.random() - 0.5);
-    if (roll < 0.22 && others.length) {
+    if (roll < 0.25 && others.length) {
       // a conversation
       const talk = any(TALKS), cast = [who, ...others];
       talk.forEach(([i, text], k) => later(k * (1400 + Math.random() * 900), () => {
         const name = cast[i] ?? cast[k % cast.length];
         add({ kind: 'chat', name, text: fill(text, cast.filter((n) => n !== name)) });
       }));
-    } else if (roll < 0.5) {
+    } else if (roll < 0.68) {
       add({ kind: 'chat', name: who, text: fill(any(CHAT), others) });
       if (others.length && Math.random() < 0.5) later(1200 + Math.random() * 1500, () => add({ kind: 'chat', name: others[0], text: any(REPLY) }));
-    } else if (roll < 0.75) {
-      const text = others.length && Math.random() < 0.4 ? fill(any(PVP), others) : any(MOB_DEATHS);
-      add({ kind: 'death', name: who, text });
+    } else if (roll < 0.82) {
+      if (others.length && Math.random() < 0.35) add({ kind: 'death', name: who, text: killedBy(others[0]), cause: others[0] });
+      else { const [cause, text] = any(MOB_DEATHS); add({ kind: 'death', name: who, text, cause }); }
       if (Math.random() < 0.35) later(1500, () => add({ kind: 'chat', name: Math.random() < 0.5 ? who : (others[0] ?? who), text: any(['rip', 'NOOO', 'my stuff!!', 'f', 'lol', 'gg', 'not again', 'how', '💀']) }));
     } else {
-      addSys('advancement', who, advText(any(ADVANCEMENTS)));
+      const [frame, name] = any(ADVANCEMENTS);
+      add({ kind: 'advancement', name: who, text: `${ADV_WORDS[frame]} [${name}]` });
       if (others.length && Math.random() < 0.4) later(1300, () => add({ kind: 'chat', name: others[0], text: any(['gg!', 'congrats', 'nice', 'finally lol', 'lets go!', 'gg ' + who]) }));
     }
   }
   (function tick() {
     setTimeout(() => { if (!document.hidden) happen(); tick(); }, 3500 + Math.random() * 3500);
   })();
-  renderLog();
 
-  for (const b of $('c-filter').children) {
-    b.addEventListener('click', () => {
-      filter = b.dataset.k;
-      for (const o of $('c-filter').children) o.setAttribute('aria-pressed', String(o === b));
-      renderLog();
-    });
+  // who's online now: one row of badges under the message box, or folded into a floating count
+  function setOnlineBar(open) {
+    $('c-online').classList.toggle('collapsed', !open);
+    $('c-online-pill').hidden = open;
   }
+  $('c-online-close').addEventListener('click', () => setOnlineBar(false));
+  $('c-online-pill').addEventListener('click', () => setOnlineBar(true));
 
   // you write from the page, and someone in game answers
   const input = $('c-input');
   const send = $('c-send');
   input.addEventListener('input', () => { send.disabled = !input.value.trim(); });
   // Replies to what you write, by what it's about (first match wins), and sometimes a second player
-  // chimes in. {you} is "You"; {n} is the one answering.
+  // chimes in. {n} is the one answering.
   const ANSWERS = [
     [/^(hi|hey|hello|yo|sup|hiya|howdy|heyo|hai)\b/i, ['hey! o/', 'hiii', 'yo!', 'hello from the overworld', 'hey whats up', 'o/', 'hi!! are you on the website?', 'heyyy']],
     [/\b(bye|cya|goodnight|gn|later|see ya)\b/i, ['bye!', 'cya!', 'gn!', 'see you tomorrow', 'night!', 'byeee']],
@@ -681,59 +1184,186 @@
     if (others.length && Math.random() < 0.45) later(2400 + Math.random() * 1200, () => add({ kind: 'chat', name: others[0], text: any(CHIME).replace('{n}', who) }));
   });
 
+  /* ---------------- a player's card: click a name or a badge anywhere (app.js: openCard, renderCard) ---------------- */
+
+  const pcard = h('div', { class: 'pcard', role: 'dialog', 'aria-label': 'Player', hidden: true });
+  document.body.append(pcard);
+  let cardFor = null;
+  const pcStat = (value, label) => h('div', { class: 'pc-stat' }, h('div', { class: 'pc-value', text: value }), h('div', { class: 'pc-label', text: label }));
+  function openCard(a) {
+    if (cardFor === a && !pcard.hidden) return closeCard();
+    hideTip();
+    cardFor = a;
+    const p = byName.get(a.dataset.card), t = now(), last = sessionsOf(p).at(-1), sent = chatsOf(p).today;
+    // minutes online in each of the last 24 hours, oldest first, ending with the hour now (app.js, last24Hours)
+    const first = (Math.floor(t / 60) - 23) * 60, mins = Array(24).fill(0);
+    for (const [s, e] of sessionsOf(p)) {
+      if ((e ?? t) > first) eachHourChunk(Math.max(s, first), e ?? t, (from, n) => { mins[Math.floor((from - first) / 60)] += n; });
+    }
+    const bars = mins.map((v, i) => {
+      const hr = hourOf(first + i * 60);
+      return {
+        v, now: i === 23,
+        tip: [{ value: v < 0.5 ? 'Not on' : `${Math.round(v)} min` },
+          { label: `${i === 23 ? 'This hour' : fmt(first + i * 60, { weekday: 'short' })}, ${hourName(hr)}–${hourName((hr + 1) % 24)}` }],
+      };
+    });
+    const labels = [];
+    for (let i = 0; i < 20; i++) {
+      const hr = hourOf(first + i * 60);
+      if (hr % 6 === 0) labels.push([i / 24, hourName(hr, true)]);
+    }
+    labels.push([1, 'now']);
+    pcard.replaceChildren(
+      h('div', { class: 'pc-head' }, head(p, 48, 'pc-avatar'), h('div', { class: 'pc-who' },
+        h('div', { class: 'pc-name', text: p.name }),
+        h('div', { class: 'pc-status' }, last[1] == null ? [h('span', { class: 'pc-dot' }), `Online since ${clock(last[0])}`] : `Last seen ${ago(last[1])}`))),
+      h('div', { class: 'pc-stats' },
+        pcStat(sent, sent === 1 ? 'message today' : 'messages today'),
+        pcStat(dur(playedBetween(p, today() * DAY, t)), 'played today'),
+        pcStat(dur(playedBetween(p, t - 7 * DAY, t)), 'last 7 days')),
+      h('div', { class: 'pc-section', text: 'Past 24 hours' }),
+      hourBars(bars, labels, 'Time online in each of the last 24 hours', 40, 60), // a full bar is the whole hour
+      h('a', { class: 'pc-open', href: '#players', onclick: () => { closeCard(); showPlayer(p.name); } }, 'View profile'));
+    pcard.hidden = false;
+    if (!reduced()) pcard.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], { duration: 140, easing: 'ease-out' });
+    // under what was clicked, or above it when there's no room
+    const r = a.getBoundingClientRect(), w = pcard.offsetWidth, ht = pcard.offsetHeight;
+    pcard.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
+    pcard.style.top = `${r.bottom + 6 + ht > innerHeight - 8 ? Math.max(8, r.top - ht - 6) : r.bottom + 6}px`;
+  }
+  function closeCard() {
+    pcard.hidden = true;
+    cardFor = null;
+    hideTip();
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest?.('[data-card]');
+    if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    openCard(a);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!pcard.hidden && !pcard.contains(e.target) && !e.target.closest?.('[data-card]')) closeCard();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pcard.hidden) closeCard(); });
+  addEventListener('scroll', () => { if (!pcard.hidden) closeCard(); }, { passive: true }); // the page, not the chat log
+  addEventListener('resize', () => { if (!pcard.hidden) closeCard(); });
+
   /* ---------------- more ---------------- */
 
-  // busiest hours: days across, two-hour blocks down, as on the Activity page
-  {
-    const week = $('m-week');
-    const r = rng('week');
-    week.append(h('span'), ...['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) => h('span', { class: 'dlabel', text: d })));
-    for (let b = 0; b < 12; b++) {
-      week.append(h('span', { class: 'hlabel', text: b % 3 === 0 ? String(b * 2).padStart(2, '0') : '' }));
-      for (let d = 0; d < 7; d++) {
-        const evening = b >= 8 && b <= 10 ? 2 : b >= 7 ? 1 : 0;
-        const weekend = d >= 5 && b >= 5 ? 1 : 0;
-        const late = b <= 1 && d >= 4 ? 1 : 0;
-        const lv = Math.min(4, evening + weekend + late + (r() < 0.3 ? 1 : 0) - (b >= 2 && b <= 4 ? 1 : 0));
-        week.append(h('span', { class: `wcell lv${Math.max(0, lv)}` }));
-      }
-    }
+  // busiest times: the average number online in each hour of each weekday (app.js, renderServerWeekGrid)
+  function renderBusiest() {
+    const happened = Array(7).fill(0); // how many of each weekday there have been
+    for (let d = -SEASON_DAYS; d <= today(); d++) happened[dowOf(d * DAY)]++;
+    weekGrid($('m-week'), weekOf(PLAYERS).map((row, d) => row.map((v) => v / 60 / happened[d])),
+      (v, label) => [{ value: `${v.toFixed(1)} players`, label: 'avg' }, { label: `${label} · last 90 days` }]);
   }
-  // fights
-  {
-    const rows = [['Pebble_', 14, 3], ['Saltwater', 9, 6], ['kestrel', 4, 11]];
-    const most = 14;
-    $('m-kd').append(
-      h('thead', {}, h('tr', {}, h('th', { text: 'Player' }), h('th', { class: 'num', text: 'Kills' }), h('th', { class: 'num', text: 'Deaths' }))),
-      h('tbody', {}, ...rows.map(([n, k, d]) => h('tr', {},
-        h('td', {}, h('div', { class: 'pname' }, head(byName.get(n), 24), nameLink(n)), h('div', { class: 'bar', style: `width:${(k / most) * 100}%` })),
-        h('td', { class: 'num', text: String(k) }),
-        h('td', { class: 'num', text: String(d) })))));
-  }
-  $('m-pass').textContent = '••••••••';
 
+  // the Combat page's leaderboard: click a heading to sort by it (app.js, renderCombatLeaderboard)
+  const COLS = [
+    { key: 'name', label: 'Player', first: 1, hint: 'Sort by name' },
+    { key: 'kills', label: 'Kills', first: -1, hint: 'Players they killed' },
+    { key: 'deaths', label: 'Deaths', first: -1, hint: 'Every time they died, to a player or not' },
+    { key: 'kd', label: 'K/D', first: -1, hint: 'Kills for every death' },
+  ];
+  let sort = { key: 'kills', dir: -1 };
+  function renderFights() {
+    const { key, dir } = sort;
+    const players = fighters().sort((a, b) => (key === 'name' ? dir * a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      : dir * (a[key] - b[key]) || b.kills - a.kills || a.deaths - b.deaths));
+    // the bar under each name is the column it's sorted by
+    const barKey = key === 'name' ? 'kills' : key;
+    const top = Math.max(...players.map((p) => p[barKey]), 0) || 1;
+    const arrow = (d) => sv('svg', { width: 10, height: 12, viewBox: '0 0 10 12', 'aria-hidden': 'true', class: 'sort-arrow' },
+      sv('path', { d: 'M2 4.5 5 1.5l3 3', class: d > 0 ? 'on' : '' }), sv('path', { d: 'M2 7.5l3 3 3-3', class: d < 0 ? 'on' : '' }));
+    const heads = COLS.map((c) => {
+      const on = c.key === key;
+      return h('th', { class: `sortable${c.key === 'name' ? '' : ' num'}${on ? ' sorted' : ''}`, 'aria-sort': on ? (dir < 0 ? 'descending' : 'ascending') : 'none' },
+        h('button', { type: 'button', title: on ? `${c.hint} (click to reverse)` : c.hint, onclick: () => { sort = on ? { key, dir: -dir } : { key: c.key, dir: c.first }; renderFights(); } },
+          h('span', { text: c.label }), arrow(on ? dir : 0)));
+    });
+    const cell = (k, text, tip2) => h('td', { class: `num${k === key ? ' sorted' : ''}${text === '0' ? ' zero' : ''}`, text, title: tip2 });
+    $('m-fights').replaceChildren(h('table', { class: 'cb-table' },
+      h('thead', {}, h('tr', {}, h('th'), heads)),
+      h('tbody', {}, players.map((p, i) => h('tr', { class: 'link', onclick: () => showPlayer(p.name) },
+        h('td', { class: 'rank', text: String(i + 1) }),
+        h('td', { class: key === 'name' ? 'sorted' : '' },
+          h('div', { class: 'pname' }, head(byName.get(p.name), 22), h('a', { href: '#players', text: p.name })),
+          h('div', { class: `bar${barKey === 'deaths' ? ' bar-deaths' : ''}`, style: `width:${Math.max(1, (p[barKey] / top) * 100)}%` })),
+        cell('kills', String(p.kills)),
+        cell('deaths', String(p.deaths), `${p.pvpDeaths} by players · ${p.deaths - p.pvpDeaths} other`),
+        cell('kd', fmtKd(p), `${p.kills} ${p.kills === 1 ? 'kill' : 'kills'} ÷ ${p.deaths} ${p.deaths === 1 ? 'death' : 'deaths'}`))))));
+  }
+
+  /* ---------------- first drawing, and what changes while the page is open ---------------- */
+
+  syncChips($('w-chips'));
+  syncChips($('c-chips'));
+  renderTiles();
+  drawTimeline();
+  renderProfile();
+  renderModelNote();
+  list.append(h('div', { class: 'chat-day', role: 'separator' }, h('span', { text: 'Today' })));
+  for (const m of LOG) put(m);
+  log.scrollTop = log.scrollHeight;
+  renderBusiest();
+  renderFights();
+
+  // the chart is drawn to its box's width
+  let wide = $('w-chart').clientWidth;
+  new ResizeObserver(() => {
+    const w = $('w-chart').clientWidth;
+    if (w && w !== wide) { wide = w; drawTimeline(); }
+  }).observe($('w-chart'));
+
+  // now and then someone joins or leaves, as on a real server
+  setInterval(() => {
+    if (document.hidden) return;
+    const off = PLAYERS.filter((p) => !online.has(p.name));
+    const join = online.size <= 3 || (online.size < 6 && Math.random() < 0.5);
+    const name = join ? any(off).name : any([...online]);
+    if (join) {
+      sessionsOf(byName.get(name)).push([now(), null]);
+      online.add(name);
+      addPick(name); // whoever joins gets a page too
+    } else {
+      sessionsOf(byName.get(name)).at(-1)[1] = now();
+      online.delete(name);
+    }
+    add({ kind: join ? 'join' : 'leave', name, text: join ? 'joined the game' : 'left the game' });
+    syncChips($('w-chips'), true);
+    syncChips($('c-chips'), true);
+    renderTiles();
+    if (isLive(win)) drawTimeline();
+    if (name === current) { renderProfile(); renderModelNote(); }
+  }, 30000); // not often: the log is mostly what players do
+  // and the minutes pass: the live chart and the numbers that count time move on
+  let minute = now();
+  setInterval(() => {
+    if (document.hidden || minute === now()) return;
+    minute = now();
+    renderTiles();
+    if (isLive(win) && !$('w-chart').matches(':hover')) drawTimeline();
+  }, 5000);
 
   /* ---------------- the sky: the game's clouds, sun and moon, by day and by night ----------------
-     Blocky clouds cut from the game's own cloud texture drift with the wind and wrap round. In the light
-     theme it's day: a blue sky and the game's sun. In the dark theme it's night: the moon, stars, and a
-     light rain from some of the clouds. Switching themes turns the sky half way round: the sun sets as
-     the moon rises, the wind races, the clouds darken, the stars come out and the rain starts. The
-     pointer only tilts the view a little. Drawn only while the hero is on screen. */
+     The clouds are the game's: one flat layer of see-through white slabs, laid out by the game's own
+     cloud texture, seen from the ground and running off to the horizon, all drifting the same way. In
+     the light theme it's day: a blue sky and the game's sun. In the dark theme it's night: the moon,
+     stars, darker and thinner clouds, and now and then a spell of light rain over most of the sky. Switching themes turns the sky
+     half way round: the sun sets as the moon rises and the wind races. The pointer only tilts the view
+     a little. Drawn only while the hero is on screen. */
   {
     const hero = $('hero');
     const sky = hero.querySelector('.home-sky');
     const cv = $('sky');
     const ctx = cv.getContext('2d');
+    const layer = document.createElement('canvas'); // the cloud layer, drawn solid, then laid on see-through
+    const lg = layer.getContext('2d');
     const still = reduced();
     const r = rng('sky');
-    const C = 15; // one cloud cell on screen at the nearest layer, in CSS pixels
-    // three depths, each in its own band of sky (top = farthest), so clouds rarely cross one another
-    const LAYERS = [
-      { k: 0.6, speed: 6, alpha: 0.65, band: [0.03, 0.12] },
-      { k: 0.85, speed: 10, alpha: 0.82, band: [0.22, 0.32] },
-      { k: 1.1, speed: 15, alpha: 0.95, band: [0.47, 0.58] },
-    ];
-    let W = 0, H = 0, dpr = 1;
+    let W = 0, H = 0, HH = 0, dpr = 1;
     const dark = () => {
       const m = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
       return m ? (+m[0] + +m[1] + +m[2]) / 3 < 100 : false;
@@ -749,105 +1379,106 @@
     requestAnimationFrame(() => requestAnimationFrame(() => { sky.style.transition = ''; }));
     const ease = (t) => t * t * (3 - 2 * t);
 
-    // The game's cloud layer (textures/environment/clouds.png): each opaque pixel is one 12×12-block cell
-    // of cloud. A sky cloud is one clump cut from it, a connected patch that fills most of its box, so
-    // it's the game's own blocky shape but plump rather than stringy. Until the texture arrives (or if
-    // it can't), a rounded blob of blocks stands in. -> { cells: [[x, y]…], cols, rows }
-    let map = null;
-    function shape(maxCols, maxRows) {
-      if (map) {
-        for (let tries = 0; tries < 120; tries++) {
-          const x0 = Math.floor(r() * map.w), y0 = Math.floor(r() * map.h);
-          if (!map.on(x0, y0)) continue;
-          const seen = new Set([`${x0},${y0}`]), todo = [[x0, y0]], cells = [];
-          while (todo.length && cells.length < 600) {
-            const [x, y] = todo.pop();
-            cells.push([x, y]);
-            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-              const nx = x + dx, ny = y + dy, k = `${nx},${ny}`;
-              if (seen.has(k) || Math.abs(nx - x0) > maxCols / 2 || Math.abs(ny - y0) > maxRows / 2 || !map.on(nx, ny)) continue;
-              seen.add(k);
-              todo.push([nx, ny]);
-            }
+    // The game's cloud layer (textures/environment/clouds.png): each opaque pixel is one cell of cloud,
+    // 12 blocks square and 4 thick, and the picture repeats across the whole sky. Until the texture
+    // arrives (or if it can't), a made-up pattern of blocky patches stands in.
+    const wrap = (v, n) => ((v % n) + n) % n;
+    const fallback = (() => {
+      const n = 64, on = new Uint8Array(n * n);
+      for (let k = 0; k < 46; k++) {
+        const x0 = Math.floor(r() * n), y0 = Math.floor(r() * n), w = 2 + Math.floor(r() * 7), d = 1 + Math.floor(r() * 4);
+        for (let y = 0; y < d; y++) for (let x = 0; x < w; x++) on[wrap(y0 + y, n) * n + wrap(x0 + x, n)] = 1;
+      }
+      return { on: (x, y) => on[wrap(y, n) * n + wrap(x, n)] === 1 };
+    })();
+    let map = fallback;
+
+    // What's seen from the ground: the slabs' undersides and the sides facing you (the game shades the
+    // faces differently, and tints the whole layer darker at night). [underside, front, side] by day and by night.
+    const SHADES = [[[232, 237, 245], [255, 255, 255], [245, 248, 252]], [[96, 108, 139], [128, 140, 172], [112, 124, 155]]];
+    const mix = (i, m) => `rgb(${SHADES[0][i].map((v, k) => Math.round(v + (SHADES[1][i][k] - v) * m)).join(',')})`;
+
+    // The view: you stand under the layer and look toward the horizon, which sits just under the hero.
+    // A point X across, Y up and Z away lands at (cx + F·X/Z, HZ − F·Y/Z). Z = 1 is the top of the hero.
+    let HZ = 0, F = 0, CELL = 0, drift = 0;
+    const UP = 0.6; // the layer's height: a cell at the top of the hero looks 0.6 as deep as it's wide
+    const FAR = 9; // how far the layer is drawn, in hero-top distances
+    function view() {
+      HH = hero.getBoundingClientRect().height; // the canvas runs on below the hero, where it fades out
+      HZ = HH * 1.04;
+      F = HZ / UP;
+      CELL = Math.min(132, Math.max(72, W * 0.085)) / F; // a cell at the top of the hero is about this wide
+    }
+    function drawClouds(m, camX, camY) {
+      const cx = W / 2 + camX, hz = HZ + camY, thick = CELL / 3;
+      lg.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lg.clearRect(0, 0, W, H);
+      const under = mix(0, m), front = mix(1, m), side = mix(2, m);
+      const j0 = Math.max(1, Math.floor(0.45 / CELL)), j1 = Math.ceil(FAR / CELL);
+      const shift = -drift; // the layer slides sideways: column i spans X from (i + shift)·CELL
+      for (let j = j1; j >= j0; j--) { // far to near, so nearer slabs cover farther ones
+        const zn = j * CELL, zf = zn + CELL;
+        const yn = hz - (F * UP) / zn, yf = hz - (F * UP) / zf; // the underside's near and far edges
+        if (yf < -2) break; // this row and every nearer one are above the hero
+        const yt = hz - (F * (UP + thick)) / zn, ytf = hz - (F * (UP + thick)) / zf; // the top of the near face, and of the far one
+        const half = ((W / 2 + Math.abs(camX) + 40) * zf) / F;
+        const i0 = Math.floor(-half / CELL - shift) - 1, i1 = Math.ceil(half / CELL - shift) + 1;
+        const pu = new Path2D(), pf = new Path2D(), ps = new Path2D();
+        for (let i = i0; i <= i1; i++) {
+          if (!map.on(i, j)) continue;
+          let e = i;
+          while (e < i1 && map.on(e + 1, j)) e++;
+          const X0 = (i + shift) * CELL, X1 = (e + 1 + shift) * CELL;
+          const an = cx + (F * X0) / zn, bn = cx + (F * X1) / zn, af = cx + (F * X0) / zf, bf = cx + (F * X1) / zf;
+          pu.moveTo(an, yn); pu.lineTo(bn, yn); pu.lineTo(bf, yf); pu.lineTo(af, yf); pu.closePath();
+          // the side facing the middle of the view shows, at either end of the run
+          if (X0 > 0) { ps.moveTo(an, yn); ps.lineTo(an, yt); ps.lineTo(af, ytf); ps.lineTo(af, yf); ps.closePath(); }
+          if (X1 < 0) { ps.moveTo(bn, yn); ps.lineTo(bn, yt); ps.lineTo(bf, ytf); ps.lineTo(bf, yf); ps.closePath(); }
+          // the front face, where no slab stands in front of it
+          for (let k = i; k <= e; k++) {
+            if (map.on(k, j - 1)) continue;
+            let q = k;
+            while (q < e && !map.on(q + 1, j - 1)) q++;
+            const fa = cx + (F * (k + shift) * CELL) / zn, fb = cx + (F * (q + 1 + shift) * CELL) / zn;
+            pf.rect(fa, yt, fb - fa, yn - yt + 0.5);
+            k = q;
           }
-          const xs = cells.map((c) => c[0]), ys = cells.map((c) => c[1]);
-          const minX = Math.min(...xs), minY = Math.min(...ys), cols = Math.max(...xs) - minX + 1, rows = Math.max(...ys) - minY + 1;
-          if (cells.length >= 28 && cols >= 8 && cells.length / (cols * rows) >= 0.58) {
-            return { cells: cells.map(([x, y]) => [x - minX, y - minY]), cols, rows };
-          }
+          i = e;
         }
+        lg.fillStyle = side; lg.fill(ps);
+        lg.fillStyle = under; lg.fill(pu);
+        lg.fillStyle = front; lg.fill(pf);
       }
-      const cols = Math.round(maxCols * 0.7), rows = Math.round(maxRows * 0.6), cells = [];
-      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-        const dx = (x + 0.5 - cols / 2) / (cols / 2), dy = (y + 0.5 - rows / 2) / (rows / 2);
-        if (dx * dx + dy * dy < 0.85 + r() * 0.2) cells.push([x, y]);
-      }
-      return { cells, cols, rows };
+      // the layer thins into the distance, as the game's fog takes it
+      lg.globalCompositeOperation = 'destination-in';
+      const fog = lg.createLinearGradient(0, 0, 0, hz);
+      fog.addColorStop(0, 'rgba(0,0,0,1)'); fog.addColorStop(0.5, 'rgba(0,0,0,0.9)'); fog.addColorStop(0.86, 'rgba(0,0,0,0)'); fog.addColorStop(1, 'rgba(0,0,0,0)');
+      lg.fillStyle = fog;
+      lg.fillRect(0, 0, W, H);
+      lg.globalCompositeOperation = 'source-over';
+      // see-through, and more so at night (as the game's are)
+      ctx.globalAlpha = 0.8 - 0.2 * m;
+      ctx.drawImage(layer, 0, 0, W, H);
+      ctx.globalAlpha = 1;
     }
 
-    // Drawn as the game draws its clouds: a slab seen from a little above, each cell's flat top and,
-    // under the cells with nothing in front of them, the slab's front face, darker (the game shades
-    // tops 1.0 and sides 0.9 and 0.8). One picture for the day and one for the night, cross-faded.
-    const SHADES = { day: ['#ffffff', '#dde3ec', '#cfd6e2'], night: ['#bcc5da', '#8f99b4', '#7f89a4'] };
-    function paint(c, [top, front, side]) {
-      const b = c.cw, d = c.cd, f = c.cf;
-      const s = document.createElement('canvas');
-      s.width = Math.ceil(c.w * dpr);
-      s.height = Math.ceil(c.h * dpr);
-      const g = s.getContext('2d');
-      g.scale(dpr, dpr);
-      const has = new Set(c.cells.map(([x, y]) => `${x},${y}`));
-      for (const [x, y] of [...c.cells].sort((a, z) => a[1] - z[1])) { // back to front
-        g.fillStyle = top;
-        g.fillRect(x * b, y * d, b, d + 0.5);
-        if (!has.has(`${x},${y + 1}`)) {
-          g.fillStyle = front;
-          g.fillRect(x * b, (y + 1) * d, b, f);
-          // the left end of a run of front face shows a sliver of the side
-          if (!has.has(`${x - 1},${y}`)) { g.fillStyle = side; g.fillRect(x * b, (y + 1) * d, Math.max(2, Math.round(b * 0.18)), f); }
-        }
-      }
-      return s;
-    }
-    function sprite(c) {
-      c.cw = Math.max(5, Math.round(C * c.layer.k)); // a cell's width
-      c.cd = Math.max(3, Math.round(c.cw * 0.55)); // its depth on screen, seen at a slant
-      c.cf = Math.max(3, Math.round(c.cw * 0.7)); // the slab's thickness
-      c.w = c.cols * c.cw;
-      c.h = c.rows * c.cd + c.cf;
-      c.day = paint(c, SHADES.day);
-      c.night = paint(c, SHADES.night);
-    }
-    const clouds = [];
-    function makeCloud(layer, x, y) {
-      const L = LAYERS[layer];
-      // about half the clouds rain at night
-      const c = { layer: L, li: layer, x, y, ...shape(26, 14), rainy: r() < 0.55 };
-      sprite(c);
-      clouds.push(c);
-      clouds.sort((a, b) => a.li - b.li);
-    }
+    // It rains some of the time: a spell of rain over most of the sky's width, then a longer dry one.
+    // Each spell falls somewhere else, comes on and eases off over a few seconds, and drifts with the wind.
     const drops = [], stars = [];
+    const RAIN = [16, 24], DRY = [22, 34], EASE = 3; // seconds
+    const span = ([a, b]) => a + r() * (b - a);
+    const spell = { wet: false, left: 5, len: 5, x: 0.5, w: 0.8 }; // the first rain starts soon after the page opens
 
     function resize() {
       const rect = cv.getBoundingClientRect();
       dpr = Math.min(devicePixelRatio || 1, 2);
       const first = !W;
       W = rect.width; H = rect.height;
-      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      for (const c of [cv, layer]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+      view();
       if (first) {
-        // per layer, a few clouds evenly spaced along a loop a bit longer than the sky, so they keep
-        // their spacing as they drift (all in a layer move at the same speed)
-        LAYERS.forEach((L, li) => {
-          const n = Math.max(2, Math.round(W / (li === 2 ? 520 : 380)));
-          L.track = W + 420;
-          for (let i = 0; i < n; i++) {
-            const y = H * (L.band[0] + r() * (L.band[1] - L.band[0]));
-            makeCloud(li, (i / n) * L.track - 200 + r() * (L.track / n) * 0.3, y);
-          }
-        });
         for (let i = 0; i < 90; i++) stars.push({ x: r(), y: r() * 0.7, s: r() < 0.2 ? 2 : 1, p: r() * 6 });
-      } else { clouds.forEach(sprite); LAYERS.forEach((L) => { L.track = W + 420; }); }
+      }
     }
 
     // The game's sun and full moon: 32-pixel pictures on black that the game adds onto the sky as light.
@@ -900,16 +1531,16 @@
       ctx.restore();
     }
 
-    // the pointer only tilts the view a little (nearer things shift more); it never moves the clouds
+    // the pointer only tilts the view a little; it never moves the clouds
     const ptr = { x: 0.5, y: 0.5, in: false };
     const par = { x: 0, y: 0 };
-    const offset = (k) => [par.x * k * -14, par.y * k * -6];
     addEventListener('pointermove', (e) => {
       const b = hero.getBoundingClientRect();
       ptr.in = e.clientY >= b.top && e.clientY <= b.bottom;
       if (ptr.in) { ptr.x = (e.clientX - b.left) / b.width; ptr.y = (e.clientY - b.top) / b.height; }
     }, { passive: true });
 
+    const WIND = 0.14; // cells a second: a cell at the top of the hero crosses about 12px a second
     let last = 0, raf = 0, on = false;
     function frame(t) {
       const dt = Math.min(0.05, (t - (last || t)) / 1000);
@@ -942,25 +1573,32 @@
       // the sun and moon on their wheel, behind the clouds as in the game: up at the top right, and
       // going down to the right as the other comes up from the left
       const big = Math.round(Math.min(180, Math.max(110, W * 0.13)));
-      const [sx, sy] = offset(0.3);
-      const R = Math.max(W * 0.5, H * 1.15), UP = 0.55; // the wheel, and how far right of the top "up" is
-      const cx = W / 2, cy = H * 0.22 + R * Math.cos(UP);
-      const at = (a) => [cx + R * Math.sin(a) + sx, cy - R * Math.cos(a) + sy];
-      const [sunX, sunY] = at(UP + turn), [moonX, moonY] = at(UP + turn + Math.PI);
+      const sx = par.x * -4, sy = par.y * -2;
+      const R = Math.max(W * 0.5, HH * 1.15), UPR = 0.55; // the wheel, and how far right of the top "up" is
+      const wx = W / 2, wy = HH * 0.22 + R * Math.cos(UPR);
+      const at = (a) => [wx + R * Math.sin(a) + sx, wy - R * Math.cos(a) + sy];
+      const [sunX, sunY] = at(UPR + turn), [moonX, moonY] = at(UPR + turn + Math.PI);
       if (sunY < H + big) body(sun, sunX, sunY, big * 1.15, 'rgba(255,240,170,0.45)', 1 - m * 0.3);
       if (moonY < H + big) body(moon, moonX, moonY, big, 'rgba(190,205,255,0.28)', 0.7 + m * 0.3);
 
-      for (const c of clouds) {
-        c.x += (still ? 0 : c.layer.speed * rush) * dt;
-        if (c.x > W + 210) c.x -= c.layer.track; // round the loop, keeping the layer's spacing
-        const [ox, oy] = offset(c.layer.k);
-        const x = Math.round(c.x + ox), y = Math.round(c.y + oy);
-        if (m < 1) { ctx.globalAlpha = c.layer.alpha; ctx.drawImage(c.day, x, y, c.w, c.h); }
-        if (m > 0) { ctx.globalAlpha = c.layer.alpha * m; ctx.drawImage(c.night, x, y, c.w, c.h); }
-        // a light rain at night
-        if (c.rainy && !still && r() < m * dt * 22 * c.layer.k) {
-          const [cx] = c.cells[Math.floor(r() * c.cells.length)];
-          drops.push({ x: x + cx * c.cw + r() * c.cw, y: y + c.h - 4, vy: 360 + r() * 140, k: c.layer.k });
+      const wind = still ? 0 : WIND * rush * dt;
+      drift += wind;
+      drawClouds(m, par.x * -16, par.y * -6);
+
+      // a light rain at night, in spells
+      spell.left -= dt;
+      if (spell.left <= 0) {
+        spell.wet = !spell.wet;
+        spell.len = spell.left = span(spell.wet ? RAIN : DRY);
+        if (spell.wet) { spell.w = 0.7 + r() * 0.2; spell.x = spell.w / 2 + r() * (1 - spell.w); } // 70 to 90% of the width
+      }
+      if (spell.wet && !still && m > 0.01) {
+        spell.x += (wind * CELL * F * 0.3) / W; // the rain moves with the clouds overhead
+        const strength = Math.min(1, (spell.len - spell.left) / EASE, spell.left / EASE);
+        let due = m * strength * dt * spell.w * W * 0.085; // drops this frame: about 85 a second per 1000px of rain
+        for (; due > 0; due--) {
+          if (due < 1 && r() > due) break;
+          drops.push({ x: (spell.x + (r() - 0.5) * spell.w) * W, y: -10 - r() * 30, vy: 360 + r() * 140, k: 0.6 + r() * 0.5 });
         }
       }
       ctx.fillStyle = '#7f9be0';
@@ -986,7 +1624,7 @@
     // a theme switch wakes the sky even if nothing else would
     new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // the clouds wait (briefly) for the game's cloud texture, so they're cut from it from the start
+    // the clouds wait (briefly) for the game's cloud texture, so they're laid out by it from the start
     const tex = new Image();
     const start = () => { if (!W) resize(); wake(); };
     tex.onload = () => {
@@ -995,8 +1633,7 @@
       const g = c.getContext('2d', { willReadFrequently: true });
       g.drawImage(tex, 0, 0);
       const px = g.getImageData(0, 0, tex.width, tex.height).data;
-      const wrap = (v, n) => ((v % n) + n) % n; // the texture tiles, as the game's sky does
-      map = { w: tex.width, h: tex.height, on: (x, y) => px[(wrap(y, tex.height) * tex.width + wrap(x, tex.width)) * 4 + 3] > 0 };
+      map = { on: (x, y) => px[(wrap(y, tex.height) * tex.width + wrap(x, tex.width)) * 4 + 3] > 0 }; // the texture tiles, as the game's sky does
       start();
     };
     tex.onerror = start;

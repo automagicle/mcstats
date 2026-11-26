@@ -4,7 +4,7 @@
 //
 // It answers:
 //   fetch   the server's API (/api/... with the /s/<slug> taken off), sent by the Worker with
-//           X-MCS-Who (what the cookies proved, src/index.js) or, for the mod's uploads, X-MCS-Ingest
+//           X-MCS-Who (what the cookies proved: joined, and which account; src/index.js) or, for the mod's uploads, X-MCS-Ingest
 //           (the key is checked here, against this server's own key table)
 //   alarm   the once-a-minute status check (src/poll.js) and the hourly gap fill, for this server only
 //   RPC     setup, settings, keys, members, and the database for the server's other objects (query)
@@ -17,20 +17,19 @@ import { poll } from './poll.js';
 import { fillGaps } from './gapfill.js';
 import { forgetPerms, loadPerms, ROLES, setRoleStmt } from './roles.js';
 import { clearCache } from './cache.js';
-import {
-  cleanEmail, codeHash, CODE_MINUTES, CODE_TRIES, cookie, clearCookie, DAY, EMAIL_RE, ID_DAYS, newCode,
-  sameString, serverPath, sessionReady, sha256Hex, signToken,
-} from './session.js';
-import { codeEmail, sendEmail } from './email.js';
-import { ipKey, limit, tooMany } from './limiter.js';
+import { cleanEmail, EMAIL_RE, sameString, sha256Hex } from './session.js';
+import { limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { parseStart } from './seasons.js';
+import { cleanAccent, TAB_STYLES } from './look.js';
+import { ADDONS, addonList } from './addons.js';
+import { handleServerAdmin } from './serveradmin.js';
 
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const MINUTE = 60_000;
 
 // Settings anyone with access may see (the page and /new show them). The rest stay inside.
-const PUBLIC_SETTINGS = ['TZ_NAME', 'CURRENT_SEASON', 'CHAT_RESETS', 'PUBLIC'];
+const PUBLIC_SETTINGS = ['TZ_NAME', 'CURRENT_SEASON', 'CHAT_RESETS', 'PUBLIC', 'ACCENT', 'TAB_STYLE'];
 
 export class Tenant extends DurableObject {
   constructor(ctx, env) {
@@ -98,7 +97,11 @@ export class Tenant extends DurableObject {
         this.put('CREATED_AT', Math.floor(Date.now() / 1000));
       }
       this.put('NAME', name);
-      if (legacy) this.put('LEGACY', '1');
+      if (legacy) {
+        this.put('LEGACY', '1');
+        // the server from before servers had their own is Egg SMP: it keeps its eggs (src/addons.js)
+        if (this.settings.ADDONS == null) this.put('ADDONS', 'eggsmp');
+      }
       if (paused) this.put('PAUSED', '1');
       for (const [k, v] of Object.entries(settings)) if (SETTING_RE.test(k)) this.put(k, v);
     });
@@ -178,6 +181,13 @@ export class Tenant extends DurableObject {
         clean[k] = v;
       } else if (k === 'PUBLIC') {
         clean[k] = v === '1' || v === 'true' ? '1' : '';
+      } else if (k === 'ACCENT') {
+        const a = cleanAccent(v);
+        if (v && !a) return { error: 'The accent is blue, green, or a color like #3d8a26.' };
+        clean[k] = a || '';
+      } else if (k === 'TAB_STYLE') {
+        if (v && !TAB_STYLES.includes(v)) return { error: `The tab style is ${TAB_STYLES.join(' or ')}.` };
+        clean[k] = v;
       } else if (k === 'TZ_NAME') {
         try {
           if (v) new Intl.DateTimeFormat('en', { timeZone: v });
@@ -206,6 +216,14 @@ export class Tenant extends DurableObject {
     return this.info();
   }
 
+  // Which add-ons this server has (src/addons.js). Only the site's operators set this.
+  async setAddons(ids) {
+    // '-' for none at all, so "switched off" is remembered apart from "never set"
+    this.put('ADDONS', [...new Set(ids)].filter((id) => ADDONS[id]).join(',') || '-');
+    this.load();
+    return addonList(this.settings);
+  }
+
   async addMember(email, role, by) {
     const e = cleanEmail(email);
     if (!EMAIL_RE.test(e) || !ROLES.includes(role) || role === 'owner') return { error: 'bad member' };
@@ -215,7 +233,7 @@ export class Tenant extends DurableObject {
   }
 
   // What the cookies proved ({ viewer, email }, checked by the Worker) amounts to here:
-  //   { email }        a member of this server (or a super admin) who signed in on it
+  //   { email }        a member of this server (or a super admin), signed in to their mcstats account
   //   { email: null }  may look: joined with the password, or the server is public
   //   null             not let in
   async access(proof) {
@@ -296,84 +314,37 @@ export class Tenant extends DurableObject {
     } catch { /* nobody */ }
     if (url.pathname.startsWith('/api/auth/')) return this.auth(request, url, proof);
     const who = await this.access(proof);
+    // the server's own details (name, address, password, look): they live here and in the directory
+    if (who && url.pathname === '/api/admin/server') return handleServerAdmin(this, request, url, who);
     return handleApi(request, this.serverEnv(who ? { WHO: who } : {}), url, this.ctx);
   }
 
-  // Signing in with an email code, on this server only:
-  //   POST /api/auth/code    { email }         sends a code (to someone who can see the server, or a member)
-  //   POST /api/auth/verify  { email, code }   signs in: the mcs_id cookie, for this server's pages only
-  //   POST /api/auth/logout
+  // Who's signed in is the site's business (an mcstats account, src/account.js); being someone *here* is this
+  // server's:
+  //   POST /api/auth/enter   the signed-in account becomes a member of this server, if it can see it (its
+  //                          password, or it's public). Asked for, never automatic: the server's owner sees
+  //                          members' emails, so just looking at a server doesn't hand yours over. Only the
+  //                          button on the server's own page asks (public/tenant.js); no link can.
   async auth(request, url, proof) {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
     const origin = request.headers.get('Origin');
     if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
-    const slug = this.settings.SLUG;
-    if (!slug) return json({ error: 'not found' }, 404);
-    const path = serverPath(slug);
-    if (url.pathname === '/api/auth/logout') {
-      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': clearCookie('mcs_id', path) } });
-    }
-    if (!sessionReady(this.env)) return json({ error: 'Signing in isn’t set up yet (no SESSION_SECRET).' }, 503);
+    const from = request.headers.get('Sec-Fetch-Site');
+    if (from && from !== 'same-origin') return json({ error: 'wrong origin' }, 403);
     if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return json({ error: 'expected JSON' }, 415);
-    let b;
-    try {
-      const raw = await request.text();
-      if (raw.length > 1024) return json({ error: 'too large' }, 413);
-      b = JSON.parse(raw);
-    } catch {
-      return json({ error: 'bad json' }, 400);
-    }
-    const email = cleanEmail(b?.email);
-    if (!EMAIL_RE.test(email)) return json({ error: 'That isn’t an email address.' }, 400);
+    if (!this.settings.SLUG || url.pathname !== '/api/auth/enter') return json({ error: 'not found' }, 404);
+    const email = cleanEmail(proof?.email);
+    if (!EMAIL_RE.test(email)) return json({ error: 'Sign in to mcstats first.', reason: 'signed_out' }, 401);
+    const r = await limit(this.env, [[`enter:${this.id}:${email}`, 20, 3600]]);
+    if (!r.ok) return tooMany(r.retry);
     const env = this.serverEnv();
-    const canLook = !!proof?.viewer || this.settings.PUBLIC === '1';
-    const member = async () => {
-      const p = await loadPerms(env, { email });
-      return !!(p.role || p.super);
-    };
-    const ip = await ipKey(this.env, request);
-    const now = Math.floor(Date.now() / 1000);
-
-    if (url.pathname === '/api/auth/code') {
-      const r = await limit(this.env, [[`code:${this.id}:${email}`, 5, 3600], [`code-ip:${ip}`, 20, 3600]]);
-      if (!r.ok) return tooMany(r.retry);
-      // Someone who can't see the server gets a code only for an email that's already a member here
-      // (an invited admin, say). The answer is the same either way.
-      if (canLook || (await member())) {
-        const code = newCode();
-        await this.db.prepare(
-          'INSERT INTO login_codes (email, code_hash, expires_at, tries) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, tries = 0'
-        ).bind(email, await codeHash(this.id, email, code), now + CODE_MINUTES * 60).run();
-        const sent = await sendEmail(this.env, { to: email, ...codeEmail(code, this.settings.NAME || slug) });
-        if (!sent) return json({ error: 'The email couldn’t be sent. Try again in a minute.' }, 502);
-      }
-      return json({ ok: true });
+    const perms = await loadPerms(env, { email });
+    if (!(perms.role || perms.super)) {
+      // someone who can't see the server learns nothing about it
+      if (!(proof?.viewer || this.settings.PUBLIC === '1')) return json({ error: 'unauthorized' }, 401);
+      await setRoleStmt(this.db, email, 'member', 'sign-in').run();
+      forgetPerms(env, email);
     }
-
-    if (url.pathname === '/api/auth/verify') {
-      const r = await limit(this.env, [[`verify-ip:${ip}`, 30, 600]]);
-      if (!r.ok) return tooMany(r.retry);
-      const code = String(b?.code ?? '').replace(/\s/g, '');
-      const row = await this.db.prepare('SELECT code_hash, expires_at, tries FROM login_codes WHERE email = ?').bind(email).first();
-      const wrong = json({ error: 'That code isn’t right, or it has expired.' }, 400);
-      if (!row || row.expires_at < now || row.tries >= CODE_TRIES || !/^\d{6}$/.test(code)) return wrong;
-      if (!(await sameString(row.code_hash, await codeHash(this.id, email, code)))) {
-        await this.db.prepare('UPDATE login_codes SET tries = tries + 1 WHERE email = ?').bind(email).run();
-        return wrong;
-      }
-      await this.db.prepare('DELETE FROM login_codes WHERE email = ?').bind(email).run();
-      if (!(await member())) {
-        if (!canLook) return wrong;
-        // anyone who can see the server becomes a member by signing in on it
-        await setRoleStmt(this.db, email, 'member', 'sign-in').run();
-        forgetPerms(env, email);
-      }
-      const token = await signToken(this.env, { k: 'id', s: this.id, e: email, x: now + ID_DAYS * DAY });
-      return new Response(JSON.stringify({ ok: true, email }), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': cookie('mcs_id', token, { path, maxAge: ID_DAYS * DAY }) },
-      });
-    }
-    return json({ error: 'not found' }, 404);
+    return json({ ok: true, email });
   }
 }
-

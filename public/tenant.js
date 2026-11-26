@@ -1,10 +1,12 @@
 // Runs before app.js on a server's stats page (/s/<server>/). The Worker puts window.MCS on the page:
-// { base: '/s/<server>', slug, name, season, email, public }.
+// { base: '/s/<server>', slug, name, season, email, account, public }. email: who they are on this server (a
+// member); account: the mcstats account that's signed in, member here or not.
 //
 // 1. The page's code asks for /api/...; this sends those requests to /s/<server>/api/... instead, where
-//    this server's cookies go (they're Path=/s/<server>/). fetch and WebSocket both.
-// 2. The top bar gets a sign-in: an email code makes you a member of this server (chat, and whatever the
-//    owner lets you do). Signing in here means nothing on any other server.
+//    this server's viewer cookie goes (it's Path=/s/<server>/). fetch and WebSocket both.
+// 2. The top bar gets a sign-in: to an mcstats account (the site's /account page), which then becomes a
+//    member of this server (chat, and whatever the owner lets you do). Being a member here means nothing on
+//    any other server.
 (() => {
   const M = window.MCS;
   if (!M || !M.base) return;
@@ -62,68 +64,77 @@
     return e;
   };
 
-  function signInPanel(close) {
-    const err = h('p', { class: 'acct-err', role: 'alert', hidden: true });
-    const say = (msg) => { err.textContent = msg; err.hidden = !msg; };
-    const email = h('input', { class: 'adm-input', type: 'email', autocomplete: 'email', required: true, placeholder: 'you@example.org', 'aria-label': 'Email' });
-    const code = h('input', { class: 'adm-input', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]{6,7}', maxlength: '7', placeholder: '123456', 'aria-label': 'Code from the email' });
-    const send = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Email me a code' });
-    const step1 = h('form', { class: 'acct-form' },
-      h('label', { class: 'acct-label' }, 'Your email', email),
-      h('p', { class: 'acct-note', text: `To chat from the website or use admin pages on ${M.name}. Use the email the server’s owner has for you.` }),
-      send);
-    const go = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Sign in' });
-    const step2 = h('form', { class: 'acct-form', hidden: true },
-      h('label', { class: 'acct-label' }, 'The 6-digit code we emailed you', code),
-      h('div', { class: 'acct-row' }, go, h('button', { type: 'button', class: 'btn btn-quiet', text: 'Use another email' })));
-    step1.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      say('');
-      send.disabled = true;
-      try {
-        await post('/api/auth/code', { email: email.value });
-        step1.hidden = true;
-        step2.hidden = false;
-        code.focus();
-      } catch (x) {
-        say(x.message);
-      } finally {
-        send.disabled = false;
-      }
+  // Signing in is to an mcstats account, on the site's own /account page (it comes back here afterwards).
+  // Being someone on this server is asked for: the server's owner can see its members' emails.
+  const signInUrl = `/account?${new URLSearchParams({ next: `${M.base}/` })}`;
+  const signOut = () => {
+    const out = h('button', { type: 'button', class: 'btn', text: 'Sign out' });
+    out.addEventListener('click', async () => {
+      out.disabled = true;
+      // the account is the site's, not this server's: asked of /api/account directly, not under /s/<server>
+      await realFetch('/api/account/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+      location.reload();
     });
-    step2.querySelector('.btn-quiet').addEventListener('click', () => { step2.hidden = true; step1.hidden = false; email.focus(); });
-    step2.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      say('');
+    return out;
+  };
+
+  const ENTER_KEY = `mcs-enter:${M.slug}`;
+  const enter = () => post('/api/auth/enter');
+
+  function signInPanel(close) {
+    const pop = h('div', { class: 'acct-pop', role: 'dialog', 'aria-label': 'Sign in' });
+    pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    const what = `To chat from the website or use admin pages on ${M.name}.`;
+    if (!M.account) {
+      const go = h('a', { class: 'btn btn-primary', href: signInUrl, text: 'Sign in to mcstats' });
+      // remembered in this tab only: coming back signed in finishes what this click asked for (see mount)
+      go.addEventListener('click', () => { try { sessionStorage.setItem(ENTER_KEY, '1'); } catch { /* they'll press Continue */ } });
+      pop.append(
+        h('p', { class: 'acct-note', text: `${what} Use the email the server’s owner has for you.` }),
+        h('div', { class: 'acct-row' }, go),
+        h('p', { class: 'acct-note', text: 'No account yet? You can create one there. The server’s owner will see your email.' }));
+      setTimeout(() => go.focus(), 0);
+      return pop;
+    }
+    // signed in to mcstats, but nobody on this server yet
+    const err = h('p', { class: 'acct-err', role: 'alert', hidden: true });
+    const go = h('button', { type: 'button', class: 'btn btn-primary', text: `Continue as ${M.account}` });
+    go.addEventListener('click', async () => {
       go.disabled = true;
       try {
-        await post('/api/auth/verify', { email: email.value, code: code.value });
+        await enter();
         location.reload();
       } catch (x) {
-        say(x.message);
+        err.textContent = x.message;
+        err.hidden = false;
         go.disabled = false;
       }
     });
-    const pop = h('div', { class: 'acct-pop', role: 'dialog', 'aria-label': 'Sign in' }, step1, step2, err);
-    setTimeout(() => email.focus(), 0);
-    pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    pop.append(
+      h('p', { class: 'acct-note', text: `You’re signed in to mcstats as ${M.account}. ${what}` }),
+      h('div', { class: 'acct-row' }, go),
+      h('p', { class: 'acct-note', text: 'The server’s owner will see your email.' }),
+      err,
+      h('div', { class: 'acct-row' }, signOut()));
+    setTimeout(() => go.focus(), 0);
     return pop;
   }
 
   function accountPanel() {
-    const out = h('button', { type: 'button', class: 'btn', text: 'Sign out' });
-    out.addEventListener('click', async () => {
-      out.disabled = true;
-      await post('/api/auth/logout').catch(() => {});
-      location.reload();
-    });
     return h('div', { class: 'acct-pop', role: 'dialog', 'aria-label': 'Account' },
-      h('p', { class: 'acct-note', text: `Signed in on ${M.name} as ${M.email}.` }), out);
+      h('p', { class: 'acct-note', text: `Signed in as ${M.email}.` }),
+      h('div', { class: 'acct-row' }, h('a', { class: 'btn', href: '/account', text: 'Your account' }), signOut()));
   }
 
   function mount() {
     const right = document.querySelector('.top-right');
     if (!right) return;
+    // Back from signing in, which the button on this page sent them to: they asked to be someone here.
+    try {
+      const asked = sessionStorage.getItem(ENTER_KEY);
+      sessionStorage.removeItem(ENTER_KEY);
+      if (asked && M.account && !M.email) enter().then(() => location.reload(), () => {});
+    } catch { /* no storage: the Continue button does it */ }
     const wrap = h('div', { class: 'acct' });
     const btn = h('button', { type: 'button', class: M.email ? 'btn btn-quiet acct-btn' : 'btn acct-btn', 'aria-expanded': 'false', text: M.email ? M.email : 'Sign in' });
     if (M.email) btn.title = `Signed in as ${M.email}`;

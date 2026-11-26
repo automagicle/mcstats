@@ -322,46 +322,17 @@ function heldMatrix(display, right, size, slim) {
   return m;
 }
 
-/* ---------- the egg's particles ---------- */
+/* ---------- particles around the player ---------- */
 
-// Egg SMP shows a particle aura around a player holding their egg in the off hand (core/Aura.java
-// in the egg mod). Every game tick (20 a second), with spin counting 0 to 15:
-//   - a small dust speck in the egg's main color somewhere around the body,
+// A particle aura around the model while it holds something in the off hand, as Egg SMP shows around
+// a player holding their egg (core/Aura.java in the egg mod; the Egg SMP add-on, public/addons/eggsmp/,
+// asks for it). spec.aura is its look: [r, g, b, r2, g2, b2, accent particle], the main color, the accent
+// color and the name of an accent particle below. Every game tick (20 a second), with spin counting 0 to 15:
+//   - a small dust speck in the main color somewhere around the body,
 //   - a main-color speck on a ring 0.72 blocks out, a sixteenth of a turn further round each tick
 //     and rising from 0.25 to 1.3 blocks,
 //   - an accent-color speck opposite it, sinking from 1.3 to 0.25,
-//   - and when spin is 0, two of the egg's own accent particle at shoulder height.
-// Colors and accent particles are the egg mod's (core/EggType.java). A cracked egg (no energy)
-// gives dim smoke instead.
-const AURA = {
-  life: [1.0, 0.31, 0.55, 0.79, 0.09, 0.29, 'end_rod'],
-  hunger: [0.84, 0.89, 0.35, 0.88, 0.48, 0.0, 'happy_villager'],
-  sky: [0.49, 0.83, 0.99, 0.01, 0.52, 0.78, 'enchant'],
-  gravity: [0.61, 0.79, 1.0, 0.15, 0.39, 0.92, 'small_gust'],
-  gambler: [0.96, 0.77, 0.27, 0.24, 0.86, 0.52, 'happy_villager'],
-  fire: [1.0, 0.48, 0.12, 1.0, 0.18, 0.05, 'flame'],
-  blood: [0.77, 0.09, 0.09, 1.0, 0.16, 0.16, 'crimson_spore'],
-  echo: [0.18, 0.83, 0.75, 0.06, 0.46, 0.43, 'sculk_soul'],
-  aqua: [0.24, 0.86, 1.0, 0.08, 0.40, 0.90, 'nautilus'],
-  meteor: [1.0, 0.94, 0.62, 1.0, 0.86, 0.42, 'end_rod'],
-  train: [0.88, 0.23, 0.23, 0.60, 0.64, 0.69, 'smoke'],
-  binding: [0.77, 0.80, 0.84, 0.89, 0.70, 0.25, 'crit'],
-  murica: [0.78, 0.06, 0.18, 0.24, 0.43, 1.0, 'firework'],
-  dung: [0.63, 0.41, 0.23, 0.55, 0.64, 0.17, 'composter'],
-  wizard: [0.69, 0.29, 1.0, 0.42, 0.12, 0.69, 'portal'],
-  redstone: [1.0, 0.23, 0.23, 0.55, 0.0, 0.0, 'electric_spark'],
-  fat: [1.0, 0.62, 0.71, 0.79, 0.42, 0.54, 'heart'],
-  woods: [0.24, 0.56, 0.23, 0.61, 0.80, 0.40, 'happy_villager'],
-  smite: [0.17, 0.72, 0.63, 0.49, 0.30, 1.0, 'nautilus'],
-  stash: [0.24, 0.86, 0.59, 0.77, 0.64, 0.35, 'happy_villager'],
-  sulfur: [0.91, 0.83, 0.30, 0.23, 0.23, 0.23, 'ash'],
-  subzero: [0.56, 0.85, 1.0, 0.91, 0.98, 1.0, 'snowflake'],
-  combo: [0.49, 0.83, 1.0, 0.91, 0.97, 1.0, 'crit'],
-  electric: [0.31, 0.85, 1.0, 1.0, 0.94, 0.48, 'electric_spark'],
-  deadshot: [0.88, 0.28, 0.28, 0.91, 0.78, 0.45, 'crit'],
-  purpur: [0.79, 0.63, 0.86, 0.66, 0.43, 0.66, 'end_rod'],
-};
-const AURA_CRACKED = [0.45, 0.45, 0.48, 0.28, 0.28, 0.3, 'smoke'];
+//   - and when spin is 0, two of the accent particle at shoulder height.
 
 const frames = (name, n, down = true) => Array.from({ length: n }, (_, i) => `${name}_${down ? n - 1 - i : i}`);
 const GENERIC = frames('generic', 8); // big to small, as dust and smoke shrink away
@@ -682,7 +653,7 @@ export async function mountPlayer(container, spec) {
   scene.add(root);
 
   // The egg's particles, only while the egg is in the hand and things may move.
-  const auraLook = spec.aura?.cracked ? AURA_CRACKED : AURA[spec.aura?.id];
+  const auraLook = Array.isArray(spec.aura) && spec.aura.length === 7 ? spec.aura : null;
   const aura = hasEgg && auraLook && !reducedMotion() ? await makeAura(scene, auraLook, keep) : null;
 
   if (cancelled()) {

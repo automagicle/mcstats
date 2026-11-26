@@ -14,10 +14,10 @@
 //   owner   everything, and the Roles tab (who's a member, and with what). Made with the server (/new).
 //   admin   everything but Roles.
 //   member  look and chat. Anyone who can see the server (its password, or it's public) becomes one by
-//           signing in with their email on it.
+//           choosing to use their mcstats account on it (src/tenant.js, /api/auth/enter).
 // Owners can switch single permissions on or off for anyone but an owner, and remove members.
 //
-// Super admins (the SUPER_ADMIN_EMAIL secret) run the site: once signed in on a server they can do
+// Super admins (the SUPER_ADMIN_EMAIL secret) run the site: signed in to that account, they can do
 // everything there, owners' things included, and can't be locked out.
 //
 //   GET  /api/admin/roles   everyone known to this server, with their role and permissions
