@@ -61,6 +61,16 @@ function forServer(request, url, rest, headers = {}) {
 }
 
 const page = (location) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } });
+// Link previews (Discord and the like) only load an og:image given as a full address, and the pages are
+// served from more than one host (workers.dev, the custom domain, localhost), so it's filled in per request.
+const absoluteOgImage = (rw, url) => rw.on('meta[property="og:image"]', {
+  element(e) { e.setAttribute('content', new URL(e.getAttribute('content') || '/og.png', url).href); },
+});
+async function withPreviewTags(res, url) {
+  if (!(res.headers.get('Content-Type') || '').includes('text/html')) return res;
+  return absoluteOgImage(new HTMLRewriter(), url).transform(res);
+}
+
 const joinPage = (slug) => page(`/join?server=${encodeURIComponent(slug)}`);
 
 async function ingest(request, env, url, ctx, kind) {
@@ -133,7 +143,7 @@ async function server(request, env, url, ctx, slug, rest) {
     ...ADDONS[id].scripts.map((src) => `<script src="${src}" defer></script>`),
   ]).join('');
   const script = `<script>window.MCS=${JSON.stringify(config).replace(/</g, '\\u003c')};</script><script src="/tenant.js"></script>`;
-  const out = new HTMLRewriter()
+  const out = absoluteOgImage(new HTMLRewriter(), url)
     // the server's accent color and tab style, on <html> before anything is drawn (src/look.js)
     .on('html', { element(e) { for (const [k, v] of Object.entries(lookAttrs(look))) e.setAttribute(k, v); } })
     .on('head', { element(e) { e.prepend(script, { html: true }); } })
@@ -174,6 +184,6 @@ export default {
     // the landing page's example players, in the game's own textures (only the few it uses)
     if (p.startsWith('/api/mc/') && request.method === 'GET') return serveHomeAsset(env, p.slice(8));
     if (p.startsWith('/api/')) return json({ error: 'not found' }, 404);
-    return env.ASSETS.fetch(request);
+    return withPreviewTags(await env.ASSETS.fetch(request), url);
   },
 };

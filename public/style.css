@@ -2357,7 +2357,7 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
    An introduction in the order a visitor needs it: one line and two buttons, the dashboard itself, then a
    section per thing it does, each a short heading, one sentence and a working example built from the
    dashboard's own parts (public/home.js). Text stays short; the examples do the explaining. */
-.home-main { max-width: 1152px; padding-bottom: 0; }
+.home-main { max-width: 1152px; padding-top: 0; padding-bottom: 0; } /* the sky sits against the top bar */
 .home-nav { display: flex; gap: 2px; margin-left: 18px; }
 .home-nav a { padding: 5px 10px; font-size: 14px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
 .home-nav a:hover { color: var(--ink); background: var(--hover); }
