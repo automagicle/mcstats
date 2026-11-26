@@ -159,12 +159,12 @@
   }
   function saveButton() {
     const label = h('span', { class: 'save-label' });
-    const btn = h('button', { type: 'button', class: 'btn save-btn' }, bookmark(), label);
+    const btn = h('button', { type: 'button', class: 'save-btn' }, bookmark(), label);
     const draw = () => {
       const on = M.saved === true;
       btn.classList.toggle('on', on);
       btn.setAttribute('aria-pressed', String(on));
-      label.textContent = on ? 'Saved' : 'Add to my servers';
+      label.textContent = on ? 'Saved' : 'Save';
       btn.title = on ? 'On your servers list. Click to take it off.' : `Add ${M.name} to your servers list`;
       btn.setAttribute('aria-label', on ? `${M.name} is on your servers list` : `Add ${M.name} to your servers list`);
     };
@@ -210,8 +210,10 @@
       if (asked && M.saved === false) save.set(true);
     } catch { /* no storage: the button does it */ }
     const wrap = h('div', { class: 'acct' });
-    const btn = h('button', { type: 'button', class: M.email ? 'btn btn-quiet acct-btn' : 'btn acct-btn', 'aria-expanded': 'false', text: M.email ? M.email : 'Sign in' });
-    if (M.email) btn.title = `Signed in as ${M.email}`;
+    // signed in, the bar shows only the first letter of their email; the whole address is in the tooltip and the menu
+    const btn = M.email
+      ? h('button', { type: 'button', class: 'acct-btn acct-me', 'aria-expanded': 'false', 'aria-label': `Account: ${M.email}`, title: `Signed in as ${M.email}`, text: M.email.trim().charAt(0) || '?' })
+      : h('button', { type: 'button', class: 'btn acct-btn', 'aria-expanded': 'false', text: 'Sign in' });
     let pop = null;
     const close = () => {
       pop?.remove();

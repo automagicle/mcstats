@@ -327,7 +327,7 @@
     const err = errorLine();
     const list = h('ol', { class: 'my-list', 'aria-label': 'Your servers' });
     const empty = h('div', { class: 'my-empty', hidden: true },
-      h('p', { class: 'site-sub', text: 'Nothing here yet. Servers you make or join show up by themselves, and every server’s page has an “Add to my servers” button at the top.' }));
+      h('p', { class: 'site-sub', text: 'Nothing here yet. Servers you make or join show up by themselves, and every server’s page has a Save button at the top.' }));
     const rows = new Map(); // slug -> { li, name, meta, online }
     let dragging = null;
 

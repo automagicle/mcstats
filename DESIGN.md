@@ -192,7 +192,9 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 with cut corners, `--surface-2`; current `--picked` with the green line under it; done `--good` with the pixel check (`--pixel-check`, a 9×7 two-pixel-thick tick); current row `--surface-2` with frame. Under 800px a row of squares above the step |
 | Checklist box | `.wiz-check-head input` | the checkbox above, at 20×20; a ticked row takes a 10% `--good` wash |
 | Visibility choice | `.wiz-vis` | two raised options (Private, Public) side by side, one column under 520px; the picked one `--picked` with the green line under it |
-| Save button | `.save-btn` | a `.btn` in a server's top bar with a 10×12 pixel bookmark; saved: the bookmark filled in `--series-1`, "Saved". Icon only under 900px |
+| Top bar | `.top` | left is the server: `.top-id` (name, then its status as a plain 8px square and 13px `--ink-2` text, no box), a 1px `--edge` rule, the tabs. Right is the visitor's own: search, Save, account, theme, each a 28px control set in (`--surface-2`, cut corners). Under 600px the status takes what's left of the first row and is cut short |
+| Save button | `.save-btn` | a set-in 28px control with a 10×12 pixel bookmark and "Save"; saved: the bookmark filled in `--series-1`, icon only (as it is under 900px) |
+| Account square | `.acct-me` | signed in: a 28×28 set-in square with the first letter of their email in `400 20px var(--px-20)`; the whole address is its tooltip and is in its menu. Signed out it's a plain `.btn` "Sign in" |
 | Server list row | `.my-row` | `/servers`: set into the panel (`--surface-2`, cut corners), 8px apart; grip (six 2px dots) · name 15px/700 with role tag and address · status square (`--good` up, `--critical` down) and 16px heads · quiet Remove that turns solid `--critical` for its second click. Under 560px who's on drops under the name |
 | Waiting strip | `.wiz-wait` | `--surface-2`, 14.5px/600, a 10px square that blinks in two steps (`--warning`); green (`--good` mixed 16% into `--surface`) once it's done |
 

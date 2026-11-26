@@ -2117,6 +2117,8 @@ function renderLive() {
     live.dataset.state = 'up';
     text.textContent = `${last.online} online`;
   }
+  // on a phone the status is cut short beside the server's name, so the whole of it is a hover away
+  if (!live.title) live.title = text.textContent;
 
   const zone = new Intl.DateTimeFormat('en-US', { timeZone: TZ, timeZoneName: 'short' })
     .formatToParts(new Date()).find((x) => x.type === 'timeZoneName')?.value || TZ;

@@ -206,8 +206,12 @@ a { color: inherit; }
   image-rendering: pixelated;
 }
 
-.top-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.top-right { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
 .brand { white-space: nowrap; flex: none; }
+/* the server's name with its status beside it, as plain text: it says something about the server, it isn't a control */
+.top-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.top .live { padding: 0; background: none; box-shadow: none; gap: 7px; color: var(--ink-2); }
+.top .live .dot { flex: none; }
 .live {
   display: inline-flex;
   align-items: center;
@@ -220,7 +224,7 @@ a { color: inherit; }
   min-width: 0;
 }
 #live-text { overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 420px) { .top-right { gap: 8px; } .live { padding: 5px 8px; } }
+@media (max-width: 420px) { .top-right { gap: 6px; } }
 
 /* light/dark switch: a knob slides between a sun and a moon */
 .theme-toggle {
@@ -722,8 +726,10 @@ tr.link:hover td { background: var(--hover); }
 
 /* ---------- header tabs ---------- */
 
-.top-left { display: flex; align-items: center; gap: 22px; min-width: 0; }
-.tabs { display: flex; gap: 6px; }
+.top-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.tabs { display: flex; gap: 6px; flex: none; }
+/* a hairline between the server and its pages */
+.top-left > .tabs { padding-left: 18px; border-left: 1px solid var(--edge); }
 .tabs a {
   padding: 5px 12px;
   font-size: 14px;
@@ -758,7 +764,10 @@ tr.link:hover td { background: var(--hover); }
 .tabs a:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
 @media (max-width: 600px) {
   .top { flex-wrap: wrap; row-gap: 10px; }
-  .top-left { display: contents; }
+  .top-left, .top-id { display: contents; }
+  .top-left > .tabs { padding-left: 0; border-left: 0; }
+  /* the status takes what's left of the first row and is cut short, so the row never wraps */
+  .top .live { flex: 1 1 0; }
   .tabs { order: 2; width: 100%; }
   .tabs a { flex: 1; text-align: center; }
   /* first row: name, then live status and theme; second row: pages and the IGN / Name switch */
@@ -1301,7 +1310,7 @@ a.msg-name:hover { text-decoration: underline; }
 .search-btn:hover, .search-btn[aria-expanded="true"] { color: var(--ink); background: var(--grid); }
 .search-btn kbd { padding: 1px 6px; background: var(--grid); color: var(--muted); font: inherit; font-size: 11px; }
 .search-btn:hover kbd { background: var(--raise); }
-@media (max-width: 1100px) { .search-btn-label, .search-btn kbd { display: none; } .search-btn { padding: 7px; } .top-left { gap: 16px; } .tabs a { padding: 5px 9px; } }
+@media (max-width: 1100px) { .search-btn-label, .search-btn kbd { display: none; } .search-btn { padding: 7px; } .top-left { gap: 14px; } .top-left > .tabs { padding-left: 14px; } .tabs a { padding: 5px 9px; } }
 
 .search-pop {
   position: fixed;
@@ -2362,6 +2371,9 @@ input[type="color"]::-webkit-color-swatch, input[type="color"]::-moz-color-swatc
 
 .acct { position: relative; flex: none; }
 .acct-btn { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* signed in: the first letter of their email, in the pixel face, in a square the size of the other controls */
+.acct-me { width: 28px; padding: 0; max-width: none; overflow: visible; font: 400 20px/1 var(--px-20); color: var(--ink); text-transform: uppercase; }
+.acct-me:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 .acct-pop {
   position: absolute;
   top: calc(100% + 8px);
@@ -2383,12 +2395,36 @@ input[type="color"]::-webkit-color-swatch, input[type="color"]::-moz-color-swatc
 .acct-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .acct-err { margin: 0; font-size: 13px; color: var(--critical); }
 @media (max-width: 640px) {
-  .acct-btn { max-width: 120px; padding: 6px 10px; }
+  .acct-btn:not(.acct-me) { max-width: 120px; padding: 6px 10px; }
 }
 
 /* "Add to my servers" in a server's top bar (public/tenant.js): a plain button with a pixel bookmark, filled in
    the accent once the server is on the list. Icon only where the bar is tight. */
-.save-btn { display: inline-flex; align-items: center; gap: 7px; flex: none; white-space: nowrap; }
+.save-btn, .acct-me {
+  --pc: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  gap: 7px;
+  flex: none;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 10px;
+  border: 0;
+  background: var(--surface-2);
+  box-shadow: var(--pixel);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.save-btn:hover:not(:disabled), .acct-me:hover, .acct-me[aria-expanded="true"] { --pc: var(--grid); background: var(--grid); color: var(--ink); }
+/* saved: the filled bookmark says it, so the word goes */
+.save-btn.on { padding: 0; width: 28px; }
+.save-btn.on .save-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .save-icon { width: 10px; height: 12px; flex: none; fill-rule: evenodd; }
 .save-line { fill: currentColor; }
 .save-fill { fill: transparent; }
@@ -2397,7 +2433,7 @@ input[type="color"]::-webkit-color-swatch, input[type="color"]::-moz-color-swatc
 .save-btn:disabled { opacity: 0.6; cursor: default; }
 .save-toast a { color: inherit; font-weight: 700; text-underline-offset: 3px; }
 @media (max-width: 900px) {
-  .save-btn { padding: 6px 9px; }
+  .save-btn { padding: 0; width: 28px; }
   .save-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 

@@ -30,10 +30,14 @@
 <body>
   <header class="top">
     <div class="top-left">
-      <a class="brand" href="#/">
-        <span class="logo" aria-hidden="true"></span>
-        <span>mcstats</span>
-      </a>
+      <!-- the server: its name and whether it's up. Everything on the right is the visitor's own. -->
+      <div class="top-id">
+        <a class="brand" href="#/">
+          <span class="logo" aria-hidden="true"></span>
+          <span>mcstats</span>
+        </a>
+        <div id="live" class="live" aria-live="polite"><span class="dot"></span><span id="live-text">Loading…</span></div>
+      </div>
       <nav class="tabs" aria-label="Pages">
         <a href="#/" id="tab-activity">Activity</a>
         <a href="#/combat" id="tab-combat">Combat</a>
@@ -50,7 +54,6 @@
       <div class="seg name-toggle" id="name-toggle" role="group" aria-label="Show players by" hidden>
         <button type="button" data-v="ign" title="Show in-game names">IGN</button><button type="button" data-v="real" title="Show real names">Name</button>
       </div>
-      <div id="live" class="live" aria-live="polite"><span class="dot"></span><span id="live-text">Loading…</span></div>
       <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
         <span class="theme-knob"></span>
         <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>
