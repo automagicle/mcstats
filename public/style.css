@@ -499,7 +499,13 @@ tr.link:hover td { background: var(--hover); }
 .tooltip .row { display: flex; align-items: center; gap: 6px; }
 .tooltip .key { width: 12px; height: 2px; flex: none; }
 
-.foot { max-width: 1152px; margin: 0 auto; padding: 0 16px 32px; font-size: 12.5px; color: var(--muted); }
+.foot {
+  max-width: 1152px; margin: 0 auto; padding: 0 16px 32px; font-size: 12.5px; color: var(--muted);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 32px;
+}
+/* the season menu sits at the far end, apart from the footer's links */
+.foot-season { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.foot-season-select { margin-left: 0; width: auto; font-size: inherit; color: var(--ink-2); field-sizing: content; }
 .foot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .foot a:hover { color: var(--ink); }
 
@@ -2302,6 +2308,30 @@ p.site-more { margin-bottom: 0; }
 .home-modline a { color: var(--ink-2); text-underline-offset: 3px; }
 .home-modline a:hover { color: var(--ink); }
 .srv-mod { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+
+/* Admin → Server → Seasons */
+.sea-list { display: grid; gap: 10px; }
+.sea-row { display: grid; gap: 8px; padding: 12px 14px; background: var(--surface-2); }
+.sea-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-size: 14.5px; }
+.sea-tag { font-size: 12.5px; color: var(--muted); }
+.sea-tag.on { color: var(--good); font-weight: 600; }
+.sea-tag.wait { color: var(--warning); font-weight: 600; }
+.sea-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; }
+.sea-field { display: grid; gap: 4px; }
+.sea-field .adm-time { padding: 6px 8px; font-size: 14px; }
+.sea-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sea-remove, .sea-danger { color: var(--critical); }
+.sea-dialog .btn:disabled, .sea-actions .btn:disabled, .sea-fields .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.sea-dialog { width: min(480px, calc(100vw - 32px)); }
+.sea-dialog [hidden] { display: none !important; }
+.sea-opts { display: grid; gap: 8px; margin: 0 0 12px; }
+.sea-opt { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; cursor: pointer; }
+.sea-opt input { margin: 3px 0 0; flex: none; }
+.sea-opt .site-hint { display: block; margin-top: 2px; }
+.sea-later { display: grid; gap: 6px; padding-left: 22px; }
+.sea-later .adm-time { width: auto; justify-self: start; padding: 6px 8px; font-size: 14px; }
+.sea-copy { margin: 0 0 14px; }
+.sea-confirm { display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
 .srv-mod .btn { text-decoration: none; }
 .auth-show { font-size: 13px; }
 .auth-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 0; }

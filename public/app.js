@@ -1967,17 +1967,42 @@ function renderLive() {
 
   const zone = new Intl.DateTimeFormat('en-US', { timeZone: TZ, timeZoneName: 'short' })
     .formatToParts(new Date()).find((x) => x.type === 'timeZoneName')?.value || TZ;
-  $('#foot').replaceChildren(
+  // The footer is drawn again every minute; the season picker beside it is made once and left alone, so it
+  // doesn't close under someone who has it open.
+  const foot = $('#foot');
+  if (!foot.firstChild) {
+    foot.append(el('span', { class: 'foot-info', id: 'foot-info' }));
+    const picker = seasonPicker();
+    if (picker) foot.append(picker);
+  }
+  $('#foot-info').replaceChildren(
     `Times in ${zone}`
       + (archived() ? ` · Season ${SEASON} archive` : last ? ` · updated ${fmt(last.ts, { hour: 'numeric', minute: '2-digit' })}` : '')
-      + (DUMMY ? ' · sample data' : '') + ' · ',
-    SEASON === CURRENT_SEASON
-      ? el('a', { href: seasonHref(1), text: 'Season 1 archive' })
-      : el('a', { href: seasonHref(CURRENT_SEASON), text: 'Current season' }),
+      + (DUMMY ? ' · sample data' : ''),
     ...(site.admin ? [' · ', el('a', { href: '#/admin', text: 'Admin' })] : []),
     // for whoever runs a server and came looking: said plainly, so players know it isn't for them
     ' · ', el('a', { href: '/mod', text: 'Server owners: get the mod' }));
   renderSeasonNote();
+}
+
+// Switching seasons: a menu at the far end of the footer, away from its links, so it takes two deliberate
+// steps and can't be hit by a stray click. Only there once the server has more than one season.
+function seasonPicker() {
+  if (CURRENT_SEASON < 2) return null;
+  const select = el('select', { class: 'tile-select foot-season-select', id: 'season-pick', 'aria-label': 'Season' });
+  for (let n = CURRENT_SEASON; n >= 1; n--) {
+    const o = el('option', { value: String(n), text: n === CURRENT_SEASON ? `Season ${n} (current)` : `Season ${n}` });
+    o.selected = n === SEASON;
+    select.append(o);
+  }
+  select.addEventListener('change', () => {
+    // the same page of the other season, where there is one (Admin belongs to the server, not a season)
+    const hash = location.hash.startsWith('#/admin') ? '' : location.hash;
+    location.href = seasonHref(Number(select.value)) + hash;
+  });
+  // coming back with the browser's Back button restores the page as it was left: show the season it is
+  window.addEventListener('pageshow', () => { select.value = String(SEASON); });
+  return el('label', { class: 'foot-season' }, el('span', { text: 'Season' }), select);
 }
 
 const seasonSpan = () => {
@@ -1997,8 +2022,11 @@ function renderSeasonNote() {
     const s = st.season;
     const when = s?.start && !s.started
       ? ` It starts ${fmt(s.start, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` : '';
-    kids = [el('strong', { text: `No Season ${SEASON} data yet.` }), `${when} `,
-      el('a', { href: seasonHref(SEASON - 1), text: `See Season ${SEASON - 1}’s archived stats →` })];
+    // a server's first season has no season before it to point to
+    kids = SEASON > 1
+      ? [el('strong', { text: `No Season ${SEASON} data yet.` }), `${when} `,
+        el('a', { href: seasonHref(SEASON - 1), text: `See Season ${SEASON - 1}’s archived stats →` })]
+      : [el('strong', { text: 'No data yet.' }), ' Stats show up here once the server’s first upload or status check comes in.'];
   } else if (st && SEASON === CURRENT_SEASON && seasonOpens() && nowSec() < seasonOpens()) {
     kids = [el('strong', { text: `Season ${SEASON} starts ${fmt(seasonOpens(), { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.` })];
   } else if (st && SEASON < CURRENT_SEASON && !$('#view-home').hidden) {
@@ -6285,7 +6313,7 @@ async function showAdmin() {
 // The server's name, its address, who can see it, its join password and how its pages look (accent
 // color, tab style), saved together with the bar at the bottom (POST /api/admin/server,
 // src/serveradmin.js). The look is tried on the page as it's picked, and put back if it isn't saved.
-const srv = { data: null, draft: null, busy: false, errors: {}, custom: '#b4552d' };
+const srv = { data: null, draft: null, busy: false, errors: {}, custom: '#b4552d', seasons: null, seasonEdits: {}, seasonErrors: {} };
 const HEX6 = /^#[0-9a-f]{6}$/;
 // Text on a custom accent: white, unless the color is too light for white to be read on it (as src/look.js).
 function inkOn(hex) {
@@ -6344,7 +6372,9 @@ async function showServerAdmin() {
   }
   if (!srv.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
   const keep = srv.draft && srvChanges().length; // unsaved changes from an earlier visit stay
-  srv.data = await api('/api/admin/server');
+  [srv.data, srv.seasons] = await Promise.all([api('/api/admin/server'), api('/api/admin/seasons').catch(() => null)]);
+  // season times are typed and shown in the server's time zone, which this tab may have opened before learning
+  if (srv.seasons?.tz) setTz(srv.seasons.tz);
   if (!keep) {
     srv.draft = srvDraftFrom(srv.data);
     srv.errors = {};
@@ -6392,6 +6422,194 @@ async function srvSave() {
     $('#server-admin').classList.remove('adm-busy');
     if (srv.draft) renderServerAdmin();
   }
+}
+
+/* ---------- Admin → Server: seasons (src/seasonadmin.js) ---------- */
+
+// A season is a stretch of time, so everything here can be put back: making one, moving a start, removing
+// the newest. Each is its own action with its own confirmation, apart from the Save bar below.
+
+// The time typed into a datetime-local box, in the dashboard's time zone -> unix seconds (null if empty).
+function inputTs(v) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(v || '');
+  return m ? zonedTs(m[1], +m[2], +m[3]) : null;
+}
+const seasonWhen = (ts) => fmt(ts, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+async function seasonsPost(body) {
+  try {
+    const res = await fetch('/api/admin/seasons', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const r = await res.json().catch(() => null);
+    return res.ok ? { ok: true, data: r } : { ok: false, error: r?.error || `The server answered ${res.status}.`, field: r?.field };
+  } catch {
+    return { ok: false, error: 'Couldn’t reach the server. Nothing was changed.' };
+  }
+}
+
+// Seasons changed: every page of this server reads differently now. Start again from the main page.
+function seasonsReload() {
+  const to = `${BASE}/#/admin/server`;
+  if (location.pathname === `${BASE}/`) { location.hash = '#/admin/server'; location.reload(); } else location.assign(to);
+}
+
+// A dialog that asks for the season's name to be typed before its button works. build(d) adds what's
+// particular to it and returns the rest of the request; the request is sent with { confirm }.
+function seasonDialog({ title, intro, phrase, go, danger, build }) {
+  const dialog = el('dialog', { class: 'lv-dialog sea-dialog' });
+  const err = el('div', { class: 'lv-gate-error', role: 'alert' });
+  const typed = el('input', { class: 'adm-input', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: phrase, 'aria-label': `Type ${phrase} to confirm` });
+  const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
+  const submit = el('button', { class: `btn ${danger ? 'sea-danger' : 'btn-primary'}`, type: 'submit', text: go });
+  submit.disabled = true;
+  const matches = () => typed.value.trim().replace(/\s+/g, ' ').toLowerCase() === phrase.toLowerCase();
+  typed.addEventListener('input', () => { submit.disabled = !matches(); });
+  const form = el('form', { autocomplete: 'off' }, el('h2', { text: title }), ...intro.map((t) => el('p', { text: t })));
+  const more = build ? build(form) : () => ({});
+  form.append(
+    el('label', { class: 'sea-confirm' }, el('span', {}, 'To confirm, type ', el('strong', { text: phrase })), typed),
+    err, el('div', { class: 'range-actions' }, cancel, submit));
+  dialog.append(form);
+  cancel.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => dialog.remove());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!matches() || submit.disabled) return;
+    const extra = more();
+    if (extra.error) { err.textContent = extra.error; return; }
+    submit.disabled = cancel.disabled = true;
+    err.textContent = '';
+    const r = await seasonsPost({ ...extra, confirm: typed.value });
+    if (r.ok) return seasonsReload();
+    err.textContent = r.error;
+    cancel.disabled = false;
+    submit.disabled = !matches();
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function newSeasonDialog() {
+  const cur = srv.seasons.current, n = cur + 1;
+  seasonDialog({
+    title: `Start Season ${n}`,
+    intro: [
+      `The main page becomes Season ${n} and starts empty. Season ${cur} ends when Season ${n} starts, and stays as an archive you can switch to at the bottom of the page.`,
+      'Nothing is deleted. A season is only a stretch of time: you can move its start later, or remove the season again, here.',
+    ],
+    phrase: `Season ${n}`,
+    go: `Start Season ${n}`,
+    build(form) {
+      const pick = (value, label) => {
+        const radio = el('input', { type: 'radio', name: 'sea-when', value });
+        return [radio, el('label', { class: 'sea-opt' }, radio, el('span', { text: label }))];
+      };
+      const [nowRadio, nowOpt] = pick('now', 'It starts now');
+      const [laterRadio, laterOpt] = pick('later', 'It starts at a set time');
+      nowRadio.checked = true;
+      const at = el('input', { class: 'adm-input adm-time', type: 'datetime-local', 'aria-label': `When Season ${n} starts`, min: localInput(nowSec()) });
+      at.value = localInput(currentHourEnd());
+      at.disabled = true;
+      const note = el('span', { class: 'site-hint', text: `Times are in ${TZ}. Until then the main page says when Season ${n} starts, and Season ${cur} keeps recording.` });
+      const later = el('div', { class: 'sea-later', hidden: '' }, at, note);
+      const sync = () => { at.disabled = !laterRadio.checked; later.hidden = !laterRadio.checked; };
+      nowRadio.addEventListener('change', sync);
+      laterRadio.addEventListener('change', sync);
+      const copy = el('input', { type: 'checkbox' });
+      copy.checked = true;
+      form.append(
+        el('div', { class: 'sea-opts', role: 'radiogroup', 'aria-label': 'When it starts' }, nowOpt, laterOpt, later),
+        el('label', { class: 'sea-opt sea-copy' }, copy, el('span', {},
+          `Bring over Season ${cur}’s teams, players and sign-in emails`,
+          el('span', { class: 'site-hint', text: `Without them Season ${n} has no teams, and nobody can chat from the website until players are added in Admin → Settings.` }))));
+      return () => {
+        const out = { action: 'create', copy: copy.checked };
+        if (laterRadio.checked) {
+          const ts = inputTs(at.value);
+          if (!ts) return { error: 'Pick when it starts.' };
+          out.start = ts;
+        }
+        return out;
+      };
+    },
+  });
+}
+
+function removeSeasonDialog() {
+  const cur = srv.seasons.current;
+  seasonDialog({
+    title: `Remove Season ${cur}`,
+    intro: [
+      `Season ${cur} stops existing. Everything recorded since it started counts as Season ${cur - 1} again, and Season ${cur - 1} goes back to being the main page.`,
+      `Nothing is deleted, and Season ${cur}’s teams and players are kept in case you make it again.`,
+    ],
+    phrase: `Season ${cur}`,
+    go: `Remove Season ${cur}`,
+    danger: true,
+    build: () => () => ({ action: 'remove' }),
+  });
+}
+
+// The Seasons card of Admin → Server. card: the tab's own card maker; redraw: draws the tab again.
+function renderSeasons(card, redraw) {
+  const { current, seasons, now } = srv.seasons;
+  const rows = [...seasons].reverse().map((s) => {
+    const n = s.n;
+    const tag = n === current
+      ? (s.started ? ['Current', 'on'] : [`Starts ${seasonWhen(s.start)}`, 'wait'])
+      : (s.ended ? ['Archive', ''] : [`Still recording until Season ${n + 1} starts`, 'wait']);
+    const head = el('div', { class: 'sea-head' }, el('strong', { text: `Season ${n}` }), el('span', { class: `sea-tag ${tag[1]}`, text: tag[0] }));
+    const ends = s.end != null ? `${s.ended ? 'Ended' : 'Ends'} ${seasonWhen(s.end)}, when Season ${n + 1} ${s.ended ? 'started' : 'starts'}.` : 'No end yet: it runs until a new season starts.';
+    if (n === 1) {
+      return el('div', { class: 'sea-row' }, head,
+        el('span', { class: 'site-hint', text: `Starts at the first thing recorded. ${ends}` }));
+    }
+    const saved = { start: s.start ? localInput(s.start) : '', opens: s.opens ? localInput(s.opens) : '' };
+    const edit = srv.seasonEdits[n] || (srv.seasonEdits[n] = { ...saved });
+    const box = (key, label) => {
+      const input = el('input', { class: 'adm-input adm-time', type: 'datetime-local', 'aria-label': `Season ${n}: ${label}`, 'data-fk': `sea:${n}:${key}` });
+      input.value = edit[key];
+      input.addEventListener('input', () => { edit[key] = input.value; save.disabled = !changed(); });
+      return el('label', { class: 'sea-field' }, el('span', { class: 'site-label', text: label }), input);
+    };
+    const changed = () => edit.start !== saved.start || edit.opens !== saved.opens;
+    const save = el('button', { type: 'button', class: 'btn', text: 'Save', 'data-fk': `sea:${n}:save` });
+    save.disabled = !changed();
+    save.addEventListener('click', async () => {
+      const start = inputTs(edit.start), opens = inputTs(edit.opens);
+      if (!start) { srv.seasonErrors[n] = 'Pick when it starts.'; return redraw(`sea:${n}:start`); }
+      // moving a start across time that's already been recorded changes which season that time counts for
+      if (start !== s.start && Math.min(start, s.start ?? start) <= now) {
+        const [a, b] = start < s.start ? [n, n - 1] : [n - 1, n];
+        if (!confirm(`Move the start of Season ${n} to ${seasonWhen(start)}?\n\nWhat was recorded between the old and new start will count as Season ${a} instead of Season ${b}. Nothing is deleted, and you can move it back.`)) return;
+      }
+      save.disabled = true;
+      const r = await seasonsPost({ action: 'update', n, start, ...(opens && { opens }) });
+      if (!r.ok) { srv.seasonErrors[n] = r.error; return redraw(`sea:${n}:${r.field === 'opens' ? 'opens' : 'start'}`); }
+      seasonsReload();
+    });
+    const err = srv.seasonErrors[n] ? el('span', { class: 'site-err', role: 'alert', text: srv.seasonErrors[n] }) : null;
+    delete srv.seasonErrors[n];
+    return el('div', { class: 'sea-row' }, head,
+      el('div', { class: 'sea-fields' }, box('start', 'Starts'), box('opens', 'Officially opens (optional)'), save),
+      err,
+      el('span', { class: 'site-hint', text: `${ends} A start on the hour is tidiest. Set “officially opens” only if recording starts before the season does: charts then mark the opening, and what’s recorded before it still counts.` }));
+  });
+  const add = el('button', { type: 'button', class: 'btn', text: `Start Season ${current + 1}…`, 'data-fk': 'sea:new' });
+  add.addEventListener('click', newSeasonDialog);
+  const waiting = !seasons.at(-1).started;
+  add.disabled = waiting || current >= 99;
+  const remove = current > 1 ? el('button', { type: 'button', class: 'btn sea-remove', text: `Remove Season ${current}…`, 'data-fk': 'sea:remove' }) : null;
+  remove?.addEventListener('click', removeSeasonDialog);
+  return card('Seasons', `each season is a stretch of time; times are in ${TZ}`,
+    el('div', { class: 'sea-list' }, ...rows),
+    el('div', { class: 'sea-actions' }, add, remove),
+    el('span', { class: 'site-hint', text: waiting
+      ? `Season ${current} hasn’t started yet, so another can’t be made. Change when it starts above, or remove it.`
+      : 'A new season gives the main page a fresh start and keeps this one as an archive. Nothing recorded is ever deleted by changing seasons.' }));
 }
 
 function renderServerAdmin(focusKey) {
@@ -6529,7 +6747,8 @@ function renderServerAdmin(focusKey) {
   }
   drawBar();
 
-  root.replaceChildren(details, access, look, ...(mod ? [mod] : []), ...(extras ? [extras] : []), bar);
+  const seasonsCard = srv.seasons ? renderSeasons(card, redraw) : null;
+  root.replaceChildren(details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(mod ? [mod] : []), ...(extras ? [extras] : []), bar);
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
 }
 

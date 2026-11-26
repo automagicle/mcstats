@@ -24,6 +24,7 @@ import { parseStart } from './seasons.js';
 import { cleanAccent, TAB_STYLES } from './look.js';
 import { ADDONS, addonList } from './addons.js';
 import { handleServerAdmin } from './serveradmin.js';
+import { handleSeasons } from './seasonadmin.js';
 
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const MINUTE = 60_000;
@@ -316,6 +317,8 @@ export class Tenant extends DurableObject {
     const who = await this.access(proof);
     // the server's own details (name, address, password, look): they live here and in the directory
     if (who && url.pathname === '/api/admin/server') return handleServerAdmin(this, request, url, who);
+    // its seasons too: they're this object's settings
+    if (who && url.pathname === '/api/admin/seasons') return handleSeasons(this, request, url, who);
     return handleApi(request, this.serverEnv(who ? { WHO: who } : {}), url, this.ctx);
   }
 
