@@ -16,6 +16,7 @@ import { teamRows } from './teams.js';
 import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
 import { EMAIL_RE } from './session.js';
+import { connectedList, disconnectPlayer } from './connect.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -65,6 +66,8 @@ export async function adminState(env, season) {
   ]);
   const link = await linkStatus(env); // the server mod's web chat connection (src/link.js)
   return json({
+    // emails players connected from in game (/mcstats connect, src/connect.js): confirmed_at null while waiting
+    connected: await connectedList(db),
     season: season.n,
     // a name the same as the IGN is no real name (that's what a new player gets until one is given)
     roster: roster.results.map((r) => ({ ...r, name: r.name && r.name.toLowerCase() !== r.ign.toLowerCase() ? r.name : '' })),
@@ -245,6 +248,10 @@ const ACTIONS = {
     if (stmts.length) await db.batch(stmts);
   },
   // out of the chat log (and Combat, for a death), kept in deleted_chat so it can be put back
+  // { uuid }: the player's in-game account connection ends (src/connect.js)
+  async 'account.disconnect'(db, b) {
+    if (!(await disconnectPlayer(db, b.uuid))) return bad('bad uuid');
+  },
   async 'chat.delete'(db, b) {
     const id = chatId(b.id);
     if (!id) return bad('bad id');

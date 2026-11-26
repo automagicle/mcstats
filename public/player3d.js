@@ -317,8 +317,10 @@ function heldMatrix(display, right, size, slim) {
   mul(T(side * display.move[0], display.move[1], display.move[2]));
   mul(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rad(display.rot[0]), rad(display.rot[1]), rad(display.rot[2]), 'XYZ')));
   const [sx, sy, sz] = Array.isArray(display.scale) ? display.scale : [display.scale, display.scale, display.scale];
+  // a bigger picture (the spears' 32×32 in-hand one) still fills the same 16-pixel square, but the
+  // game keeps every item one pixel thick, so only the picture's width and height shrink to fit
   const k = 16 / size;
-  mul(new THREE.Matrix4().makeScale(sx * k, sy * k, sz * k));
+  mul(new THREE.Matrix4().makeScale(sx * k, sy * k, sz));
   return m;
 }
 

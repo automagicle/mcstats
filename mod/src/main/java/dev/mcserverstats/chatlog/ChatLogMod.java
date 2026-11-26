@@ -146,7 +146,8 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		ProfileStore profiles = new ProfileStore(dir.resolve("mcstats-profiles.json"));
 		GearReporter gear = new GearReporter(uploader, profiles);
 		ServerTickEvents.END_SERVER_TICK.register(gear::tick);
-		McstatsMenus menus = new McstatsMenus(profiles, link::page);
+		// players connect their mcstats account in game (2.3.0), to chat as themselves from the website
+		McstatsMenus menus = new McstatsMenus(profiles, link::page, new Accounts(link));
 		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
 				McstatsCommands.register(dispatcher, menus));
 		ServerTickEvents.END_SERVER_TICK.register(ChestGui::runQueued);

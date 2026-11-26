@@ -136,6 +136,8 @@ Choices are kept in `config/mcstats-profiles.json`.
 | `/mcstats stats [player]` | Every player's heads, or one player's stats |
 | `/mcstats top` | Leaderboards |
 | `/mcstats link [player]` | A link to your (or their) dashboard page |
+| `/mcstats connect [email]` | Connect your mcstats account: an anvil to type the email in (or give it here). Once someone signed in with that email clicks Connect above the dashboard's chat box, they chat from the website as you |
+| `/mcstats disconnect` | Stop that account chatting as you |
 | `/mcstats particle <name\|none>` | Set your particle effect without the menu |
 | `/mcstats reset` | Back to the automatic look |
 | `/mcstats help` | Lists these in game |
@@ -164,12 +166,10 @@ what's on it. An account gets on the list by entering a key on the dashboard, or
 | `/liveview access control <email>` | operators | Lets it watch and use controls. |
 | `/liveview access remove <email>` | operators | Takes it off the list. If it's watching, it's disconnected. |
 | `/liveview who` | operators | The dashboard accounts watching right now, and which have controls on. |
-| `/liveview optout`, `/liveview optin` | any player | Hide yourself from Liveview (your marker, inventory and actions), or come back. |
 
 Run the key commands in game rather than from the console, so the key stays out of the server log. Only the
-keys' hashes are kept, with the access list and the opt-out list, in `config/mcstats-liveview.json`; don't
-publish that file, and don't delete it to get a new key (that also forgets who opted out): run the command
-again. A new key replaces the old one at once. A new viewer key also empties the access list: everyone watching
+keys' hashes are kept, with the access list, in `config/mcstats-liveview.json`; don't publish that file, and
+don't delete it to get a new key: run the command again. A new key replaces the old one at once. A new viewer key also empties the access list: everyone watching
 is disconnected and has to enter it (or be allowed by name again). A new control key puts everyone back to
 watching only. To take access away from one person, use `/liveview access remove`.
 

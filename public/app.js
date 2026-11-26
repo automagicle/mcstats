@@ -546,8 +546,7 @@ function renderAbout() {
   if (iconUrl && img.getAttribute('src') !== iconUrl) img.src = iconUrl;
 }
 
-// What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP) and the Liveview
-// ones every player may use (LiveviewCommands.PLAYER_HELP). Keep them in step with the mod.
+// What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP). Keep them in step with the mod.
 const MC_COMMANDS = [
   ['/mcstats', 'Open the mcstats menu'],
   ['/mcstats profile', 'Choose what you hold and your particles on the website'],
@@ -555,11 +554,10 @@ const MC_COMMANDS = [
   ['/mcstats stats <player>', 'One player’s stats'],
   ['/mcstats top', 'Leaderboards'],
   ['/mcstats link', 'A link to your page on the website'],
+  ['/mcstats connect', 'Connect your mcstats account, to chat as yourself here'],
   ['/mcstats particle <name>', 'Set your particles (or none)'],
   ['/mcstats reset', 'Go back to the automatic look'],
   ['/mcstats help', 'This list, in game'],
-  ['/liveview optout', 'Hide yourself from Liveview'],
-  ['/liveview optin', 'Show yourself in Liveview again'],
 ];
 function renderCommands() {
   const list = $('#cmd-list');
@@ -4312,11 +4310,48 @@ function renderComposer() {
   chatInput.disabled = !can;
   chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
     : !me.ign && !me.admin
-    ? (me.email ? `${me.email} isn’t linked to a player yet, so it can’t send messages (an admin links it on Admin → Players)` : 'Sign in to send messages')
+    ? (me.email ? `${me.email} isn’t linked to a player yet · connect it in game with /mcstats connect` : 'Sign in to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"
     : `Message the server as ${me.admin ? 'Admin' : shownName(me.ign)} · /w to whisper`;
   $('#chat-compose-me').replaceChildren(me.admin ? adminTag() : me.ign ? headImg(me.ign, 24) : '');
+  renderConnectAsk();
   updateComposeCount();
+}
+
+// A player asked in game (/mcstats connect) to connect this account: say yes or no here. Yes, and this
+// account sends chat from the website as them (src/connect.js).
+function renderConnectAsk() {
+  const box = $('#chat-connect');
+  const ask = compose.me?.connect;
+  box.hidden = !ask;
+  if (!ask) return box.replaceChildren();
+  const answer = async (accept) => {
+    for (const b of box.querySelectorAll('button')) b.disabled = true;
+    try {
+      const res = await fetch('/api/chat/connect', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ accept }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `failed (${res.status})`);
+      toast(accept ? `Connected: you chat as ${shownName(ask.name)} now` : 'Request turned down');
+      await loadComposer();
+    } catch (err) {
+      toast(err.message, { error: true });
+      for (const b of box.querySelectorAll('button')) b.disabled = false;
+    }
+  };
+  const yes = el('button', { type: 'button', class: 'btn btn-primary', text: 'Connect' });
+  const no = el('button', { type: 'button', class: 'btn btn-quiet', text: 'Not me' });
+  yes.addEventListener('click', () => answer(true));
+  no.addEventListener('click', () => answer(false));
+  const switching = compose.me.ign && compose.me.ign.toLowerCase() !== ask.name.toLowerCase();
+  box.replaceChildren(
+    el('span', { class: 'chat-connect-text' }, headImg(ask.name, 20),
+      el('span', { text: `${ask.name} asked in game to connect this account (${compose.me.email}). `
+        + (switching ? `You'd chat as them instead of ${shownName(compose.me.ign)}.` : 'You’ll chat from here as them.') })),
+    el('span', { class: 'chat-connect-actions' }, yes, no));
 }
 
 function updateComposeCount() {
@@ -8225,6 +8260,18 @@ function renderAdmin() {
             button('Remove', () => { draft.emails = draft.emails.filter((x) => x !== e); redraw(); }, 'btn-quiet', `pe:${pick}:email:${e.email}`)))) : null,
           el('div', { class: 'adm-form' }, emailBox, button('Add email', addEmail, '', `pe:${pick}:email-add`))),
         'Someone signed in to mcstats with one of these can send chat from the Chat log as this player.'));
+
+      // the email they connected themselves, in game with /mcstats connect (it counts once that account said yes)
+      const own = (d.connected || []).find((c) => lower(c.name) === pick);
+      season.push(field('Connected account',
+        own ? el('ul', { class: 'adm-list adm-emails' }, el('li', {},
+          el('span', { class: 'adm-main', text: own.email }),
+          el('span', { class: 'muted', text: own.confirmed_at ? ` connected ${ago(own.confirmed_at)}` : ` asked ${ago(own.requested_at)}, waiting for that account to say yes` }),
+          button('Disconnect', () => {
+            if (confirm(`Disconnect ${own.email} from ${name}? They can connect again in game.`)) adminDo({ action: 'account.disconnect', uuid: own.uuid }, 'Disconnected');
+          }, 'btn-quiet', `pe:${pick}:own-off`)))
+          : el('span', { class: 'muted', text: 'None. A player connects one themselves in game, with /mcstats connect.' }),
+        'The mcstats account the player connected in game. Signed in with it, someone chats from the website as this player.'));
 
       // every season: hidden, merged
       const hide = el('input', { type: 'checkbox', 'data-fk': `pe:${pick}:hide` });

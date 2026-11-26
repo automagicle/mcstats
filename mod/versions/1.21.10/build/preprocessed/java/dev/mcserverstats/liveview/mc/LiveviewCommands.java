@@ -2,7 +2,6 @@ package dev.mcserverstats.liveview.mc;
 
 import dev.mcserverstats.liveview.KeyController;
 import dev.mcserverstats.liveview.LogOnce;
-import dev.mcserverstats.liveview.OptOutController;
 import dev.mcserverstats.liveview.keys.KeyStore;
 import dev.mcserverstats.liveview.relay.RelayLink;
 import com.mojang.brigadier.CommandDispatcher;
@@ -17,7 +16,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * {@code /liveview}: players hide themselves from it, and operators make its two keys and see who is watching.
+ * {@code /liveview}: operators make its two keys, choose who may watch and see who is watching.
  *
  * <p>VERIFIED by javap on the 26.2 merged jar: {@code Commands.hasPermission(PermissionCheck)} returns a
  * {@code PermissionProviderCheck}, which implements {@code Predicate}; {@code Commands.LEVEL_ADMINS};
@@ -29,14 +28,12 @@ public final class LiveviewCommands {
 	private LiveviewCommands() {
 	}
 
-	public static void register(CommandDispatcher<CommandSourceStack> dispatcher, OptOutController optOut, KeyController keys,
+	public static void register(CommandDispatcher<CommandSourceStack> dispatcher, KeyController keys,
 			Supplier<List<RelayLink.Watcher>> watchers) {
 		dispatcher.register(
 				Commands.literal("liveview")
 						.executes(context -> help(context.getSource()))
 						.then(Commands.literal("help").executes(context -> help(context.getSource())))
-						.then(Commands.literal("optout").executes(context -> toggle(context.getSource(), optOut, true)))
-						.then(Commands.literal("optin").executes(context -> toggle(context.getSource(), optOut, false)))
 						.then(Commands.literal("who")
 								.requires(dev.mcserverstats.compat.Compat.admins())
 								.executes(context -> who(context.getSource(), watchers)))
@@ -60,8 +57,6 @@ public final class LiveviewCommands {
 	// Every /liveview command, each a line you can click to put it in the chat box. Operators also see theirs.
 	// The same list is on the dashboard's Liveview page (public/liveview.js, LIVEVIEW_COMMANDS).
 	private static final String[][] PLAYER_HELP = {
-			{"/liveview optout", "Hide yourself from Liveview"},
-			{"/liveview optin", "Show yourself in Liveview again"},
 			{"/liveview help", "This list"},
 	};
 	private static final String[][] OPERATOR_HELP = {
@@ -92,25 +87,6 @@ public final class LiveviewCommands {
 		return Component.literal("  " + command).withStyle(style -> style.withColor(ChatFormatting.AQUA)
 						.withClickEvent(dev.mcserverstats.compat.Compat.suggestCommand(typed)))
 				.append(Component.literal("  " + line[1]).withStyle(ChatFormatting.GRAY));
-	}
-
-	private static int toggle(CommandSourceStack source, OptOutController optOut, boolean hide) {
-		try {
-			ServerPlayer player = source.getPlayer();
-			if (player == null) {
-				source.sendFailure(Component.literal("Only a player can use /liveview optout and /liveview optin."));
-				return 0;
-			}
-			boolean changed = hide ? optOut.optOut(player.getUUID()) : optOut.optIn(player.getUUID());
-			String text = hide
-					? (changed ? "You are hidden from Liveview." : "You were already hidden from Liveview.")
-					: (changed ? "You are visible to Liveview again." : "You were already visible to Liveview.");
-			source.sendSuccess(() -> Component.literal(text), false);
-			return 1;
-		} catch (Throwable thrown) {
-			LogOnce.warn("command-liveview", "Liveview command failed", thrown);
-			return 0;
-		}
 	}
 
 	private static int access(CommandSourceStack source, KeyController keys) {

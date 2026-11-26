@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,7 +40,7 @@ import java.util.function.Supplier;
  * to the dashboard's relay. Nothing here costs anything until someone watches: the game's textures are only fetched
  * and packed when the first viewer arrives.
  */
-public final class LiveviewRuntime implements OptOutController, KeyController {
+public final class LiveviewRuntime implements KeyController {
 	private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
 	private final AssetStore assetStore = new AssetStore();
 	private final Supplier<LiveSettings> settings;
@@ -52,7 +51,6 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 	private final AtomicBoolean bootStarted = new AtomicBoolean();
 	private final AtomicBoolean assetsStarted = new AtomicBoolean();
 	private final AtomicBoolean stop = new AtomicBoolean();
-	private final Set<UUID> optOut = ConcurrentHashMap.newKeySet();
 	private final AtomicBoolean skipEntitySample = new AtomicBoolean();
 	private final AtomicBoolean entityThrottled = new AtomicBoolean();
 	private final Object keysFile = new Object();
@@ -386,10 +384,6 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 		return tick;
 	}
 
-	public Set<UUID> optOut() {
-		return optOut;
-	}
-
 	public Set<UUID> subscribedPlayers() {
 		PlayerHub current = hub;
 		return current == null ? Set.of() : current.subscribedPlayers();
@@ -517,56 +511,6 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 	}
 
 	@Override
-	public boolean optOut(UUID uuid) {
-		if (uuid == null || !optOut.add(uuid)) {
-			return false;
-		}
-		queuePersist();
-		PlayerHub current = hub;
-		if (current != null) {
-			current.submitInventories(List.of(InventorySample.unavailable(uuid)));
-		}
-		return true;
-	}
-
-	@Override
-	public boolean optIn(UUID uuid) {
-		if (uuid == null || !optOut.remove(uuid)) {
-			return false;
-		}
-		queuePersist();
-		PlayerHub current = hub;
-		if (current != null) {
-			current.requestInventoryPoll();
-		}
-		return true;
-	}
-
-	private void queuePersist() {
-		try {
-			tasks.submit(this::persistOptOut);
-		} catch (RuntimeException thrown) {
-			LogOnce.warn("opt-out-queue", "Liveview could not queue an opt-out save", thrown);
-		}
-	}
-
-	private void persistOptOut() {
-		KeyStore store = keys;
-		if (store == null) {
-			return;
-		}
-		try {
-			synchronized (keysFile) {
-				store.saveOptOut(Set.copyOf(optOut));
-			}
-		} catch (IOException thrown) {
-			LogOnce.warn("opt-out-save", "Liveview could not write opt-out uuids", thrown);
-		} catch (Throwable thrown) {
-			LogOnce.warn("opt-out-save-unexpected", "Liveview failed while writing opt-out uuids", thrown);
-		}
-	}
-
-	@Override
 	public void resetKey(KeyStore.Level level, Consumer<Result> done) {
 		Path dir = configDir;
 		if (dir == null || !bootStarted.get()) {
@@ -628,7 +572,6 @@ public final class LiveviewRuntime implements OptOutController, KeyController {
 				synchronized (keysFile) {
 					keys = KeyStore.load(configDir);
 				}
-				optOut.addAll(keys.optOut());
 			} catch (IOException thrown) {
 				LogOnce.logger().warn("Liveview is off: {}. Make a new viewer key in game with /liveview key viewer to start afresh.", thrown.getMessage());
 			}

@@ -8,6 +8,7 @@ import { advancementsFor, ingestAdvancements } from './advancements.js';
 import { ingestOnline } from './online.js';
 import { serveItem, serveSkin, serveTexture } from './mcassets.js';
 import { connectLink, playerFor, sendWebChat, webChatMe } from './link.js';
+import { answerConnect } from './connect.js';
 import { ADMIN_SENDER, readWhispers } from './whisper.js';
 import { canonName, canonUuid, marks, playerGroup } from './aliases.js';
 import { hiddenSessions, hourlyWithoutHidden, notHidden, withoutHidden } from './hidden.js';
@@ -97,6 +98,18 @@ export async function handleApi(request, env, url, ctx) {
   if (url.pathname === '/api/chat/send') {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
     return sendWebChat(request, env, url, who);
+  }
+  // A player asked in game to connect this account (/mcstats connect): its yes or no (src/connect.js).
+  if (url.pathname === '/api/chat/connect') {
+    if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+    const origin = request.headers.get('Origin');
+    if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
+    if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return json({ error: 'expected JSON' }, 415);
+    if (!who.email) return json({ error: 'Sign in to connect a player.' }, 403);
+    const b = await request.json().catch(() => null);
+    if (!b || typeof b.accept !== 'boolean') return json({ error: 'expected { accept }' }, 400);
+    const r = await answerConnect(env, who, b.accept);
+    return json(r.body, r.status);
   }
   // Liveview: admins watching the world live, behind the server's own keys (src/liveview.js).
   if (url.pathname === '/api/liveview' || url.pathname.startsWith('/api/liveview/')) return handleLiveview(request, env, url, who, ctx);

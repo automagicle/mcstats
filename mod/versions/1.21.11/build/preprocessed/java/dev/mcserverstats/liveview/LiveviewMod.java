@@ -45,7 +45,7 @@ public final class LiveviewMod {
 	private final Supplier<RelayLink.Target> target;
 	private final Runnable infoChanged;
 	private volatile LiveviewRuntime runtime;
-	private final ActionHooks actions = new ActionHooks(this::onAction, this::optOutSet, this::onTouch);
+	private final ActionHooks actions = new ActionHooks(this::onAction, this::onTouch);
 	private final Controls controls = new Controls();
 	private int settingsTick;
 
@@ -88,7 +88,7 @@ public final class LiveviewMod {
 		actions.register();
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			try {
-				LiveviewCommands.register(dispatcher, controls, controls, this::watchers);
+				LiveviewCommands.register(dispatcher, controls, this::watchers);
 			} catch (Throwable thrown) {
 				LogOnce.warn("commands", "Liveview failed to register commands", thrown);
 			}
@@ -172,7 +172,7 @@ public final class LiveviewMod {
 				}
 				if (tick % 2 == 0) {
 					try {
-						PlayerSampler.sample(server, runtime.optOut()).ifPresent(runtime::onSamples);
+						PlayerSampler.sample(server).ifPresent(runtime::onSamples);
 					} catch (Throwable thrown) {
 						LogOnce.warn("player-tick", "Liveview failed a player sample", thrown);
 					}
@@ -184,7 +184,7 @@ public final class LiveviewMod {
 							runtime.armEntityThrottled();
 						} else {
 							boolean throttled = runtime.consumeEntityThrottled();
-							EntitySampler.sample(server, runtime.optOut(), runtime.entityRadius(), runtime.cameraInterest())
+							EntitySampler.sample(server, runtime.entityRadius(), runtime.cameraInterest())
 									.ifPresent(frame -> runtime.onEntities(frame.withThrottled(throttled)));
 							if (runtime.entityQueuesFull()) {
 								runtime.armEntitySkip();
@@ -214,7 +214,7 @@ public final class LiveviewMod {
 					try {
 						Set<UUID> wanted = runtime.subscribedPlayers();
 						if (!wanted.isEmpty()) {
-							List<InventorySample> samples = InventorySampler.sample(server, wanted, runtime.optOut());
+							List<InventorySample> samples = InventorySampler.sample(server, wanted);
 							runtime.onInventories(samples);
 						}
 					} catch (Throwable thrown) {
@@ -255,30 +255,13 @@ public final class LiveviewMod {
 		}
 	}
 
-	private Set<UUID> optOutSet() {
-		LiveviewRuntime current = runtime;
-		return current == null ? Set.of() : current.optOut();
-	}
-
 	private List<RelayLink.Watcher> watchers() {
 		LiveviewRuntime current = runtime;
 		return current == null ? List.of() : current.watchers();
 	}
 
 	/** Commands are registered with this stable object; it forwards to whichever runtime is current. */
-	private final class Controls implements OptOutController, KeyController {
-		@Override
-		public boolean optOut(UUID uuid) {
-			LiveviewRuntime current = runtime;
-			return current != null && current.optOut(uuid);
-		}
-
-		@Override
-		public boolean optIn(UUID uuid) {
-			LiveviewRuntime current = runtime;
-			return current != null && current.optIn(uuid);
-		}
-
+	private final class Controls implements KeyController {
 		@Override
 		public void resetKey(KeyStore.Level level, Consumer<Result> done) {
 			LiveviewRuntime current = runtime;

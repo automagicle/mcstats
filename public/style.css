@@ -1109,6 +1109,21 @@ a.msg-name:hover { text-decoration: underline; }
   border-top: 1px solid var(--edge);
 }
 .chat-compose[hidden] { display: none; }
+/* a player asked in game (/mcstats connect) to connect the signed-in account */
+.chat-connect {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 9px 12px 9px 14px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.chat-connect[hidden] { display: none; }
+.chat-connect-text { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-connect-actions { display: flex; gap: 8px; }
 .chat-compose-me { flex: none; display: flex; }
 .chat-compose-me:empty { display: none; }
 .chat-compose-me img { width: 24px; height: 24px; image-rendering: pixelated; background: var(--surface-2); }

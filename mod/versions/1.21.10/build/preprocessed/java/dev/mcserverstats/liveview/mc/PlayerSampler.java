@@ -24,8 +24,7 @@ public final class PlayerSampler {
 	// Player.getPlainTextName, ServerPlayer.level, Level.dimension, ResourceKey.location, ResourceLocation.toString,
 	// LivingEntity.getHealth/getMaxHealth, Player.getFoodData, FoodData.getFoodLevel/getSaturationLevel,
 	// ServerPlayer.gameMode, GameType.getName, Player.getInventory, Inventory.getSelectedSlot/getSelectedItem/getItem.
-	public static Optional<List<PlayerSample>> sample(MinecraftServer server, Set<UUID> optedOut) {
-		Set<UUID> hidden = optedOut == null ? Set.of() : optedOut;
+	public static Optional<List<PlayerSample>> sample(MinecraftServer server) {
 		List<ServerPlayer> players;
 		try {
 			players = List.copyOf(server.getPlayerList().getPlayers());
@@ -37,9 +36,6 @@ public final class PlayerSampler {
 		for (ServerPlayer player : players) {
 			try {
 				UUID uuid = player.getUUID();
-				if (hidden.contains(uuid)) {
-					continue;
-				}
 				String name = player.getPlainTextName();
 				Inventory inventory = player.getInventory();
 				FoodData food = player.getFoodData();

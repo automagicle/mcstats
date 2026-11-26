@@ -1285,16 +1285,36 @@ const glintTexture = { item: null, armor: null };
 function loadImage(url) {
   return new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
 }
+// The mod hands assets to the relay one at a time, so a burst of several dozen can outlast the relay's wait and come
+// back 504 (nothing is cached on a failure). A few at a time, each retried with a growing pause, all get through.
+async function retrying(job, tries = 5) {
+  for (let i = 0; ; i++) {
+    try { return await job(); } catch (error) { if (i >= tries - 1) throw error; }
+    await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
+  }
+}
+async function pooled(jobs, size) {
+  let next = 0;
+  const worker = async () => { while (next < jobs.length) { const job = jobs[next++]; try { await job(); } catch (error) { /* kept going */ } } };
+  await Promise.all(Array.from({ length: Math.min(size, jobs.length) }, worker));
+}
+function fetchJson(url) {
+  return fetch(url, { credentials: 'same-origin' }).then((r) => { if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); });
+}
+// What the screens and text need first: the font, then the container textures, then the rest.
+const FILE_ORDER = ['font_json', 'font_ascii', 'font_accented', 'font_nonlatin', 'inventory', 'generic_54', 'shulker_box', 'dispenser', 'hopper', 'slot_helmet', 'slot_chestplate', 'slot_leggings', 'slot_boots', 'slot_shield'];
+function fileRank(name) { const i = FILE_ORDER.indexOf(name); return name === 'items' ? -1 : i < 0 ? FILE_ORDER.length : i; }
 
 async function loadFiles(meta) {
   const f = (meta && meta.files) || {};
   const jobs = [];
-  if (f.items) jobs.push(fetch(f.items, { credentials: 'same-origin' }).then((r) => r.ok ? r.json() : null).then((j) => { files.items = j; }));
-  if (f.font_json) jobs.push(fetch(f.font_json, { credentials: 'same-origin' }).then((r) => r.ok ? r.json() : null).then((j) => { files.fontJson = j; }));
+  if (f.items) jobs.push(['items', () => retrying(() => fetchJson(f.items)).then((j) => { files.items = j; })]);
+  if (f.font_json) jobs.push(['font_json', () => retrying(() => fetchJson(f.font_json)).then((j) => { files.fontJson = j; })]);
   for (const [name, url] of Object.entries(f)) {
-    if (typeof url === 'string' && url.endsWith('.png')) jobs.push(loadImage(url).then((img) => files.images.set(name, img)));
+    if (typeof url === 'string' && url.endsWith('.png')) jobs.push([name, () => retrying(() => loadImage(url)).then((img) => files.images.set(name, img))]);
   }
-  await Promise.allSettled(jobs);
+  jobs.sort((a, b) => fileRank(a[0]) - fileRank(b[0]));
+  await pooled(jobs.map(([, job]) => job), 4);
   buildFont();
   // text drawn before the font arrived used stand-ins: draw it again in the game's font
   textCache.clear();
@@ -1322,6 +1342,8 @@ async function loadFiles(meta) {
   for (const [key, root] of actorMeshes) { actorRoot.remove(root); disposeActor(root); actorMeshes.delete(key); }
   playerSig = '';
   schedulePaint();
+  // an open inventory or container screen was drawn without the textures and font: draw it again with them
+  if (screen) paintScreen();
 }
 
 // ---------- the default font (assets/minecraft/font/include/default.json bitmap providers) ----------
@@ -1445,6 +1467,16 @@ function textCanvas(segs, s = 2, { shadow = true, bg = null, pad = 1, color = 0x
   drawText(ctx, segs, pad, pad + 1, s, { shadow, color });
   if (textCache.size > 600) textCache.delete(textCache.keys().next().value);
   textCache.set(key, c);
+  return c;
+}
+// A canvas from textCanvas is shared through its cache, and a DOM node has one parent: appending the cached one to a
+// second slot would move it out of the first (every "64" but the last would vanish). Anything put into the page
+// gets its own copy.
+function textNode(segs, s, opts) {
+  const src = textCanvas(segs, s, opts);
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  c.getContext('2d').drawImage(src, 0, 0);
   return c;
 }
 const plain = (text, color = -1, flags = 0) => [[String(text), color, flags]];
@@ -1747,7 +1779,7 @@ function mcSlot(slot, x, y, { selected = false } = {}) {
       el.append(g);
     }
   } else {
-    el.append(textCanvas(plain(prettyId(slot.item).slice(0, 3)), 1));
+    el.append(textNode(plain(prettyId(slot.item).slice(0, 3)), 1));
   }
   if (slot.maxDamage > 0 && slot.damage > 0) {
     // ItemStack.getBarWidth / getBarColor: 13 px, hue from red (0) to green (1/3).
@@ -1762,7 +1794,7 @@ function mcSlot(slot, x, y, { selected = false } = {}) {
     el.append(bar);
   }
   if (slot.count > 1) {
-    const n = textCanvas(plain(String(slot.count)), GUI, { pad: 0 });
+    const n = textNode(plain(String(slot.count)), GUI, { pad: 0 });
     n.style.cssText = 'position:absolute;inset:auto;right:' + (-1 * GUI) + 'px;bottom:' + (-2 * GUI) + 'px;width:' + (n.width) + 'px;height:' + n.height + 'px';
     el.append(n);
   }
@@ -1867,12 +1899,48 @@ function screenBase(imgName, w, parts) {
     c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;image-rendering:pixelated';
     el.append(c);
   } else {
-    el.style.background = '#c6c6c6'; el.style.borderRadius = '6px';
+    // The texture hasn't arrived (yet): the same panel in the game's GUI colors, slot frames added by framedSlots.
+    const c = document.createElement('canvas');
+    c.width = w; c.height = height;
+    const g = c.getContext('2d');
+    const px = (color, x, y, cw, ch) => { g.fillStyle = color; g.fillRect(x, y, cw, ch); };
+    px('#000000', 3, 0, w - 6, 1); px('#000000', 0, 3, 1, height - 6); px('#000000', 3, height - 1, w - 6, 1); px('#000000', w - 1, 3, 1, height - 6);
+    px('#000000', 1, 1, 2, 2); px('#000000', w - 3, 1, 2, 2); px('#000000', 1, height - 3, 2, 2); px('#000000', w - 3, height - 3, 2, 2);
+    px('#c6c6c6', 1, 3, w - 2, height - 6); px('#c6c6c6', 3, 1, w - 6, height - 2);
+    px('#ffffff', 3, 1, w - 6, 2); px('#ffffff', 1, 3, 2, height - 6); px('#ffffff', 3, 3, 1, 1);
+    px('#555555', 3, height - 3, w - 6, 2); px('#555555', w - 3, 3, 2, height - 6); px('#555555', w - 4, height - 4, 1, 1);
+    c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;image-rendering:pixelated';
+    el.append(c);
+    el.fallbackPanel = g;
   }
   return el;
 }
+// On the stand-in panel, each slot gets the game's slot frame: #373737 top-left, #FFFFFF bottom-right, #8B8B8B inside.
+function framedSlots(el) {
+  const g = el.fallbackPanel;
+  if (!g) return el;
+  for (const slot of el.querySelectorAll(':scope > .mc-slot')) {
+    const x = parseFloat(slot.style.left) / GUI - 1, y = parseFloat(slot.style.top) / GUI - 1;
+    g.fillStyle = '#373737'; g.fillRect(x, y, 17, 17);
+    g.fillStyle = '#ffffff'; g.fillRect(x + 1, y + 1, 17, 17);
+    g.fillStyle = '#8b8b8b'; g.fillRect(x + 1, y + 1, 16, 16);
+  }
+  return el;
+}
+// The outline sprite the game draws in an empty armor or off-hand slot (InventoryMenu's slot backgrounds).
+function slotSprite(slotEl, name) {
+  const img = files.images.get(name);
+  if (!img || slotEl.querySelector('canvas')) return slotEl;
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  c.className = 'slot-bg';
+  slotEl.prepend(c);
+  return slotEl;
+}
 function screenLabel(el, segs, x, y) {
-  const c = textCanvas(segs, GUI, { shadow: false, pad: 0, color: 0x404040 });
+  const c = textNode(segs, GUI, { shadow: false, pad: 0, color: 0x404040 });
   c.className = 'label';
   c.style.left = (x * GUI) + 'px'; c.style.top = ((y - 1) * GUI) + 'px';
   el.append(c);
@@ -1882,10 +1950,18 @@ function screenLabel(el, segs, x, y) {
 // make(index, x, y, opts) draws one slot: read-only on the player page, editable over the world (editSlot).
 function inventoryScreen(p, slotMap, make = (index, x, y, opts) => mcSlot(slotMap.get(index), x, y, opts)) {
   const el = screenBase('inventory', 176, [[0, 166]]);
-  [39, 38, 37, 36].forEach((index, i) => el.append(make(index, 8, 8 + i * 18)));
-  el.append(make(40, 77, 62));
+  const armorSprites = ['slot_helmet', 'slot_chestplate', 'slot_leggings', 'slot_boots'];
+  [39, 38, 37, 36].forEach((index, i) => el.append(slotSprite(make(index, 8, 8 + i * 18), armorSprites[i])));
+  el.append(slotSprite(make(40, 77, 62), 'slot_shield'));
   for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) el.append(make(9 + r * 9 + c, 8 + c * 18, 84 + r * 18));
   for (let c = 0; c < 9; c++) el.append(make(c, 8 + c * 18, 142, { selected: p && c === p.selectedSlot }));
+  framedSlots(el);
+  if (el.fallbackPanel) {
+    // the doll's black window and the 2x2 crafting grid with its output, as in inventory.png
+    const g = el.fallbackPanel;
+    g.fillStyle = '#000000'; g.fillRect(25, 7, 51, 72);
+    for (const [x, y] of [[98, 18], [116, 18], [98, 36], [116, 36], [154, 28]]) { g.fillStyle = '#373737'; g.fillRect(x - 1, y - 1, 17, 17); g.fillStyle = '#ffffff'; g.fillRect(x, y, 17, 17); g.fillStyle = '#8b8b8b'; g.fillRect(x, y, 16, 16); }
+  }
   screenLabel(el, plain('Crafting'), 97, 8);
   const doll = dollCanvas(p);
   if (doll) { doll.className = 'doll'; doll.style.left = (26 * GUI) + 'px'; doll.style.top = (8 * GUI) + 'px'; doll.style.width = (49 * GUI) + 'px'; doll.style.height = (70 * GUI) + 'px'; el.append(doll); }
@@ -1897,7 +1973,7 @@ function chestScreen(titleSegs, rows, slotList, base = 0) {
   screenLabel(el, titleSegs, 8, 6);
   const map = new Map(slotList.map((s) => [s.slot, s]));
   for (let i = 0; i < rows * 9; i++) el.append(mcSlot(map.get(base + i), 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
-  return el;
+  return framedSlots(el);
 }
 // The vanilla container screens with the player's inventory underneath (ChestMenu, ShulkerBoxMenu, DispenserMenu,
 // HopperMenu, and the ender chest's ChestMenu): main rows at invY, the hotbar 58 below. Slots move items (see slotDown).
@@ -1924,7 +2000,7 @@ function containerScreen(view) {
   }
   screenLabel(el, title, 8, 6);
   playerRows(el, invY);
-  return el;
+  return framedSlots(el);
 }
 // The ender chest is a three-row ChestMenu over the player's own inventory.
 function enderScreen() {
@@ -1932,7 +2008,7 @@ function enderScreen() {
   for (let i = 0; i < 27; i++) el.append(editSlot('e', i, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
   screenLabel(el, plain('Ender Chest'), 8, 6);
   playerRows(el, 31 + 3 * 18);
-  return el;
+  return framedSlots(el);
 }
 function playerRows(el, invY) {
   const p = players.get(screenOwner());
@@ -2044,7 +2120,7 @@ function canEdit(side) {
   else if (itemMoves < 2) why = 'Moving items needs the newer mcstats mod on the Minecraft server. Update it, then reopen this screen.';
   else if (side === 'c' && !screen.view) why = 'The container is still loading.';
   else if (side !== 'c' && !screenOwner()) why = 'Pick whose inventory goes under the chest first.';
-  else if (side !== 'c' && !ownerReady()) why = inventoryUnavailable ? 'This inventory is hidden: the player left, or hid themselves with /liveview optout.' : 'The inventory is still loading.';
+  else if (side !== 'c' && !ownerReady()) why = inventoryUnavailable ? 'This inventory is hidden: the player left the server.' : 'The inventory is still loading.';
   if (!why) return true;
   if (screen.told !== why) { screen.told = why; toast(why, true); }
   return false;
@@ -4371,7 +4447,7 @@ function paintPlayer() {
   const p = selected ? players.get(selected) : null;
   if (!p) {
     setText('p-name', 'Player not online');
-    setText('p-where', 'They left the server, or hid themselves from Liveview with /liveview optout.');
+    setText('p-where', 'They left the server.');
     $('p-stats').hidden = true;
     $('p-inv').replaceChildren();
     $('p-ender').replaceChildren();
@@ -4414,7 +4490,7 @@ function paintTpTargets(p) {
 function paintInventory(p) {
   const host = $('p-inv');
   if (inventoryUnavailable) {
-    host.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'This inventory is hidden: the player left, or hid themselves with /liveview optout.' }));
+    host.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'This inventory is hidden: the player left the server.' }));
     $('p-ender').replaceChildren();
     return;
   }
@@ -5189,7 +5265,7 @@ function paintScreen() {
   let el = null;
   if (screen.kind === 'inventory' || screen.kind === 'ender') {
     const p = players.get(screen.uuid);
-    if (inventoryUnavailable || !p) el = Object.assign(document.createElement('div'), { className: 'empty', textContent: 'This inventory is hidden: the player left, or hid themselves with /liveview optout.' });
+    if (inventoryUnavailable || !p) el = Object.assign(document.createElement('div'), { className: 'empty', textContent: 'This inventory is hidden: the player left the server.' });
     else if (screen.kind === 'ender') el = enderScreen();
     else {
       el = inventoryScreen(p, slots, (index, x, y, opts) => editSlot('p', index, x, y, opts));

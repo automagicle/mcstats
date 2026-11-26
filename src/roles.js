@@ -26,6 +26,7 @@
 //                           { email, perms: { view, ... } }    set one member's permissions
 //                           { email, reset: true }             back to their role's permissions
 //                           { email, remove: true }            no longer a member
+import { connectedList } from './connect.js';
 import { currentSeason } from './seasons.js';
 import { json } from './util.js';
 
@@ -111,6 +112,10 @@ async function rolesState(env, serverAccess) {
     const role = ROLES.includes(r.role) ? r.role : 'member';
     const perms = fromRow(r);
     Object.assign(u, { role, perms, custom: PERMS.some((k) => perms[k] !== PRESETS[role][k]) });
+  }
+  // players who connected their account from in game (src/connect.js); Admin → Players' emails come first
+  for (const r of await connectedList(db)) {
+    if (r.confirmed_at && users.has(r.email.toLowerCase()) && !users.get(r.email.toLowerCase()).name) users.get(r.email.toLowerCase()).name = r.name;
   }
   // site operators are only listed once they've been here
   for (const e of list(env.SUPER_ADMIN_EMAIL)) if (users.has(e)) Object.assign(users.get(e), { super: true, perms: { ...ALL } });

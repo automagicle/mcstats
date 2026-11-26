@@ -252,6 +252,24 @@ export const MIGRATIONS = [
       sql.exec('CREATE TABLE IF NOT EXISTS server_icon (id INTEGER PRIMARY KEY CHECK (id = 1), png BLOB NOT NULL, updated_at INTEGER NOT NULL)');
     },
   },
+  {
+    // Players connecting their mcstats account from in game (/mcstats connect, src/connect.js): one row per
+    // player, with the email they typed. It counts once someone signed in with that email says yes on the
+    // website (confirmed_at); until then it's only a request. tries/tries_day: requests made today.
+    v: 5,
+    up(sql) {
+      sql.exec(`CREATE TABLE IF NOT EXISTS player_accounts (
+        uuid          TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        email         TEXT NOT NULL COLLATE NOCASE,
+        requested_at  INTEGER NOT NULL,
+        confirmed_at  INTEGER,
+        tries         INTEGER NOT NULL DEFAULT 0,
+        tries_day     INTEGER NOT NULL DEFAULT 0
+      )`);
+      sql.exec('CREATE INDEX IF NOT EXISTS player_accounts_email ON player_accounts (email)');
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;

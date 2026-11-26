@@ -608,8 +608,6 @@
         <p class="lv-commands-note">Typed in Minecraft chat. <code>/liveview help</code> lists them in game too.</p>
         <h3>Everyone</h3>
         <dl>
-          <dt><code>/liveview optout</code></dt><dd>Hide yourself from Liveview: your position and inventory stop being sent.</dd>
-          <dt><code>/liveview optin</code></dt><dd>Show yourself in Liveview again.</dd>
           <dt><code>/liveview help</code></dt><dd>List these commands in game.</dd>
         </dl>
         <h3>Operators</h3>
@@ -705,6 +703,7 @@
           <div id="chat-list"></div>
           <div class="chat-jump-wrap"><button type="button" class="chat-jump" id="chat-jump" hidden></button></div>
         </div>
+        <div class="chat-connect" id="chat-connect" role="status" hidden></div>
         <form class="chat-compose" id="chat-compose" autocomplete="off" hidden>
           <div class="chat-compose-err" id="chat-compose-err" role="alert" hidden></div>
           <span class="chat-compose-me" id="chat-compose-me" aria-hidden="true"></span>
