@@ -1,6 +1,8 @@
 // Who may send chat from the dashboard, and as whom: what Admin → Players and Roles say, nothing else.
 import { describe, expect, it } from 'vitest';
+import { env } from 'cloudflare:test';
 import { accountCookie, call, makeServer } from './helpers.js';
+import { hashAccountPassword } from '../src/password.js';
 
 const me = async (s, cookie) => (await call(`/s/${s.slug}/api/chat/me`, { cookie })).json();
 const save = (s, body) => call(`/s/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'config.save', ...body } });
@@ -41,5 +43,77 @@ describe('web chat identity', () => {
     expect(await me(s, steve)).toMatchObject({ blocked: true, ign: null });
     const roles2 = await off.json();
     expect(roles2.users.find((u) => u.email === 'steve@example.org').chat_as).toBe(null);
+  });
+
+  it('Roles picks who chats as Admin, whatever player they have, and puts them back', async () => {
+    const s = await makeServer('chat-as');
+    const roles = (body) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
+    const row = async (res, email) => (await res.json()).users.find((u) => u.email === email);
+    expect((await addMember(s, 'alex@example.org')).status).toBe(200);
+    const alex = await accountCookie('alex@example.org');
+    await save(s, { emails: [{ email: 'alex@example.org', ign: 'Alex' }] });
+    expect(await me(s, alex)).toMatchObject({ ign: 'Alex', admin: false });
+
+    // a member with a player, set to chat as Admin: the player stays linked
+    const on = await roles({ email: 'alex@example.org', chat_as: 'admin' });
+    expect(on.status, await on.clone().text()).toBe(200);
+    expect(await row(on, 'alex@example.org')).toMatchObject({ chat_as: '@admin', chat_admin: true, player: 'Alex' });
+    expect(await me(s, alex)).toMatchObject({ ign: null, admin: true });
+    // saving Players again doesn't undo it
+    await save(s, { emails: [{ email: 'alex@example.org', ign: 'Alex' }] });
+    expect(await me(s, alex)).toMatchObject({ admin: true });
+
+    const off = await roles({ email: 'alex@example.org', chat_as: 'player' });
+    expect(await row(off, 'alex@example.org')).toMatchObject({ chat_as: 'Alex', chat_admin: false });
+    expect(await me(s, alex)).toMatchObject({ ign: 'Alex', admin: false });
+
+    // a member with no player can be given Admin too; the owner's own can be set (it isn't access)
+    expect((await addMember(s, 'mod@example.org')).status).toBe(200);
+    expect(await row(await roles({ email: 'mod@example.org', chat_as: 'admin' }), 'mod@example.org')).toMatchObject({ chat_as: '@admin' });
+    expect((await roles({ email: s.owner, chat_as: 'admin' })).status).toBe(200);
+    // not for someone who isn't a member, and not by an admin
+    expect((await roles({ email: 'stranger@example.org', chat_as: 'admin' })).status).toBe(400);
+    expect((await roles({ email: 'alex@example.org', chat_as: 'everyone' })).status).toBe(400);
+    expect((await addMember(s, 'helper@example.org', 'admin')).status).toBe(200);
+    expect((await call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(403);
+  });
+});
+
+describe('making an owner', () => {
+  it('needs the account password of whoever does it, and can’t be undone from the page', async () => {
+    const s = await makeServer('own-more');
+    await env.DIRECTORY.prepare('UPDATE accounts SET pw_hash = ? WHERE email = ?').bind(await hashAccountPassword(env, 'the-owners-password'), s.owner).run();
+    const roles = (body, cookie = s.cookie) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie, body });
+    expect((await addMember(s, 'second@example.org', 'admin')).status).toBe(200);
+    const second = await accountCookie('second@example.org');
+
+    // no password, a wrong one, someone else's: nothing changes
+    expect((await roles({ email: 'second@example.org', role: 'owner' })).status).toBe(400);
+    const wrong = await roles({ email: 'second@example.org', role: 'owner', password: 'not-the-password' });
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toMatchObject({ field: 'password' });
+    // an admin can't make owners, themselves included
+    expect((await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' }, second)).status).toBe(403);
+    expect((await call(`/s/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(403);
+
+    const ok = await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' });
+    expect(ok.status, await ok.clone().text()).toBe(200);
+    expect((await ok.json()).users.find((u) => u.email === 'second@example.org')).toMatchObject({ role: 'owner', custom: false });
+    // the new owner has Roles, and the owner's settings
+    expect((await call(`/s/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(200);
+    expect((await (await call(`/s/${s.slug}/api/admin/server`, { cookie: second })).json()).can.owner).toBe(true);
+    // and stays one
+    expect((await roles({ email: 'second@example.org', role: 'admin' })).status).toBe(400);
+    expect((await roles({ email: 'second@example.org', remove: true })).status).toBe(400);
+    // someone who was never a member can be made one straight away
+    expect((await roles({ email: 'third@example.org', role: 'owner', password: 'the-owners-password' })).status).toBe(200);
+  });
+
+  it('stops taking guesses at the password', async () => {
+    const s = await makeServer('own-guess');
+    await env.DIRECTORY.prepare('UPDATE accounts SET pw_hash = ? WHERE email = ?').bind(await hashAccountPassword(env, 'the-owners-password'), s.owner).run();
+    const roles = (body) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
+    for (let i = 0; i < 5; i++) expect((await roles({ email: 'x@example.org', role: 'owner', password: `guess-${i}` })).status).toBe(403);
+    expect((await roles({ email: 'x@example.org', role: 'owner', password: 'the-owners-password' })).status).toBe(429);
   });
 });

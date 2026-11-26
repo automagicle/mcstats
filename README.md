@@ -143,8 +143,9 @@ ignores `roster-*.json`; see `roster.example.json` for the format:
 `email` can be a list) and run `npm run roster:remote` after each change; it replaces the season's roster, takes effect
 at once and needs no deploy. `npm run roster:local` does the same for local development.
 A player's emails are who may send chat from the dashboard as them, whether or not the player is on a team yet. They stay off the public pages; admins set them on Admin → Players.
-`"admins": ["someone@example.org"]` beside the teams lets people who aren't players send chat too; their messages show
-with a yellow **Admin** tag instead of a name (in game: `[Web] [Admin] message`).
+Who sends chat as **Admin** (a yellow Admin tag instead of a name; in game: `[Web] [Admin] message`) is picked on
+Admin → Roles, under **Chats as**. `"admins": ["someone@example.org"]` beside the teams in the roster file still does
+the same thing.
 
 **Sample data**: `/?dummydata` fills the main page with made-up activity for the season's real players (from the roster), to
 see the page full before there's real data. It's generated in the browser (`public/dummy.js`) and never stored; the chat
@@ -168,7 +169,7 @@ Admin it is a draft on the Save bar; nothing changes until Save.
 | --- | --- | --- |
 | **Name** | admins | Shown at the top of its pages and in emails. |
 | **Icon** | admins | A square picture, dropped on the box or picked with the button, cropped to a 128px PNG. The game's own 64×64 `server-icon.png` stays sharp. It sits beside the name in the About header on Activity, and it becomes the browser tab's icon. |
-| **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description. |
+| **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description, and Admin → Layout can switch it off altogether. |
 | **Address** (`/s/<address>/`) | owners | Moves the server: the old address stops existing and everyone joins again at the new one (cookies are per address). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
 | **Private or public** | owners | A public server can only be made private once it has a join password. |
 | **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
@@ -257,7 +258,7 @@ saved at once (table `user_perms`, `src/roles.js`):
 | Permission | Lets them |
 | --- | --- |
 | **View** | See the dashboard at all. Without it every page says the account has no access. |
-| **Chat** | Send chat and whispers from the Chat log, as the player Admin → Players links their email to. Owners and admins whose email isn't linked to a player send as **Admin**; a member's has to be linked. Each row says who they chat as. |
+| **Chat** | Send chat and whispers from the Chat log, as whoever the row's **Chats as** says (below). |
 | **Admin page** | The admin page, except Roles. |
 | **Liveview** | Watch through Liveview, once the Minecraft server lets the account in. |
 | **Liveview controls** | Run commands and move items from Liveview, once the server allows that too. |
@@ -265,6 +266,16 @@ saved at once (table `user_perms`, `src/roles.js`):
 Everything here is per server. Each member has a **role**, which sets their ticks: **Owner** (all five, and this
 section), **Admin** (all five) and **Member** (View and Chat). Anyone who can look at the server becomes a member by
 signing in on it; owners add admins and members here (or on `/new`), switch single ticks, and remove members.
+
+**Making an owner**: the role dropdown's **Owner…** opens a dialog that says what an owner can do and asks for the
+account password of whoever is doing it (checked by the server; 5 tries in 10 minutes). An owner can't be changed
+back or removed from the page afterwards, only by a super admin.
+
+**Chats as** is who each member's messages from the Chat log come from: their **player** (the one Admin → Players
+links their email to) or **Admin** (the yellow Admin tag instead of a name). It's a dropdown wherever there's a
+choice: anyone can be set to chat as Admin, whatever their role and whether or not they have a player, and set back
+(`user_perms.chat_admin`; the player stays linked). Owners and admins with no player always send as Admin; a member
+with none can't send until they're linked or set to Admin.
 "Changed" means someone's ticks differ from their role's; **Reset** puts them back. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
 is only half of it, and that half can't be given from the dashboard.
 
@@ -470,8 +481,8 @@ which says nothing to an account that can no longer see it), and can be dragged 
 takes it off the list, and it isn't put back by itself afterwards. The list is kept in the directory
 (`account_servers`); members from before it existed show up the next time they open their server.
 
-**Sending chat** also needs the email to be linked to a player on Admin → Players (owners and admins without one send as
-Admin; see Roles above); anyone else sees the message box disabled with the reason. Making servers (`/new`) needs an account too.
+**Sending chat** also needs the email to be linked to a player on Admin → Players, or set to chat as Admin on
+Admin → Roles (owners and admins without a player send as Admin anyway); anyone else sees the message box disabled with the reason. Making servers (`/new`) needs an account too.
 
 ### Accounts (`src/account.js`, `src/password.js`)
 

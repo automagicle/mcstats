@@ -7510,7 +7510,7 @@ const stats = { days: 30, data: null, noAdmins: true };
 // the Minecraft server keeps its own list of who it lets in, shown in the last column.
 const ROLE_PERMS = [
   ['view', 'View', 'See the dashboard: Activity, Combat, the Chat log and player pages'],
-  ['chat', 'Chat', 'Send chat and whispers from the Chat log, as the player their email is linked to on Players (owners and admins with none send as Admin)'],
+  ['chat', 'Chat', 'Send chat and whispers from the Chat log, as whoever “Chats as” says: the player their email is linked to on Players, or Admin'],
   ['admin', 'Admin page', 'Settings and Analytics on the admin page (not Roles)'],
   ['liveview', 'Liveview', 'Watch the world live. The Minecraft server also has to let the account in'],
   ['liveview_op', 'Liveview controls', 'Run commands and move items from Liveview. The Minecraft server also has to allow it'],
@@ -7526,6 +7526,56 @@ async function rolesPost(body) {
   const r = await res.json().catch(() => null);
   if (!res.ok) throw new Error(r?.error || `the server answered ${res.status}`);
   return r;
+}
+
+// Making someone an owner: says what it gives and that this page can't take it back, and asks for the
+// account password of whoever is doing it (checked by the server, src/roles.js). cancelled: puts the
+// dropdown back when it's closed without doing it.
+function ownerDialog(email, cancelled) {
+  const me = MCS.account || MCS.email || '';
+  const dialog = el('dialog', { class: 'lv-dialog sea-dialog' });
+  const err = el('div', { class: 'lv-gate-error', role: 'alert' });
+  const pass = el('input', { class: 'adm-input', type: 'password', autocomplete: 'current-password', 'aria-label': 'Your mcstats account password' });
+  const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
+  const submit = el('button', { class: 'btn btn-primary', type: 'submit', text: 'Make owner' });
+  submit.disabled = true;
+  pass.addEventListener('input', () => { submit.disabled = !pass.value; });
+  // the account the password belongs to, for password managers
+  const user = el('input', { type: 'email', autocomplete: 'username', hidden: '', 'aria-hidden': 'true', tabindex: '-1' });
+  user.value = me;
+  const form = el('form', {},
+    el('h2', { text: 'Make an owner' }),
+    el('p', {}, el('strong', { text: email }), ' becomes an owner of this server.'),
+    el('p', { text: 'An owner can do everything you can: change the address, the join password and who can see the server, use Roles, and make more owners.' }),
+    el('p', { text: 'An owner can’t be changed back or removed from this page, by you or anyone else here. Only make owners of people you’d hand the server to.' }),
+    user,
+    el('label', { class: 'sea-confirm' }, el('span', {}, 'To confirm, type the password of your mcstats account', me ? el('span', { class: 'muted', text: ` (${me})` }) : null), pass),
+    err, el('div', { class: 'range-actions' }, cancel, submit));
+  dialog.append(form);
+  let done = false;
+  cancel.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => { dialog.remove(); if (!done) cancelled?.(); });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!pass.value || submit.disabled) return;
+    submit.disabled = cancel.disabled = true;
+    err.textContent = '';
+    try {
+      roles.data = await rolesPost({ email, role: 'owner', password: pass.value });
+      done = true;
+      dialog.close();
+      renderRoles();
+      toast(`${email} is now an owner.`);
+    } catch (ex) {
+      err.textContent = ex.message.replace(/^./, (c) => c.toUpperCase());
+      cancel.disabled = false;
+      submit.disabled = !pass.value;
+      pass.select();
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  pass.focus();
 }
 
 async function showRoles() {
@@ -7576,18 +7626,36 @@ function renderRoles() {
     if (u.super) return el('span', { class: 'an-tag', text: 'Super admin' });
     if (u.role === 'owner') return el('span', { class: 'an-tag', text: 'Owner' });
     const pick = el('select', { class: 'adm-input', 'aria-label': `Role for ${u.email}` },
-      el('option', { value: '', text: 'Not a member' }), el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }));
+      el('option', { value: '', text: 'Not a member' }), el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }),
+      el('option', { value: 'owner', text: 'Owner…' }));
     pick.value = u.role || '';
-    pick.addEventListener('change', () => save(pick.value ? { email: u.email, role: pick.value } : { email: u.email, remove: true }));
+    pick.addEventListener('change', () => {
+      // an owner is made in its own dialog, with a password; closing it puts the dropdown back
+      if (pick.value === 'owner') return ownerDialog(u.email, () => { pick.value = u.role || ''; });
+      save(pick.value ? { email: u.email, role: pick.value } : { email: u.email, remove: true });
+    });
     return pick;
   };
   const fixed = (u) => u.super || u.role === 'owner';
-  // what sending chat would do for them (src/roles.js chat_as), so a Chat tick never promises more than it gives
-  const chatAs = (u) => {
-    const who = (n) => (n === '@admin' ? 'Admin' : n);
-    if (u.chat_as) return `chats as ${who(u.chat_as)}`;
-    if (u.perms.chat && (u.role || u.super)) return 'can’t chat until their email is linked to a player on Players';
-    return u.name ? `player ${who(u.name)}` : null;
+  // Who they send chat as (src/roles.js chat_as), so a Chat tick never promises more than it gives: a dropdown
+  // between their player (the one their email is linked to on Players) and Admin, wherever there's a choice.
+  const chatCell = (u) => {
+    const member = !!(u.role || u.super);
+    if (!member) return el('span', { class: 'muted', text: '–', title: 'Not a member, so they can’t chat' });
+    if (!u.perms.chat) return el('span', { class: 'muted', text: 'Chat is off', title: 'Tick Chat to let them send chat from the Chat log' });
+    const staff = u.super || u.role === 'owner' || u.role === 'admin';
+    // an owner or admin with no player always sends as Admin: nothing to choose until they have one
+    if (staff && !u.player) {
+      return el('span', { class: 'role-chat-admin', text: 'Admin', title: 'Owners and admins with no player send as Admin. To chat as a player, link their email to one on Players.' });
+    }
+    const pick = el('select', { class: 'adm-input', 'aria-label': `Who ${u.email} chats as` },
+      el('option', { value: 'player', text: u.player || 'Nobody yet' }), el('option', { value: 'admin', text: 'Admin' }));
+    pick.value = u.chat_admin ? 'admin' : 'player';
+    pick.title = u.chat_admin ? 'Their messages show with the yellow Admin tag instead of a name'
+      : u.player ? `Their messages show as ${u.player}, the player their email is linked to on Players`
+      : 'They can’t send chat until their email is linked to a player on Players, or they’re set to chat as Admin';
+    pick.addEventListener('change', () => save({ email: u.email, chat_as: pick.value }, () => { pick.value = u.chat_admin ? 'admin' : 'player'; }));
+    return pick;
   };
   const body = d.users.map((u) => {
     const boxes = ROLE_PERMS.map(([key, label]) => {
@@ -7601,8 +7669,9 @@ function renderRoles() {
       el('td', {},
         el('div', { class: 'role-who' }, el('span', { class: 'adm-ign', text: u.email }),
           u.custom && !fixed(u) ? el('span', { class: 'an-tag', text: 'Changed' }) : null),
-        el('div', { class: 'role-sub muted', text: [chatAs(u), u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site'].filter(Boolean).join(', ') })),
+        el('div', { class: 'role-sub muted', text: u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site' })),
       el('td', {}, roleCell(u)),
+      el('td', {}, chatCell(u)),
       ...boxes,
       el('td', {}, serverCell(u)),
       el('td', { class: 'adm-act' }, u.custom && !fixed(u)
@@ -7613,7 +7682,8 @@ function renderRoles() {
     tr.querySelector('.btn-quiet')?.addEventListener('click', () => save({ email: u.email, reset: true }));
   }
   const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
-  const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }));
+  const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }),
+    el('option', { value: 'owner', text: 'Owner…' }));
   const add = el('form', { class: 'adm-form role-add' }, email, role, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
   add.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -7621,16 +7691,18 @@ function renderRoles() {
     if (!v) return;
     const known = d.users.find((u) => u.email === v && u.role);
     if (known) { toast(`${v} is already a member.`); return; }
+    if (role.value === 'owner') return ownerDialog(v);
     save({ email: v, role: role.value });
   });
   root.replaceChildren(
     el('section', { class: 'card adm-card' },
       el('div', { class: 'card-head' }, el('h2', { text: 'Roles' }), el('span', { class: 'card-sub', text: 'who belongs to this server, and what they may do; a change is saved at once' })),
-      el('p', { class: 'adm-note', text: 'Members are people who signed in here with their email, or were added below. A role sets the ticks: Admin gets everything but this tab, Member gets View and Chat; “Changed” means someone’s ticks differ from their role’s. Being a member here means nothing on any other server. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
+      el('p', { class: 'adm-note', text: 'Members are people who signed in here with their email, or were added below. A role sets the ticks: Owner gets everything, Admin everything but this tab, Member gets View and Chat; “Changed” means someone’s ticks differ from their role’s. Making someone an owner asks for your account password, and can’t be undone here. “Chats as” is who their messages from the Chat log come from: their player (the one their email is linked to on Players) or Admin, with the yellow Admin tag instead of a name. Being a member here means nothing on any other server. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
       el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table role-table' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'Sign-in' }),
           el('th', { text: 'Role' }),
+          el('th', { text: 'Chats as', title: 'Who their messages from the Chat log come from: their player, or Admin' }),
           ...ROLE_PERMS.map(([, label, title]) => el('th', { class: 'role-box', text: label, title })),
           el('th', { text: 'Minecraft server', title: 'What the server itself lets this account do in Liveview' }),
           el('th', {}))),

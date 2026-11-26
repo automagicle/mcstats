@@ -98,16 +98,21 @@ const ADMIN = '@admin'; // roster_email's stand-in IGN for an admin (scripts/ros
 
 // Who a login email sends as this season, by what the admin page says:
 //   { ign, team }    the player Admin → Players gave this email to (team is null when they have none yet)
-//   { admin: true }  the roster file's "admins" (@admin), or an owner or admin (Roles) with no player of their own
+//   { admin: true }  someone Admin → Roles set to chat as Admin (user_perms.chat_admin), the roster file's
+//                    "admins" (@admin), or an owner or admin (Roles) with no player of their own
 //   null             nobody: a member whose email isn't linked to a player
 // perms: what Roles gives the account (src/roles.js loadPerms), when known.
 export async function playerFor(env, email, perms = null) {
   if (!email) return null;
-  const row = await env.DB.prepare(
-    `SELECT e.ign, r.team FROM roster_email e LEFT JOIN roster r ON r.season = e.season AND r.ign = e.ign
-     WHERE e.season = ? AND e.email = ?`
-  ).bind(currentSeason(env), email).first();
-  if (row?.ign === ADMIN) return { admin: true };
+  const [forced, linked] = await env.DB.batch([
+    env.DB.prepare('SELECT chat_admin FROM user_perms WHERE email = ?').bind(email.toLowerCase()),
+    env.DB.prepare(
+      `SELECT e.ign, r.team FROM roster_email e LEFT JOIN roster r ON r.season = e.season AND r.ign = e.ign
+       WHERE e.season = ? AND e.email = ?`
+    ).bind(currentSeason(env), email),
+  ]);
+  const row = linked.results[0];
+  if (forced.results[0]?.chat_admin || row?.ign === ADMIN) return { admin: true };
   if (row) return { ign: row.ign, team: row.team ?? null };
   if (perms && (perms.super || perms.role === 'owner' || perms.role === 'admin')) return { admin: true };
   return null;

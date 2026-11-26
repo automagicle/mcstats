@@ -252,6 +252,14 @@ export const MIGRATIONS = [
       sql.exec('CREATE TABLE IF NOT EXISTS server_icon (id INTEGER PRIMARY KEY CHECK (id = 1), png BLOB NOT NULL, updated_at INTEGER NOT NULL)');
     },
   },
+  {
+    // Who chats from the dashboard as Admin is picked on Admin → Roles (src/roles.js): 1 here means this
+    // member sends as Admin whatever player their email is linked to.
+    v: 5,
+    up(sql) {
+      if (!hasColumn(sql, 'user_perms', 'chat_admin')) sql.exec('ALTER TABLE user_perms ADD COLUMN chat_admin INTEGER NOT NULL DEFAULT 0');
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;

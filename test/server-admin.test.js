@@ -39,6 +39,17 @@ describe('who can change what', () => {
     for (const body of [{ slug: 'sa-admin-moved' }, { password: 'another-password', confirm: 'another-password' }, { public: true }, { addons: ['eggsmp'] }]) {
       expect((await settings(a, admin, body)).status, JSON.stringify(body)).toBe(403);
     }
+    // the banner at the top of Activity (icon, description, and whether Layout shows it) is an admin's too
+    const png = new Uint8Array(40);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    new DataView(png.buffer).setUint32(16, 64);
+    new DataView(png.buffer).setUint32(20, 64);
+    const banner = await settings(a, admin, { about: 'For friends.', icon: `data:image/png;base64,${btoa(String.fromCharCode(...png))}`, layout: { home: [{ id: 'about', w: 'full', hide: true }] } });
+    expect(banner.status, await banner.clone().text()).toBe(200);
+    const set = await banner.json();
+    expect(set).toMatchObject({ about: 'For friends.', icon: expect.stringMatching(/^\/api\/icon/) });
+    expect(set.layout.home.find((x) => x.id === 'about').hide).toBe(true);
+    expect((await (await settings(a, admin, { about: '', icon: '' })).json())).toMatchObject({ about: '', icon: null });
     // an admin of another server gets nowhere here
     const b = await makeServer('sa-admin-b');
     expect((await settings(a, await idCookie(b, b.owner), { accent: 'green' })).status).toBe(401);

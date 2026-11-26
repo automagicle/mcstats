@@ -23,8 +23,8 @@ describe('server schema', () => {
       for (const t of d1Tables) {
         expect(mine, `table ${t}`).toContain(t);
         const cols = shape(sql.exec(`PRAGMA table_info(${t})`).toArray());
-        // user_perms gains a role column here; everything else is identical
-        const want = t === 'user_perms' ? [...d1Cols[t], ['role', 'TEXT', true, "'member'", 0]].sort() : d1Cols[t];
+        // user_perms gains a role and a chat_admin column here; everything else is identical
+        const want = t === 'user_perms' ? [...d1Cols[t], ['role', 'TEXT', true, "'member'", 0], ['chat_admin', 'INTEGER', true, '0', 0]].sort() : d1Cols[t];
         expect(cols, `columns of ${t}`).toEqual(want);
       }
       const idx = sql.exec("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'").toArray().map((r) => `${r.tbl_name}.${r.name}`);
