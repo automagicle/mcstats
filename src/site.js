@@ -55,6 +55,13 @@ async function body(request, url, max = 4096) {
 
 const siteEmail = async (request, env) => (await accountOf(request, env))?.email ?? null;
 
+// Where mods are told to upload: the site's own address (the SITE_ORIGIN var), whichever of its addresses
+// the owner happens to be browsing at. Without the var, or on a developer's own machine, the address in use.
+export function uploadOrigin(env, url) {
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  return !local && /^https:\/\/[a-z0-9.-]+$/.test(env.SITE_ORIGIN || '') ? env.SITE_ORIGIN : url.origin;
+}
+
 // The file the mod reads, filled in for this server.
 export function configFor(origin, key) {
   return MOD.config_template
@@ -72,7 +79,7 @@ export async function handleSite(request, env, url) {
       jar_url: `/downloads/${MOD.jar}`,
       loader_installer: 'https://fabricmc.net/use/server/',
       fabric_api_url: 'https://modrinth.com/mod/fabric-api/versions',
-      ingest_url: `${url.origin}/api/ingest/chat`,
+      ingest_url: `${uploadOrigin(env, url)}/api/ingest/chat`,
     });
   }
 
@@ -198,7 +205,7 @@ export async function handleSite(request, env, url) {
     ).bind(row.id, keyHash, created).run();
     await setStep(5);
     console.log(`site: ${email} made a new mod key for ${row.slug}`);
-    return json({ key, created_at: created, config_file: MOD.config_file, config: configFor(url.origin, key), state: await state() });
+    return json({ key, created_at: created, config_file: MOD.config_file, config: configFor(uploadOrigin(env, url), key), state: await state() });
   }
 
   if (action === '/settings') {

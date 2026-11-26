@@ -10,6 +10,17 @@ const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(n
 const anonymousPage = (slug) => call(`/s/${slug}/`);
 const join = (slug, password) => call('/api/site/join', { method: 'POST', body: { server: slug, password } });
 
+describe('the mod’s config', () => {
+  it('uploads to the site’s main address, whichever address the owner is browsing at', async () => {
+    const cookie = await siteCookie('config-owner@example.org');
+    expect((await make(cookie, { name: 'Config', slug: 'config-one', visibility: 'public' })).status).toBe(200);
+    const key = await (await call('/api/site/servers/config-one/key', { method: 'POST', cookie, body: {} })).json();
+    expect(key.config).toContain(`url=${env.SITE_ORIGIN}/api/ingest/chat`);
+    expect(env.SITE_ORIGIN).toBe('https://mcstats.live');
+    expect((await (await call('/api/site/mod')).json()).ingest_url).toBe('https://mcstats.live/api/ingest/chat');
+  });
+});
+
 describe('signing in on /new', () => {
   it('making a server or checking an address needs a sign-in', async () => {
     expect((await make(null, { name: 'Nope', slug: 'nope-server', visibility: 'public' })).status).toBe(401);

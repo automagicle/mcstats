@@ -9,4 +9,3 @@ mod/.gradle
 .DS_Store
 roster-*.json
 *-backup.sql
-public/downloads/*.jar
