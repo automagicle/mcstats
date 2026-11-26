@@ -4,7 +4,7 @@
 // it a bit more; dragging turns the model all the way round.
 //
 // Textures come from /api/mc/… (the game's own, for the server's version) and /api/skin/<name>.
-// Loaded on demand by app.js: mountPlayer(container, { name, uuid?, armor, mainhand?, offhand?, aura?: { id, cracked }, signal? })
+// Loaded on demand by app.js: mountPlayer(container, { name, uuid?, armor, mainhand?, offhand?, aura?, auraAlways?, signal? })
 // -> { dispose() }. Items are as the server mod reports them (see src/gear.js).
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
@@ -654,7 +654,7 @@ export async function mountPlayer(container, spec) {
 
   // The egg's particles, only while the egg is in the hand and things may move.
   const auraLook = Array.isArray(spec.aura) && spec.aura.length === 7 ? spec.aura : null;
-  const aura = hasEgg && auraLook && !reducedMotion() ? await makeAura(scene, auraLook, keep) : null;
+  const aura = (hasEgg || spec.auraAlways) && auraLook && !reducedMotion() ? await makeAura(scene, auraLook, keep) : null;
 
   if (cancelled()) {
     for (const d of disposables) d.dispose?.();

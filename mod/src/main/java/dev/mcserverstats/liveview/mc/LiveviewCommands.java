@@ -33,6 +33,8 @@ public final class LiveviewCommands {
 			Supplier<List<RelayLink.Watcher>> watchers) {
 		dispatcher.register(
 				Commands.literal("liveview")
+						.executes(context -> help(context.getSource()))
+						.then(Commands.literal("help").executes(context -> help(context.getSource())))
 						.then(Commands.literal("optout").executes(context -> toggle(context.getSource(), optOut, true)))
 						.then(Commands.literal("optin").executes(context -> toggle(context.getSource(), optOut, false)))
 						.then(Commands.literal("who")
@@ -53,6 +55,43 @@ public final class LiveviewCommands {
 								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
 								.then(Commands.literal("viewer").executes(context -> reset(context.getSource(), keys, KeyStore.Level.VIEWER)))
 								.then(Commands.literal("control").executes(context -> reset(context.getSource(), keys, KeyStore.Level.CONTROL)))));
+	}
+
+	// Every /liveview command, each a line you can click to put it in the chat box. Operators also see theirs.
+	// The same list is on the dashboard's Liveview page (public/liveview.js, LIVEVIEW_COMMANDS).
+	private static final String[][] PLAYER_HELP = {
+			{"/liveview optout", "Hide yourself from Liveview"},
+			{"/liveview optin", "Show yourself in Liveview again"},
+			{"/liveview help", "This list"},
+	};
+	private static final String[][] OPERATOR_HELP = {
+			{"/liveview who", "Who is watching right now"},
+			{"/liveview access", "Which dashboard accounts may use Liveview"},
+			{"/liveview access viewer <account>", "Let an account watch"},
+			{"/liveview access control <account>", "Let an account watch and use controls"},
+			{"/liveview access remove <account>", "Take an account off the list"},
+			{"/liveview key viewer", "Make a new viewer key (the old one stops working)"},
+			{"/liveview key control", "Make a new control key (the old one stops working)"},
+	};
+
+	private static int help(CommandSourceStack source) {
+		boolean op = Commands.hasPermission(Commands.LEVEL_ADMINS).test(source);
+		source.sendSuccess(() -> Component.literal("Liveview commands").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+		for (String[] line : PLAYER_HELP) source.sendSuccess(() -> helpLine(line), false);
+		if (op) {
+			source.sendSuccess(() -> Component.literal("Operators").withStyle(ChatFormatting.YELLOW), false);
+			for (String[] line : OPERATOR_HELP) source.sendSuccess(() -> helpLine(line), false);
+		}
+		return 1;
+	}
+
+	static Component helpLine(String[] line) {
+		String command = line[0];
+		// up to the first "<": the part that can be typed as it is
+		String typed = command.contains("<") ? command.substring(0, command.indexOf('<')) : command;
+		return Component.literal("  " + command).withStyle(style -> style.withColor(ChatFormatting.AQUA)
+						.withClickEvent(new ClickEvent.SuggestCommand(typed)))
+				.append(Component.literal("  " + line[1]).withStyle(ChatFormatting.GRAY));
 	}
 
 	private static int toggle(CommandSourceStack source, OptOutController optOut, boolean hide) {

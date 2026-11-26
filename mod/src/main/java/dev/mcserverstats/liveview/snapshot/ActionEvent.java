@@ -12,7 +12,8 @@ public record ActionEvent(
 		Integer y,
 		Integer z,
 		String target,
-		String message) {
+		String message,
+		String line) {
 
 	public ActionEvent {
 		if (kind == null || kind.isBlank()) {
@@ -23,7 +24,12 @@ public record ActionEvent(
 	}
 
 	public ActionEvent withId(long nextId) {
-		return new ActionEvent(nextId, time, kind, actor, dimension, x, y, z, target, message);
+		return new ActionEvent(nextId, time, kind, actor, dimension, x, y, z, target, message, line);
+	}
+
+	/** {@code line} is the message as the game's chat shows it, as JSON segments ({@code Stacks.line}), or null. */
+	public ActionEvent withLine(String json) {
+		return new ActionEvent(id, time, kind, actor, dimension, x, y, z, target, message, json);
 	}
 
 	public static ActionEvent of(
@@ -35,6 +41,6 @@ public record ActionEvent(
 			Integer z,
 			String target,
 			String message) {
-		return new ActionEvent(0L, System.currentTimeMillis(), kind, actor, dimension, x, y, z, target, message);
+		return new ActionEvent(0L, System.currentTimeMillis(), kind, actor, dimension, x, y, z, target, message, null);
 	}
 }

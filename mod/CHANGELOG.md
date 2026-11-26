@@ -11,6 +11,46 @@ with a newer dashboard, without those features.
 When you release a new version: bump `version`, add an entry at the top of this file, and update the
 jar name in [README.md](README.md).
 
+This file is also what admins are shown when their server runs an older mod: the dashboard's Admin page
+lists every entry newer than the server's version, and the mod (2.1.0 or newer) tells operators in game.
+So write entries for a server admin, with each change as a `- ` bullet under a `###` heading (a bold
+lead-in like `**Whispers.**` becomes its title). If servers should update soon (a security fix, data being
+lost), put this line straight under the version's heading, and the notice says so louder:
+
+    **Urgent:** why, in one sentence.
+
+## 2.2.0 (2026-11-25)
+
+### Added
+
+- **In-game menus.** `/mcstats view` opens a chest menu every player can click through, with a Go Back
+  arrow on each page. **Your Profile** picks what your 3D model on the dashboard holds in each hand (click
+  any item in your inventory) and a particle effect around it. **Server Stats** shows every player's head:
+  hover for their playtime, whether they're online and whether they're an operator, click for all their
+  stats. **Leaderboards** shows the top 10 for playtime, kills, deaths and distance.
+- **More /mcstats commands.** `/mcstats profile`, `stats [player]`, `top`, `link [player]` (a link to
+  a dashboard page), `particle <name>`, `reset` and `help`.
+- **/liveview help.** Lists the Liveview commands you may use (operators see theirs too). The dashboard's
+  Liveview page lists them as well.
+
+## 2.1.0 (2026-11-25)
+
+### Added
+
+- **Update notices.** When the dashboard has a newer version of the mod than the server runs, operators
+  (permission level 3) are told in game each time they join: the versions, whether the update is urgent and
+  why, the headline of each change since, and a link that downloads the new jar. The server log says it
+  once too. The dashboard sends this when the mod connects, so it needs nothing in the config file.
+- **Edit inventories from Liveview.** With controls on, an admin can move items in a player's whole
+  inventory (armor and off hand included) and their ender chest, as well as in chests, barrels, shulker
+  boxes, hoppers and dispensers. The clicks work as in the game: pick up, right-click for half or one,
+  drag to spread, double-click to gather, shift-click, the number keys and F. Every slot keeps its game
+  rules (armor slots take one piece of the right kind, shulker boxes refuse shulker boxes), and each move
+  checks the slots as they are at that moment, so nothing can be copied or lost. Needs this version.
+- **Liveview chat as the game shows it.** Chat lines now carry their colors, team names and formatting,
+  /say and /me read as they do in game, action bar text no longer shows up as chat, and joins, leaves and
+  deaths appear once instead of twice. Needs this version; older mods still show plain chat.
+
 ## 2.0.0 (2026-11-22)
 
 Liveview becomes part of the mod. Until now it was a separate mod with its own web page, port and

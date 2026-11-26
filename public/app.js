@@ -3181,10 +3181,34 @@ function clearPlayerModel() {
 // The weapon or tool picked from the list under the model, for this player (kept across refreshes
 // while they still carry it; another player's page starts from their best one again).
 let modelPick = null; // { name, key }
+// Without a pick here, what the player chose in game (/mcstats view → Your Profile, mod 2.2.0), else their best.
 function modelWeapon(name, gear) {
   const pick = modelPick?.name === name && carriedWeapons(gear).find((w) => w.key === modelPick.key);
-  return pick ? pick.item : bestWeapon(gear);
+  return pick ? pick.item : gear?.display?.mainhand || bestWeapon(gear);
 }
+
+// The particle effects a player can pick in game (src/gear.js PARTICLES), as the model's aura
+// (public/player3d.js): [r, g, b] for the dust around them, [r2, g2, b2] for the ring's other half, and
+// the particle that bursts out of it.
+const PARTICLE_AURAS = {
+  flame: [1, 0.55, 0.1, 1, 0.85, 0.3, 'flame'],
+  heart: [1, 0.3, 0.4, 1, 0.65, 0.75, 'heart'],
+  end_rod: [0.95, 0.95, 1, 0.8, 0.85, 1, 'end_rod'],
+  enchant: [0.6, 0.45, 1, 0.85, 0.8, 1, 'enchant'],
+  portal: [0.6, 0.2, 0.9, 0.85, 0.5, 1, 'portal'],
+  firework: [1, 0.85, 0.4, 0.6, 0.85, 1, 'firework'],
+  happy_villager: [0.35, 0.9, 0.35, 0.7, 1, 0.5, 'happy_villager'],
+  snowflake: [0.85, 0.95, 1, 0.6, 0.8, 1, 'snowflake'],
+  crit: [0.9, 0.9, 0.85, 0.75, 0.7, 0.55, 'crit'],
+  electric_spark: [1, 0.95, 0.5, 0.6, 0.9, 1, 'electric_spark'],
+  sculk_soul: [0.1, 0.55, 0.6, 0.4, 0.9, 0.95, 'sculk_soul'],
+  crimson_spore: [0.8, 0.15, 0.25, 0.95, 0.45, 0.5, 'crimson_spore'],
+  small_gust: [0.85, 0.9, 0.95, 0.65, 0.75, 0.9, 'small_gust'],
+  nautilus: [0.2, 0.55, 0.9, 0.45, 0.85, 0.95, 'nautilus'],
+  smoke: [0.35, 0.35, 0.35, 0.6, 0.6, 0.6, 'smoke'],
+  ash: [0.3, 0.3, 0.3, 0.55, 0.5, 0.45, 'ash'],
+  composter: [0.45, 0.75, 0.2, 0.7, 0.6, 0.3, 'composter'],
+};
 function renderPlayerModel(name, gear) {
   const card = $('#p-model-card');
   const extra = Object.assign({}, ...addons('modelSpec', name, gear));
@@ -3192,8 +3216,11 @@ function renderPlayerModel(name, gear) {
     name,
     uuid: gear?.uuid ? gear.uuid.replace(/-/g, '') : null,
     armor: gear?.armor || {},
-    offhand: extra.offhand ?? null,
-    aura: extra.aura ?? null, // particles around them: [r, g, b, r2, g2, b2, accent particle] (player3d.js)
+    // what they chose in game (/mcstats, mod 2.2.0) comes before an add-on's
+    offhand: gear?.display?.offhand ?? extra.offhand ?? null,
+    aura: PARTICLE_AURAS[gear?.display?.particle] ?? extra.aura ?? null, // particles around them: [r, g, b, r2, g2, b2, accent particle] (player3d.js)
+    // a particle effect they picked plays whatever they hold; an add-on's only while the off hand holds something
+    auraAlways: !!PARTICLE_AURAS[gear?.display?.particle],
   };
   // the held item changes in place (setMainhand), so it isn't part of what rebuilds the model
   const key = JSON.stringify(spec);
@@ -6081,11 +6108,41 @@ function setMe(r) {
   site.admin = !!r?.admin;
   site.super = !!r?.super;
   site.perms = r?.perms ?? null;
+  site.modUpdate = site.admin ? r?.mod_update ?? null : null;
   syncLiveTab();
+  renderModUpdate();
   $('#adm-tab-roles').hidden = !site.super;
   // someone a super admin has switched "view" off for: every other request is refused, so say why
   if (site.perms && !site.perms.view) showError(`This account (${r.email}) doesn’t have access to the dashboard. Ask an admin to allow it.`);
 }
+
+// A newer version of the server's mod (src/modupdate.js), on every page for admins. An ordinary one can be
+// put away until the next version comes out (remembered in this browser only); an urgent one stays.
+const MOD_SEEN_KEY = 'mcstats:mod-update-seen';
+function renderModUpdate() {
+  const box = $('#mod-update');
+  const u = site.modUpdate;
+  let seen = null;
+  try { seen = localStorage.getItem(MOD_SEEN_KEY); } catch {}
+  if (!box || !u || (!u.urgent && seen === u.latest)) {
+    if (box) box.hidden = true;
+    return;
+  }
+  box.classList.toggle('mod-update-urgent', !!u.urgent);
+  const later = el('button', { type: 'button', class: 'mod-update-later', text: 'Not now' });
+  later.addEventListener('click', () => {
+    try { localStorage.setItem(MOD_SEEN_KEY, u.latest); } catch {}
+    box.hidden = true;
+  });
+  box.replaceChildren(
+    el('strong', { text: u.urgent ? 'Urgent mod update. ' : 'Mod update available. ' }),
+    `The server runs mcstats ${u.current}; ${u.latest} is out${u.behind > 1 ? ` (${u.behind} releases newer)` : ''}`
+      + (u.urgent ? ' and fixes something serious, so update it soon. ' : '. '),
+    el('a', { href: '#/admin', text: 'See what changed' }),
+    ...(u.urgent ? [] : [' · ', later]));
+  box.hidden = false;
+}
+
 if (!DUMMY) {
   api('/api/me').then((r) => {
     setMe(r);
@@ -7261,7 +7318,7 @@ function renderAdmin() {
         el('span', { class: `adm-link-dot${l.linked ? ' up' : ''}` }),
         el('strong', { text: l.linked ? 'Connected' : 'Not connected' }),
         el('span', { class: 'muted', text: l.linked
-          ? `mod ${l.version || '(version unknown)'}${l.connected_ago != null ? ` · connected ${secs(l.connected_ago)} ago` : ''} · last heard ${secs(l.heard_ago)} ago`
+          ? `mod ${l.version || '(version unknown)'}${l.version && !d.mod_update ? ' (the newest)' : ''}${l.connected_ago != null ? ` · connected ${secs(l.connected_ago)} ago` : ''} · last heard ${secs(l.heard_ago)} ago`
           : 'messages can’t reach the game until the mod reconnects' })),
       el('div', { class: 'adm-form' }, button('Test connection', async () => {
         linkNote.textContent = 'Testing…';
@@ -7279,7 +7336,29 @@ function renderAdmin() {
         el('span', { class: 'adm-main', text: e.what }), el('span', { class: 'muted adm-when', text: `${secs(e.ago)} ago` }))))
         : empty('Nothing has happened to it lately.')));
 
-  $('#admin').replaceChildren(players,
+  // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update
+  const mu = d.mod_update;
+  const updateCard = !mu ? null : el('section', { class: `card adm-card adm-update${mu.urgent ? ' urgent' : ''}` },
+    el('div', { class: 'card-head' },
+      el('h2', { text: mu.urgent ? 'Urgent: update the server mod' : 'A newer server mod is out' }),
+      el('span', { class: 'card-sub', text: `mcstats ${mu.current} → ${mu.latest}` })),
+    ...(mu.urgent ? [el('ul', { class: 'adm-update-why' }, ...mu.urgent_why.map((w) => el('li', { text: w })))] : []),
+    el('p', { class: 'adm-note' },
+      'To update: ', el('a', { href: mu.jar_url, download: '', text: `download ${mu.jar}` }),
+      `, put it in the server’s mods folder in place of the old mcstats-chat jar, and restart the server. The config file stays as it is.`),
+    ...mu.releases.map((r) => el('div', { class: 'adm-release' },
+      el('h3', {},
+        el('span', { text: r.version }),
+        r.date ? el('span', { class: 'muted', text: ` · ${r.date}` }) : '',
+        r.urgent ? el('span', { class: 'adm-rule-tag hide', text: 'Urgent' }) : ''),
+      ...(r.urgent_why ? [el('p', { class: 'adm-release-urgent', text: r.urgent_why })] : []),
+      ...(r.summary ? [el('p', { class: 'adm-note', text: r.summary })] : []),
+      ...r.changes.map((c) => el('div', {},
+        el('h4', { text: c.section }),
+        el('ul', { class: 'adm-release-list' }, ...c.items.map((it) => el('li', {},
+          ...(it.title ? [el('strong', { text: `${it.title}. ` })] : []), it.text))))))));
+
+  $('#admin').replaceChildren(...(updateCard ? [updateCard] : []), players,
     el('div', { class: 'adm-settings' },
       el('p', { class: 'adm-intro' }, el('strong', { text: 'Settings. ' }),
         'Nothing you change in this part takes effect until you press Save at the bottom of it. Reset changes puts it all back to how it was last saved.'),

@@ -407,6 +407,13 @@ public final class RelayLink {
 		}
 	}
 
+	/** The three places an item move can use: the open container, the player's inventory, their ender chest. */
+	private static boolean side(String code) {
+		return "c".equals(code) || "p".equals(code) || "e".equals(code);
+	}
+
+	private static final java.util.regex.Pattern ITEM_ID = java.util.regex.Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
+
 	private static boolean position(String dimension, Integer x, Integer y, Integer z) {
 		return dimension != null && DIMENSION.matcher(dimension).matches() && x != null && y != null && z != null
 				&& Math.abs(x) <= MAX_HORIZONTAL && Math.abs(z) <= MAX_HORIZONTAL && Math.abs(y) <= MAX_VERTICAL;
@@ -491,16 +498,18 @@ public final class RelayLink {
 		}
 		String dimension = obj.string("dimension");
 		Integer x = obj.integer("x"), y = obj.integer("y"), z = obj.integer("z");
-		Integer fromSlot = obj.integer("fromSlot"), toSlot = obj.integer("toSlot"), amount = obj.integer("amount");
-		String from = obj.string("from"), to = obj.string("to"), rawPlayer = obj.string("player");
+		Integer fromSlot = obj.integer("fromSlot"), toSlot = obj.integer("toSlot"), amount = obj.integer("amount"), count = obj.integer("count");
+		String from = obj.string("from"), to = obj.string("to"), rawPlayer = obj.string("player"), item = obj.string("item");
 		UUID player;
 		try {
 			player = rawPlayer == null || rawPlayer.isEmpty() ? null : UUID.fromString(rawPlayer);
 		} catch (IllegalArgumentException e) {
 			player = null;
 		}
-		if (!position(dimension, x, y, z) || fromSlot == null || toSlot == null || amount == null || amount < 0 || amount > 2
-				|| !("c".equals(from) || "p".equals(from)) || !("c".equals(to) || "p".equals(to))) {
+		boolean sides = side(from) && side(to);
+		boolean needsPlace = "c".equals(from) || "c".equals(to);
+		if (!sides || (needsPlace && !position(dimension, x, y, z)) || fromSlot == null || toSlot == null || amount == null || amount < 0 || amount > 3
+				|| (count != null && (count < 0 || count > 99)) || (item != null && (item.length() > 120 || !ITEM_ID.matcher(item).matches()))) {
 			out.enqueue("{\"type\":\"container_result\",\"id\":" + id + ",\"ok\":false,\"message\":\"That move doesn't make sense.\"}", false);
 			return;
 		}
@@ -511,7 +520,8 @@ public final class RelayLink {
 		}
 		// what was moved is logged by the move itself (ContainerEditor), right after this line
 		LogOnce.logger().info("Liveview item move by {}:", viewer.who);
-		commands.moveItem(new AdminCommands.ItemMove(dimension, x, y, z, player, "c".equals(from), fromSlot, "c".equals(to), toSlot, amount))
+		commands.moveItem(new AdminCommands.ItemMove(needsPlace ? dimension : null, needsPlace ? x : 0, needsPlace ? y : 0, needsPlace ? z : 0,
+				player, from.charAt(0), fromSlot, to.charAt(0), toSlot, amount, count == null ? 0 : count, item))
 				.whenComplete((outcome, error) -> {
 					boolean ok = error == null && outcome != null && outcome.success();
 					String message = error != null || outcome == null || outcome.lines().isEmpty() ? "" : outcome.lines().get(0);

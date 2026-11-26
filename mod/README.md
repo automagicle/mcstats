@@ -61,6 +61,7 @@ From 1.6.1 the mod's answers can no longer get lost behind a ping, and a message
 the message as "sending…" and watches the log for it before saying it failed.
 Set `web_chat=false` to turn it off.
 **Liveview** (2.0.0 or newer): see [Liveview](#liveview) below.
+**/mcstats menus** (2.2.0 or newer): see [In-game menus](#in-game-menus-mcstats) below.
 **Never recorded:** private messages (`/msg`, `/tell`, `/w`, `/teammsg`) and commands. Let players know chat is logged.
 
 ## How it gets to the dashboard
@@ -107,6 +108,39 @@ The dashboard walks you through this: open it, choose **Create a server**, and f
 
 A dashboard set up before servers had their own keys still takes its old shared `CHAT_INGEST_TOKEN` in `token=`, for
 its first server only.
+
+## In-game menus (/mcstats)
+
+Every player can open chest-style menus with `/mcstats view` (or just `/mcstats`). Nothing in them can be taken
+out; clicking an item opens its page, and each page has a Go Back arrow.
+
+- **Your Profile**: choose how your 3D model looks on your dashboard page. *Displayed Main Hand* and
+  *Displayed Off Hand*: click it, then click any item in your own inventory below. The item stays shown after
+  you put it away; right-click (or *Automatic*) goes back to your best weapon. *Particle Effect*: one of 17
+  particles that float around the model (you see a puff of it in game when you pick it). *Reset Display*
+  undoes all three. Changes reach the dashboard within a few seconds, with the next gear report.
+- **Server Stats**: the head of everyone who has played on the server, online players first. Hovering shows
+  their name, playtime, whether they're online (or when they were last seen) and their role (operators show
+  as Admin, in red). Clicking opens their stats: playtime, kills, deaths, K/D, damage, distance, jumps,
+  trades, fish, and what they show on the website. The hopper changes the order.
+- **Leaderboards**: the top 10 for playtime, player kills, mob kills, deaths and distance, with your own place.
+- **Website**: a link to your page on the dashboard (needs dashboard 2.2.0, which tells the mod its address).
+
+The numbers are the game's own statistics (`world/stats/<uuid>.json`), so they go back to the world's start.
+Choices are kept in `config/mcstats-profiles.json`.
+
+| Command | What it does |
+|---|---|
+| `/mcstats view` | The main menu |
+| `/mcstats profile` | Your Profile |
+| `/mcstats stats [player]` | Every player's heads, or one player's stats |
+| `/mcstats top` | Leaderboards |
+| `/mcstats link [player]` | A link to your (or their) dashboard page |
+| `/mcstats particle <name\|none>` | Set your particle effect without the menu |
+| `/mcstats reset` | Back to the automatic look |
+| `/mcstats help` | Lists these in game |
+
+`/liveview help` lists Liveview's commands, as does the dashboard's Liveview page.
 
 ## Liveview
 
@@ -221,7 +255,7 @@ Needs JDK 25.
 
 ```bash
 cd mod
-./gradlew build      # → build/libs/mcstats-chat-2.0.0.jar
+./gradlew build      # → build/libs/mcstats-chat-2.2.0.jar
 ```
 
 For another Minecraft version, update `minecraft_version` and `fabric_api_version` in `gradle.properties`

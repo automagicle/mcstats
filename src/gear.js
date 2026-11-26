@@ -10,6 +10,9 @@ const MAX_ITEMS = 40;
 const ID_RE = /^[a-z0-9_.:/-]{1,64}$/;
 const PALETTE_RE = /^[a-z0-9_]{1,32}$/;
 const NAME_RE = /^[A-Za-z0-9_.]{1,20}$/;
+// The particles a player may pick in game (/mcstats view → Your Profile, mod 2.2.0); public/app.js draws each.
+export const PARTICLES = ['flame', 'heart', 'end_rod', 'enchant', 'portal', 'firework', 'happy_villager', 'snowflake',
+  'crit', 'electric_spark', 'sculk_soul', 'crimson_spore', 'small_gust', 'nautilus', 'smoke', 'ash', 'composter'];
 
 const clean = (s, max) => s.replace(/[\u0000-\u001f\u007f]|§[0-9a-fk-or]/gi, '').trim().slice(0, max);
 
@@ -54,6 +57,18 @@ function cleanReport(p) {
     if (small(e.tier, 9)) out.egg.tier = e.tier;
     if (small(e.energy, 99)) out.egg.energy = e.energy;
   }
+  // How they chose to be shown (mod 2.2.0): an item for each hand (picked from their inventory in game,
+  // kept after they put it away) and a particle effect. { mainhand?, offhand?, particle? }
+  const d = p.display;
+  if (d && typeof d === 'object') {
+    const display = {};
+    for (const hand of ['mainhand', 'offhand']) {
+      const it = cleanItem(d[hand]);
+      if (it) display[hand] = it;
+    }
+    if (PARTICLES.includes(d.particle)) display.particle = d.particle;
+    if (Object.keys(display).length) out.display = display;
+  }
   return out;
 }
 
@@ -88,7 +103,7 @@ export async function ingestGear(request, env) {
   return json({ stored: rows.length });
 }
 
-// The player's last report, as { ts, uuid, armor, mainhand?, offhand?, items, egg? }, or null.
+// The player's last report, as { ts, uuid, armor, mainhand?, offhand?, items, egg?, display? }, or null.
 // The latest of these names' (one player's accounts) gear reports.
 export async function gearFor(db, names) {
   const row = await db.prepare(`SELECT ts, uuid, data FROM gear WHERE name IN (${names.map(() => '?').join(', ')}) ORDER BY ts DESC LIMIT 1`)
@@ -110,7 +125,7 @@ export async function gearFor(db, names) {
 export async function gearStyles(db, gear, names) {
   const wanted = new Set();
   // (items the server mod sent with their own tooltip, from 1.9.0, don't need one from the chat log)
-  for (const it of [gear?.mainhand, gear?.offhand, ...(gear?.items || [])]) if (it?.name && !it.tip) wanted.add(it.name);
+  for (const it of [gear?.mainhand, gear?.offhand, gear?.display?.mainhand, gear?.display?.offhand, ...(gear?.items || [])]) if (it?.name && !it.tip) wanted.add(it.name);
   if (!wanted.size) return {};
   const mine = new Set(names.map((n) => n.toLowerCase()));
   const { results } = await db.prepare(

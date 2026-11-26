@@ -91,6 +91,7 @@
   <main>
     <div id="error" class="notice notice-error" hidden></div>
     <div id="season-note" class="notice season-note" hidden></div>
+    <div id="mod-update" class="notice mod-update" role="status" hidden></div>
 
     <!-- Home -->
     <section id="view-home" hidden>
@@ -422,23 +423,35 @@
               </form>
               <div class="lv-pop lv-keys" id="lv-keys" hidden>
                 <div class="lv-pop-head"><h3>Keys and mouse</h3><button type="button" class="icon-btn" id="lv-keys-close" aria-label="Close" title="Close (Esc)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+                <h4>Moving around</h4>
                 <dl>
-                  <dt><kbd>Click</kbd></dt><dd>Fly: the mouse looks around. <kbd>Esc</kbd> stops.</dd>
+                  <dt><kbd>Click</kbd></dt><dd>Fly: the mouse looks around. <kbd>Esc</kbd> lets go.</dd>
                   <dt><kbd>Drag</kbd></dt><dd>Look around without flying.</dd>
                   <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move.</dd>
                   <dt><kbd>Space</kbd><kbd>Shift</kbd></dt><dd>Up and down.</dd>
-                  <dt><kbd>Ctrl</kbd></dt><dd>Faster. Scrolling while flying changes the speed.</dd>
-                  <dt><kbd>Click</kbd> a player</dt><dd>Their inventory.</dd>
-                  <dt><kbd>Right-click</kbd></dt><dd>Look inside a chest, barrel or shulker box.</dd>
-                  <dt><kbd>T</kbd><kbd>/</kbd></dt><dd>Chat, or a command.</dd>
-                  <dt><kbd>M</kbd></dt><dd>Players: go to one, or follow them.</dd>
-                  <dt><kbd>V</kbd></dt><dd>Switch the view while following.</dd>
-                  <dt><kbd>F</kbd></dt><dd>Fullscreen.</dd>
+                  <dt><kbd>Ctrl</kbd></dt><dd>Faster. Scroll while flying to set the speed.</dd>
                 </dl>
+                <h4>Players and blocks</h4>
+                <dl>
+                  <dt><kbd>Click</kbd> a player</dt><dd>Open their inventory.</dd>
+                  <dt><kbd>E</kbd></dt><dd>Inventory of the player you follow, or the nearest one.</dd>
+                  <dt><kbd>Right-click</kbd> a block</dt><dd>Open a chest, barrel, shulker box, hopper, dispenser or dropper.</dd>
+                  <dt><kbd>M</kbd></dt><dd>Players: go to one, follow them, open an inventory or ender chest.</dd>
+                  <dt><kbd>V</kbd></dt><dd>Switch the view while following. <kbd>Esc</kbd> stops.</dd>
+                </dl>
+                <h4>Chat and the page</h4>
+                <dl>
+                  <dt><kbd>T</kbd><kbd>Enter</kbd></dt><dd>Chat.</dd>
+                  <dt><kbd>/</kbd></dt><dd>A command. /tp and /spectate move your camera; anything else needs controls on.</dd>
+                  <dt><kbd>F</kbd></dt><dd>Fullscreen.</dd>
+                  <dt><kbd>Esc</kbd></dt><dd>Close whatever is open.</dd>
+                </dl>
+                <h4>In an inventory or chest</h4>
+                <p class="lv-keys-note">Moving items needs controls on. Each move happens in game straight away.</p>
+                <div id="lv-keys-screen"></div>
               </div>
               <div class="lv-chat" id="lv-chat-lines" aria-live="polite"></div>
-              <div class="lv-chat-hint" id="lv-chat-hint" hidden>Enter sends it as chat from the dashboard. Start with / for a command: /tp Steve and /spectate Steve move your camera; anything else runs on the server and needs controls on. Esc closes.</div>
-              <form class="lv-chat-input" id="lv-chat-form" hidden><input id="lv-chat-input" autocomplete="off" spellcheck="false" maxlength="256" aria-label="Chat message or command"></form>
+              <form class="lv-chat-input" id="lv-chat-form" hidden><input id="lv-chat-input" autocomplete="off" spellcheck="false" maxlength="256" aria-label="Chat message or command" placeholder="Chat from the dashboard, or / for a command (/tp and /spectate move your camera). Esc closes."></form>
               <aside class="lv-side" id="lv-side" hidden>
                 <header>
                   <h3>Players</h3>
@@ -506,7 +519,8 @@
           </div>
           <div class="grid2 lv-player-grid">
             <section class="card">
-              <div class="card-head"><div class="card-title"><h2>Inventory</h2><span class="card-sub">as it is right now; hover an item for its tooltip</span></div></div>
+              <div class="card-head"><div class="card-title"><h2>Inventory</h2><span class="card-sub">as it is right now; hover an item for its tooltip</span></div>
+                <div class="lv-inv-acts"><button type="button" class="btn" data-act="items" title="Opens their inventory over the world, where you can move items with controls on">Move items</button><button type="button" class="btn" data-act="ender-items">Ender chest</button></div></div>
               <div class="lv-inv-host" id="lv-p-inv"></div>
               <div class="lv-inv-host" id="lv-p-ender"></div>
             </section>
@@ -580,6 +594,28 @@
           </section>
         </div>
       </div>
+
+      <!-- The mod's /liveview commands, as /liveview help lists them in game (LiveviewCommands.java) -->
+      <details class="card lv-commands" id="lv-commands">
+        <summary>In-game commands</summary>
+        <p class="lv-commands-note">Typed in Minecraft chat. <code>/liveview help</code> lists them in game too.</p>
+        <h3>Everyone</h3>
+        <dl>
+          <dt><code>/liveview optout</code></dt><dd>Hide yourself from Liveview: your position and inventory stop being sent.</dd>
+          <dt><code>/liveview optin</code></dt><dd>Show yourself in Liveview again.</dd>
+          <dt><code>/liveview help</code></dt><dd>List these commands in game.</dd>
+        </dl>
+        <h3>Operators</h3>
+        <dl>
+          <dt><code>/liveview who</code></dt><dd>Who is watching right now, whether they have controls, and for how long.</dd>
+          <dt><code>/liveview access</code></dt><dd>Which dashboard accounts may use Liveview, and which may also use controls.</dd>
+          <dt><code>/liveview access viewer &lt;account&gt;</code></dt><dd>Let a dashboard account (its email) watch.</dd>
+          <dt><code>/liveview access control &lt;account&gt;</code></dt><dd>Let an account watch and use controls (run commands, move items).</dd>
+          <dt><code>/liveview access remove &lt;account&gt;</code></dt><dd>Take an account off the list.</dd>
+          <dt><code>/liveview key viewer</code></dt><dd>Make a new viewer key, shown once. The old one stops working.</dd>
+          <dt><code>/liveview key control</code></dt><dd>Make a new control key, shown once. The old one stops working.</dd>
+        </dl>
+      </details>
 
       <dialog class="lv-dialog" id="lv-unlock">
         <form id="lv-unlock-form" autocomplete="off">

@@ -16,10 +16,13 @@ import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.ChatType;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
@@ -74,6 +77,11 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			public CompletableFuture<String> whisper(String from, String to, String text, java.util.function.BooleanSupplier claim) {
 				return webWhisper(from, to, text, claim);
 			}
+
+			@Override
+			public void update(JsonObject m) {
+				newUpdate(m);
+			}
 		});
 		instance = this;
 
@@ -123,12 +131,21 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			current = null;
 		});
 
+		// operators hear about a newer mod each time they join (UpdateNotice)
+		ServerPlayConnectionEvents.JOIN.register((handler, sender, s) -> tellUpdate(handler.player));
+
 		OnlineReporter online = new OnlineReporter(uploader);
 		ServerTickEvents.END_SERVER_TICK.register(online::tick);
 		ServerLifecycleEvents.SERVER_STOPPING.register(online::stopping);
 
-		GearReporter gear = new GearReporter(uploader);
+		// /mcstats: menus for stats, and for players to choose how they look on the dashboard (sent with the gear)
+		ProfileStore profiles = new ProfileStore(dir.resolve("mcstats-profiles.json"));
+		GearReporter gear = new GearReporter(uploader, profiles);
 		ServerTickEvents.END_SERVER_TICK.register(gear::tick);
+		McstatsMenus menus = new McstatsMenus(profiles, link::page);
+		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+				McstatsCommands.register(dispatcher, menus));
+		ServerTickEvents.END_SERVER_TICK.register(ChestGui::runQueued);
 
 		AdvancementReporter advancements = new AdvancementReporter(uploader);
 		ServerLifecycleEvents.SERVER_STARTED.register(advancements::sendTree);
@@ -241,6 +258,81 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			}
 		});
 		return done;
+	}
+
+	// A newer version of this mod, as the dashboard last said (2.1.0); null while this one is the newest.
+	private volatile JsonObject update;
+
+	// The dashboard says there's a newer mod. It says so on every reconnect, so the server log and the
+	// operators online now only hear about it when it's news; operators who join later hear each time.
+	private void newUpdate(JsonObject m) {
+		JsonObject old = update;
+		update = m;
+		if (old != null && old.equals(m)) return;
+		String latest = str(m, "latest");
+		boolean urgent = m.has("urgent") && m.get("urgent").getAsBoolean();
+		if (urgent) LOG.warn("An urgent mcstats update is out: {} (this server runs {}). Download it from the dashboard: {}", latest, str(m, "current"), jarUrl(m));
+		else LOG.info("A newer mcstats is out: {} (this server runs {}). Download it from the dashboard: {}", latest, str(m, "current"), jarUrl(m));
+		MinecraftServer s = server;
+		if (s != null) s.execute(() -> {
+			for (ServerPlayer p : s.getPlayerList().getPlayers()) tellUpdate(p);
+		});
+	}
+
+	// Tells an operator (permission level 3, like /liveview key) about the newer mod, if there is one.
+	private void tellUpdate(ServerPlayer p) {
+		JsonObject m = update;
+		if (m == null || !Commands.hasPermission(Commands.LEVEL_ADMINS).test(p.createCommandSourceStack())) return;
+		boolean urgent = m.has("urgent") && m.get("urgent").getAsBoolean();
+		ChatFormatting tone = urgent ? ChatFormatting.RED : ChatFormatting.YELLOW;
+		MutableComponent msg = Component.empty()
+				.append(Component.literal("[mcstats] ").withStyle(ChatFormatting.GRAY))
+				.append(Component.literal(urgent ? "Urgent update: " : "Update available: ").withStyle(tone, ChatFormatting.BOLD))
+				.append(Component.literal(WebChatLink.clean(str(m, "current")) + " → " + WebChatLink.clean(str(m, "latest"))).withStyle(tone));
+		for (String why : strings(m, "urgent_why")) {
+			msg.append(Component.literal("\n  ! " + why).withStyle(ChatFormatting.RED));
+		}
+		for (String change : strings(m, "changes")) {
+			msg.append(Component.literal("\n  - " + change).withStyle(ChatFormatting.GRAY));
+		}
+		int more = m.has("more") ? m.get("more").getAsInt() : 0;
+		if (more > 0) msg.append(Component.literal("\n  …and " + more + " more").withStyle(ChatFormatting.DARK_GRAY));
+		msg.append(Component.literal("\n  "));
+		String jar = jarUrl(m);
+		if (jar != null) {
+			msg.append(Component.literal("[Download " + WebChatLink.clean(str(m, "latest")) + "]")
+					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(new ClickEvent.OpenUrl(java.net.URI.create(jar)))));
+			msg.append(Component.literal(" ").withStyle(ChatFormatting.GRAY));
+		}
+		msg.append(Component.literal("swap the jar in mods/ and restart. The whole changelog is on the dashboard's Admin page.").withStyle(ChatFormatting.GRAY));
+		unlogged(() -> p.sendSystemMessage(msg));
+	}
+
+	private static String str(JsonObject m, String key) {
+		return m.has(key) && m.get(key).isJsonPrimitive() ? m.get(key).getAsString() : "?";
+	}
+
+	private static java.util.List<String> strings(JsonObject m, String key) {
+		java.util.List<String> out = new java.util.ArrayList<>();
+		if (m.has(key) && m.get(key).isJsonArray()) {
+			for (var e : m.getAsJsonArray(key)) {
+				if (e.isJsonPrimitive() && out.size() < 12) out.add(WebChatLink.clean(e.getAsString()));
+			}
+		}
+		return out;
+	}
+
+	// The jar's address on the dashboard: its path from the message, on the host of the chat url.
+	private String jarUrl(JsonObject m) {
+		String path = m.has("jar") ? m.get("jar").getAsString() : "";
+		if (!path.matches("/downloads/[A-Za-z0-9._+-]+\\.jar")) return null;
+		try {
+			java.net.URI u = java.net.URI.create(uploader.config().url());
+			if (u.getScheme() == null || u.getHost() == null) return null;
+			return new java.net.URI(u.getScheme(), null, u.getHost(), u.getPort(), path, null, null).toString();
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	// Sends something of this mod's own (a whisper, say) without the chat log picking it up.

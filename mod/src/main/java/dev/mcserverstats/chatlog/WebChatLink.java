@@ -44,6 +44,10 @@ final class WebChatLink {
 
 		// The same for a whisper to one player in game (`to`); from is null for an admin.
 		CompletableFuture<String> whisper(String from, String to, String text, BooleanSupplier claim);
+
+		// The dashboard has a newer version of this mod (2.1.0): { current, latest, urgent, urgent_why: [],
+		// changes: [], more, jar }, sent each time the connection opens while this one is out of date.
+		default void update(JsonObject m) {}
 	}
 
 	// Liveview (2.0.0) borrows this connection for three small things: telling the dashboard whether it's on
@@ -76,6 +80,8 @@ final class WebChatLink {
 	private final String userAgent;
 	private final Handler handler;
 	private volatile Live live;
+	// this server's pages on the dashboard ("https://…/s/<server>/"), as its hello said; null until then
+	private volatile String page;
 	private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	private ScheduledExecutorService exec;
@@ -283,6 +289,10 @@ final class WebChatLink {
 		nextAttempt = System.currentTimeMillis() + 3_000;
 	}
 
+	String page() {
+		return page;
+	}
+
 	private void handle(WebSocket ws, String message) {
 		if (message.equals("pong")) return;
 		JsonObject m;
@@ -292,6 +302,13 @@ final class WebChatLink {
 			return;
 		}
 		String type = m.has("type") ? m.get("type").getAsString() : "";
+		if (type.equals("hello")) { // the dashboard's greeting; from 2.2.0's dashboard it says where this server's pages are
+			if (m.has("page") && m.get("page").isJsonPrimitive()) {
+				String p = m.get("page").getAsString();
+				if (p.matches("https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._~/-]*)?/")) page = p;
+			}
+			return;
+		}
 		if (type.equals("web")) { // who's on the website now
 			Map<String, String> names = new java.util.HashMap<>();
 			if (m.has("names") && m.get("names").isJsonArray()) {
@@ -307,6 +324,10 @@ final class WebChatLink {
 			if (c != null && !(m.has("ok") && m.get("ok").getAsBoolean())) {
 				c.accept(m.has("error") ? m.get("error").getAsString() : "the website refused it");
 			}
+			return;
+		}
+		if (type.equals("update")) { // a newer mod is out (2.1.0)
+			handler.update(m);
 			return;
 		}
 		if (type.equals("liveview_open")) { // someone on the dashboard wants to watch

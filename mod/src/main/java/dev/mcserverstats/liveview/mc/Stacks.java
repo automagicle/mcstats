@@ -80,7 +80,7 @@ public final class Stacks {
 			if (withContents) {
 				contents = contents(stack, level, player);
 			}
-			return new ItemDetail(foil, color, damage, maxDamage, tooltip(stack, level, player), contents);
+			return new ItemDetail(foil, color, damage, maxDamage, tooltip(stack, level, player), contents, stack.getMaxStackSize());
 		} catch (Throwable thrown) {
 			LogOnce.warn("stack-detail", "Liveview could not read an item's details", thrown);
 			return null;

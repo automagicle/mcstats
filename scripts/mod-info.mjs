@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { parseChangelog } from '../src/changelog.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -51,6 +52,8 @@ export function modInfo() {
     config_file: 'config/mcstats-chat.properties',
     // The file the mod writes on its first start (Config.java TEMPLATE), so /new can show it filled in.
     config_template: configTemplate(),
+    // mod/CHANGELOG.md, for telling admins what a newer version brings (src/modupdate.js)
+    releases: parseChangelog(read('mod/CHANGELOG.md')),
   };
 }
 

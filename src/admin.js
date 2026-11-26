@@ -11,6 +11,7 @@ import { fillGaps } from './gapfill.js';
 import { clearCache } from './cache.js';
 import { tellPresence } from './presence.js';
 import { linkProbe, linkStatus } from './link.js';
+import { modUpdate } from './modupdate.js';
 import { teamRows } from './teams.js';
 import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
@@ -30,11 +31,17 @@ export const isAdmin = (env, who) => !!who?.email && !!who?.perms?.admin;
 
 // GET /api/me: who's signed in and what they may do (the page shows or hides things by it).
 //   super  may use the Roles tab (this server's owners, and the site's super admins)
-export const me = (env, who) => json({
-  email: who.email, admin: isAdmin(env, who), super: !!(who.perms?.super || who.perms?.owner),
-  role: who.perms?.role ?? null, perms: who.perms ?? null,
-  server: env.TENANT ? { slug: env.TENANT.slug, name: env.TENANT.name } : null,
-});
+export async function me(env, who) {
+  const admin = isAdmin(env, who);
+  // admins are told on every page when the server's mod has a newer version (the admin page has the details)
+  const u = admin ? modUpdate((await linkStatus(env))?.last_version) : null;
+  return json({
+    email: who.email, admin, super: !!(who.perms?.super || who.perms?.owner),
+    role: who.perms?.role ?? null, perms: who.perms ?? null,
+    server: env.TENANT ? { slug: env.TENANT.slug, name: env.TENANT.name } : null,
+    mod_update: u && { current: u.current, latest: u.latest, urgent: u.urgent, behind: u.behind },
+  });
+}
 
 export async function adminState(env, season) {
   if (!season.n) return json({ error: 'pick a season' }, 400);
@@ -51,6 +58,7 @@ export async function adminState(env, season) {
                 FROM deleted_chat ORDER BY deleted_at DESC LIMIT 500`),
     db.prepare('SELECT ign, until, team FROM team_history WHERE season = ? ORDER BY ign COLLATE NOCASE, until').bind(season.n),
   ]);
+  const link = await linkStatus(env); // the server mod's web chat connection (src/link.js)
   return json({
     season: season.n,
     roster: roster.results,
@@ -62,7 +70,8 @@ export async function adminState(env, season) {
     players: players.results.map((r) => r.name),
     uncounted: uncounted.results,
     deleted: deleted.results,
-    link: await linkStatus(env), // the server mod's web chat connection (src/link.js)
+    link,
+    mod_update: modUpdate(link?.last_version), // a newer mod to install, with what changed (src/modupdate.js)
     chat_rules: await rulesState(db), // which chat log lines are left out (src/chatrules.js)
   });
 }

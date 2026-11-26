@@ -1296,6 +1296,9 @@ async function loadFiles(meta) {
   }
   await Promise.allSettled(jobs);
   buildFont();
+  // text drawn before the font arrived used stand-ins: draw it again in the game's font
+  textCache.clear();
+  redrawChat();
   const cross = files.images.get('crosshair');
   if (cross) {
     const el = stage.querySelector('.lv-cross');
@@ -1360,7 +1363,19 @@ function buildFont() {
 const NAMED_COLORS = { 0: 0x000000, 1: 0x0000AA, 2: 0x00AA00, 3: 0x00AAAA, 4: 0xAA0000, 5: 0xAA00AA, 6: 0xFFAA00, 7: 0xAAAAAA, 8: 0x555555, 9: 0x5555FF, a: 0x55FF55, b: 0x55FFFF, c: 0xFF5555, d: 0xFF55FF, e: 0xFFFF55, f: 0xFFFFFF };
 function glyphAdvance(chr, bold) {
   const g = files.font && files.font.get(chr);
-  return (g ? g.adv : 6) + (bold && chr !== ' ' ? 1 : 0);
+  return (g ? g.adv : chr === ' ' ? 4 : standInAdvance(chr)) + (bold && chr !== ' ' ? 1 : 0);
+}
+// A character the game's bitmap fonts don't have (the game falls back to Unifont, which isn't sent): drawn in the
+// browser's own font, and given its real width so the letters after it don't pile up on it.
+const STAND_IN_FONT = '9px sans-serif';
+const standIns = new Map();
+function standInAdvance(chr) {
+  if (!standIns.has(chr)) {
+    const m = standInAdvance.ctx || (standInAdvance.ctx = document.createElement('canvas').getContext('2d'));
+    m.font = STAND_IN_FONT;
+    standIns.set(chr, Math.max(2, Math.ceil(m.measureText(chr).width)) + 1);
+  }
+  return standIns.get(chr);
 }
 function measureText(segs) {
   let w = 0;
@@ -1391,8 +1406,9 @@ function drawText(ctx, segs, x, y, s, { shadow = true, color = 0xFFFFFF, alpha =
           t.drawImage(g.img, g.sx, g.sy, g.sw, g.sh, (px + dx) * s, (g.top + 1) * s, g.dw * s, g.dh * s);
           t.setTransform(1, 0, 0, 1, 0, 0);
         } else if (chr !== ' ') {
-          t.fillStyle = '#fff'; t.font = (8 * s) + 'px sans-serif'; t.textBaseline = 'top';
-          t.fillText(chr, (px + dx) * s, 1 * s);
+          // on the bitmap glyphs' baseline (row 7 of 8), at the bitmap font's size
+          t.fillStyle = '#fff'; t.font = (9 * s) + 'px sans-serif'; t.textBaseline = 'alphabetic';
+          t.fillText(chr, (px + dx) * s, 8 * s);
         }
       };
       drawGlyph(0);
@@ -1816,6 +1832,7 @@ function tooltipCanvas(slot) {
 }
 let tipFor = null;
 function showTooltip(slot, event) {
+  if (screen && screen.hold) return;
   tipFor = slot;
   tipEl.replaceChildren(tooltipCanvas(slot));
   const host = document.fullscreenElement || document.body;
@@ -1862,12 +1879,13 @@ function screenLabel(el, segs, x, y) {
 }
 
 // InventoryScreen: armor at (8, 8 + 18i), off hand (77, 62), main rows at (8 + 18c, 84 + 18r), hotbar at y 142.
-function inventoryScreen(p, slotMap) {
+// make(index, x, y, opts) draws one slot: read-only on the player page, editable over the world (editSlot).
+function inventoryScreen(p, slotMap, make = (index, x, y, opts) => mcSlot(slotMap.get(index), x, y, opts)) {
   const el = screenBase('inventory', 176, [[0, 166]]);
-  [39, 38, 37, 36].forEach((index, i) => el.append(mcSlot(slotMap.get(index), 8, 8 + i * 18)));
-  el.append(mcSlot(slotMap.get(40), 77, 62));
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) el.append(mcSlot(slotMap.get(9 + r * 9 + c), 8 + c * 18, 84 + r * 18));
-  for (let c = 0; c < 9; c++) el.append(mcSlot(slotMap.get(c), 8 + c * 18, 142, { selected: p && c === p.selectedSlot }));
+  [39, 38, 37, 36].forEach((index, i) => el.append(make(index, 8, 8 + i * 18)));
+  el.append(make(40, 77, 62));
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) el.append(make(9 + r * 9 + c, 8 + c * 18, 84 + r * 18));
+  for (let c = 0; c < 9; c++) el.append(make(c, 8 + c * 18, 142, { selected: p && c === p.selectedSlot }));
   screenLabel(el, plain('Crafting'), 97, 8);
   const doll = dollCanvas(p);
   if (doll) { doll.className = 'doll'; doll.style.left = (26 * GUI) + 'px'; doll.style.top = (8 * GUI) + 'px'; doll.style.width = (49 * GUI) + 'px'; doll.style.height = (70 * GUI) + 'px'; el.append(doll); }
@@ -1882,103 +1900,440 @@ function chestScreen(titleSegs, rows, slotList, base = 0) {
   return el;
 }
 // The vanilla container screens with the player's inventory underneath (ChestMenu, ShulkerBoxMenu, DispenserMenu,
-// HopperMenu): main rows at invY, the hotbar 58 below. Slots are clickable for admins (see slotClick).
+// HopperMenu, and the ender chest's ChestMenu): main rows at invY, the hotbar 58 below. Slots move items (see slotDown).
 function containerScreen(view) {
-  const map = new Map((view.slots || []).map((s) => [s.slot, s]));
   const title = Array.isArray(view.title) && view.title.length ? view.title : plain(prettyId(view.block));
   let el, invY;
   if (view.kind === 'shulker') {
     el = screenBase('shulker_box', 176, [[0, 166]]);
-    for (let i = 0; i < 27; i++) el.append(editSlot('c', i, map.get(i), 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
+    for (let i = 0; i < 27; i++) el.append(editSlot('c', i, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
     invY = 84;
   } else if (view.kind === 'dispenser') {
     el = screenBase('dispenser', 176, [[0, 166]]);
-    for (let i = 0; i < 9; i++) el.append(editSlot('c', i, map.get(i), 62 + (i % 3) * 18, 17 + Math.floor(i / 3) * 18));
+    for (let i = 0; i < 9; i++) el.append(editSlot('c', i, 62 + (i % 3) * 18, 17 + Math.floor(i / 3) * 18));
     invY = 84;
   } else if (view.kind === 'hopper') {
     el = screenBase('hopper', 176, [[0, 133]]);
-    for (let i = 0; i < 5; i++) el.append(editSlot('c', i, map.get(i), 44 + i * 18, 20));
+    for (let i = 0; i < 5; i++) el.append(editSlot('c', i, 44 + i * 18, 20));
     invY = 51;
   } else {
     const rows = Math.max(1, Math.min(6, view.rows || Math.ceil((view.slots || []).length / 9) || 3));
     el = screenBase('generic_54', 176, [[0, 17 + rows * 18], [126, 96]]);
-    for (let i = 0; i < rows * 9; i++) el.append(editSlot('c', i, map.get(i), 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
+    for (let i = 0; i < rows * 9; i++) el.append(editSlot('c', i, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
     invY = 31 + rows * 18;
   }
   screenLabel(el, title, 8, 6);
-  const p = screen && screen.player ? players.get(screen.player) : null;
+  playerRows(el, invY);
+  return el;
+}
+// The ender chest is a three-row ChestMenu over the player's own inventory.
+function enderScreen() {
+  const el = screenBase('generic_54', 176, [[0, 17 + 3 * 18], [126, 96]]);
+  for (let i = 0; i < 27; i++) el.append(editSlot('e', i, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18));
+  screenLabel(el, plain('Ender Chest'), 8, 6);
+  playerRows(el, 31 + 3 * 18);
+  return el;
+}
+function playerRows(el, invY) {
+  const p = players.get(screenOwner());
   screenLabel(el, plain(p ? (p.name || 'Inventory') : 'No player picked'), 8, invY - 11);
-  const inv = p && inventoryUuid === p.uuid && !inventoryUnavailable ? slots : new Map();
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) el.append(editSlot('p', 9 + r * 9 + c, inv.get(9 + r * 9 + c), 8 + c * 18, invY + r * 18));
-  for (let c = 0; c < 9; c++) el.append(editSlot('p', c, inv.get(c), 8 + c * 18, invY + 58));
-  return el;
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) el.append(editSlot('p', 9 + r * 9 + c, 8 + c * 18, invY + r * 18));
+  for (let c = 0; c < 9; c++) el.append(editSlot('p', c, 8 + c * 18, invY + 58, { selected: p && c === p.selectedSlot }));
 }
-function editSlot(side, index, slot, x, y) {
-  const picked = screen && screen.pick && screen.pick.side === side && screen.pick.slot === index;
-  const el = mcSlot(slot, x, y, { selected: picked });
-  el.addEventListener('mousedown', (event) => { event.preventDefault(); slotClick(side, index, slot, event); });
+
+// ---------- moving items, the way the game's screens do ----------
+// Nothing is ever held on the server. The stack on the cursor stays in its slot (drawn faded there) until a click puts
+// it somewhere; each put is one container_move that the server checks against the slots as they are at that moment.
+// So closing the screen, losing the connection or clicking on an out-of-date screen can make a move fail, but it can
+// never lose or copy an item. Sides: 'c' the open block, 'p' the player's inventory, 'e' their ender chest.
+const ENDER = 100; // ender chest slots travel in the inventory list from index 100
+const PICK_AGAIN_MS = 300; // a second click this soon on the stack just picked up gathers matching items (double-click)
+const PREDICT_MS = 3000;
+// What the mod's container_move understands (its hello says). Before 2 it ignored exact counts, so a "put one down"
+// would have moved the whole stack: editing waits for a mod that knows.
+let itemMoves = 1;
+
+function screenOwner() { return screen ? (screen.kind === 'container' ? screen.player : screen.uuid) : null; }
+function ownerReady() { const u = screenOwner(); return !!u && inventoryUuid === u && !inventoryUnavailable; }
+function filled(s) { return !!(s && s.count > 0 && s.item && s.item !== 'minecraft:air'); }
+function stackKey(s) { return s.item + '|' + (s.customName || '') + '|' + (s.color ?? '') + '|' + (s.damage || 0) + '|' + JSON.stringify(s.tooltip || '') + (s.foil ? 'f' : ''); }
+function sameStack(a, b) { return filled(a) && filled(b) && stackKey(a) === stackKey(b); }
+function withCount(s, n) { return s && n > 0 ? { ...s, count: n } : null; }
+// The game's slot limit: the item's own stack size, and one in an armor slot.
+function limitOf(side, index, s) { const max = (s && s.max) || 64; return side === 'p' && index >= 36 && index <= 39 ? Math.min(1, max) : max; }
+
+// What the server last said is in a slot.
+function serverSlot(side, index) {
+  if (side === 'c') return screen.view ? screen.viewMap.get(index) || null : null;
+  if (!ownerReady()) return null;
+  return slots.get(side === 'e' ? ENDER + index : index) || null;
+}
+// What is in it once the moves sent so far land: the server's answer, or what a move on its way will leave there.
+function realSlot(side, index) {
+  const guess = screen.predict.get(side + index);
+  return guess ? guess.slot : serverSlot(side, index);
+}
+function heldSlot() {
+  const h = screen && screen.hold;
+  if (!h) return null;
+  const r = realSlot(h.side, h.index);
+  return filled(r) && r.item === h.item ? r : null;
+}
+function heldCount() { const r = heldSlot(); return r ? Math.min(screen.hold.count, r.count) : 0; }
+
+// A left-drag spreads the cursor evenly over the slots crossed; a right-drag puts one in each (the game's quick craft).
+function dragPlan() {
+  const d = screen.drag, h = screen.hold, src = heldSlot();
+  if (!d || !src || d.keys.length < 2) return null;
+  const held = heldCount();
+  const targets = d.keys.map((k) => ({ side: k[0], index: Number(k.slice(1)) })).filter(({ side, index }) => {
+    if (side === h.side && index === h.index) return true;
+    const dst = realSlot(side, index);
+    return !filled(dst) || (sameStack(dst, src) && dst.count < limitOf(side, index, src));
+  }).slice(0, held);
+  if (!targets.length) return null;
+  const per = d.button === 'left' ? Math.floor(held / targets.length) : 1;
+  const plan = new Map();
+  for (const t of targets) {
+    const dst = realSlot(t.side, t.index);
+    const own = t.side === h.side && t.index === h.index;
+    const room = own ? per : limitOf(t.side, t.index, src) - (filled(dst) ? dst.count : 0);
+    const n = Math.max(0, Math.min(per, room));
+    if (n) plan.set(t.side + t.index, { ...t, n, own });
+  }
+  return plan;
+}
+
+// One slot as this screen draws it: what's really there, less what's on the cursor, plus what a drag would add.
+function shownSlot(side, index) {
+  const r = realSlot(side, index);
+  const h = screen.hold;
+  const plan = screen.drag ? dragPlan() : null;
+  const planned = plan && plan.get(side + index);
+  if (h && h.side === side && h.index === index && filled(r)) {
+    const left = r.count - heldCount() + (planned ? planned.n : 0);
+    return left > 0 ? { slot: withCount(r, left), dragged: !!planned } : { slot: withCount(r, 1), faded: true };
+  }
+  if (planned) {
+    const src = heldSlot();
+    return { slot: withCount(src, (filled(r) ? r.count : 0) + planned.n), dragged: true };
+  }
+  return { slot: r };
+}
+
+function editSlot(side, index, x, y, opts = {}) {
+  const shown = shownSlot(side, index);
+  const el = mcSlot(shown.slot, x, y, opts);
+  el.dataset.slot = side + index;
+  if (shown.faded) el.classList.add('held-from');
+  if (shown.dragged) el.classList.add('dragged');
+  if (screen.drag && screen.drag.keys.includes(side + index)) el.classList.add('dragging');
+  el.addEventListener('mousedown', (event) => { event.preventDefault(); screenWrap.focus({ preventScroll: true }); slotDown(side, index, event); });
+  el.addEventListener('mouseenter', (event) => { screen.hover = { side, index }; slotEnter(side, index, event); });
+  el.addEventListener('mouseleave', () => { if (screen && screen.hover && screen.hover.side === side && screen.hover.index === index) screen.hover = null; });
   el.addEventListener('contextmenu', (event) => event.preventDefault());
+  screen.layout.push({ side, index });
   return el;
 }
-// Like the game's clicks, but each move is one message the server does at once: click a stack to pick it (right-click
-// picks half), then click where it goes (right-click puts one, and keeps the pick for more); shift-click sends it to
-// the other side. Clicking the picked slot again lets go.
-function slotClick(side, index, slot, event) {
-  if (!screen || !screen.view) return;
-  const has = slot && slot.count > 0 && slot.item !== 'minecraft:air';
-  const right = event.button === 2;
-  if (side === 'p' && !screen.player) { toast('Pick a player above the chest to use their inventory.', true); return; }
-  if (event.shiftKey) {
-    screen.pick = null;
-    if (!has) return;
-    if (side === 'c' && !screen.player) { toast('Pick a player above the chest to shift-click items to them.', true); return; }
-    sendMove(side, index, side === 'c' ? 'p' : 'c', -1, 0);
+
+// Why a click can't move anything yet, said once per screen so a run of clicks doesn't stack toasts.
+function canEdit(side) {
+  let why = '';
+  if (!controlsOn) why = 'Turn on controls to move items. Until then this screen only shows what is there.';
+  else if (!socket || socket.readyState !== WebSocket.OPEN) why = 'Not connected to the server, so nothing can move.';
+  else if (itemMoves < 2) why = 'Moving items needs the newer mcstats mod on the Minecraft server. Update it, then reopen this screen.';
+  else if (side === 'c' && !screen.view) why = 'The container is still loading.';
+  else if (side !== 'c' && !screenOwner()) why = 'Pick whose inventory goes under the chest first.';
+  else if (side !== 'c' && !ownerReady()) why = inventoryUnavailable ? 'This inventory is hidden: the player left, or hid themselves with /liveview optout.' : 'The inventory is still loading.';
+  if (!why) return true;
+  if (screen.told !== why) { screen.told = why; toast(why, true); }
+  return false;
+}
+
+function slotDown(side, index, event) {
+  if (!screen || (event.button !== 0 && event.button !== 2)) return;
+  const button = event.button === 2 ? 'right' : 'left';
+  if (!canEdit(side)) return;
+  if (screen.hold && heldCount()) {
+    // with a stack on the cursor the click happens on release, so a drag across slots can spread it instead
+    screen.drag = { button, keys: [side + index] };
     paintScreen();
     return;
   }
-  const pick = screen.pick;
-  if (!pick) {
-    if (has) { screen.pick = { side, slot: index, amount: right ? 2 : 0 }; paintScreen(); }
-    return;
-  }
-  if (pick.side === side && pick.slot === index) { screen.pick = null; paintScreen(); return; }
-  sendMove(pick.side, pick.slot, side, index, right ? 1 : pick.amount);
-  if (!right) screen.pick = null;
+  screen.hold = null;
+  const r = realSlot(side, index);
+  if (!filled(r)) return;
+  if (event.shiftKey) { quickMove(side, index, r); return; }
+  screen.hold = { side, index, item: r.item, count: button === 'right' ? Math.ceil(r.count / 2) : r.count, at: performance.now() };
   paintScreen();
 }
+function slotEnter(side, index, event) {
+  const d = screen.drag;
+  if (!d) return;
+  if (!(event.buttons & (d.button === 'left' ? 1 : 2))) return;
+  const key = side + index;
+  if (d.keys.includes(key) || (side !== 'c' && !ownerReady())) return;
+  d.keys.push(key);
+  paintScreen();
+}
+document.addEventListener('mouseup', () => {
+  if (!screen || !screen.drag) return;
+  const d = screen.drag;
+  const plan = dragPlan();
+  screen.drag = null;
+  if (plan && d.keys.length > 1) spread(plan);
+  else clickHolding(d.keys[0][0], Number(d.keys[0].slice(1)), d.button);
+  paintScreen();
+});
+
+// A click with a stack on the cursor: put it all (or one) down, put it back, gather more onto it, or swap.
+function clickHolding(side, index, button) {
+  const h = screen.hold, src = heldSlot(), held = heldCount();
+  if (!h || !src || !held) { screen.hold = null; return; }
+  if (side === h.side && index === h.index) {
+    if (button === 'right') { h.count = held - 1; if (h.count <= 0) screen.hold = null; return; }
+    if (performance.now() - h.at < PICK_AGAIN_MS) { gather(); return; }
+    screen.hold = null; // back where it came from; it never left
+    return;
+  }
+  const dst = realSlot(side, index);
+  if (!filled(dst) || sameStack(dst, src)) {
+    const room = limitOf(side, index, src) - (filled(dst) ? dst.count : 0);
+    const n = Math.min(button === 'right' ? 1 : held, room);
+    if (n > 0) put(side, index, n);
+    return;
+  }
+  if (held < src.count) { toast('Only a whole stack can swap. Put the rest of this one down first.', true); return; }
+  swap(side, index);
+}
+
+function put(side, index, n) {
+  const h = screen.hold, src = heldSlot(), dst = realSlot(side, index);
+  const id = sendMove({ from: h.side, fromSlot: h.index, to: side, toSlot: index, amount: 0, count: n, item: src.item }, () => {
+    if (!screen) return;
+    if (!screen.hold) screen.hold = { ...h, count: 0 };
+    if (screen.hold.side === h.side && screen.hold.index === h.index) screen.hold.count += n;
+  });
+  if (!id) return;
+  predict(id, h.side, h.index, withCount(src, src.count - n));
+  predict(id, side, index, withCount(src, (filled(dst) ? dst.count : 0) + n));
+  h.count -= n;
+  if (h.count <= 0) screen.hold = null;
+}
+// The whole stack on the cursor trades places with another; the cursor then holds that one, as in the game.
+function swap(side, index) {
+  const h = screen.hold, src = heldSlot(), dst = realSlot(side, index);
+  const id = sendMove({ from: h.side, fromSlot: h.index, to: side, toSlot: index, amount: 0, item: src.item }, () => { if (screen) screen.hold = null; });
+  if (!id) return;
+  predict(id, h.side, h.index, dst);
+  predict(id, side, index, src);
+  screen.hold = { side: h.side, index: h.index, item: dst.item, count: dst.count, at: 0 };
+}
+function spread(plan) {
+  const h = screen.hold;
+  for (const t of plan.values()) {
+    if (t.own) { h.count -= t.n; continue; } // its share stays where it already is
+    if (!screen.hold || !heldCount()) break;
+    put(t.side, t.index, t.n);
+  }
+  if (screen.hold && screen.hold.count <= 0) screen.hold = null;
+}
+// Double-click: pull matching items from every slot on the screen onto the stack, up to a full stack.
+function gather() {
+  const h = screen.hold, src = heldSlot();
+  let need = limitOf(h.side, h.index, src) - src.count;
+  for (const pass of [false, true]) {
+    for (const { side, index } of screen.layout) {
+      if (need <= 0) break;
+      if (side === h.side && index === h.index) continue;
+      if (side !== 'c' && !ownerReady()) continue;
+      const other = realSlot(side, index);
+      if (!sameStack(other, src)) continue;
+      if (!pass && other.count >= limitOf(side, index, other)) continue; // full stacks last, as the game does
+      const n = Math.min(need, other.count);
+      const id = sendMove({ from: side, fromSlot: index, to: h.side, toSlot: h.index, amount: 0, count: n, item: other.item });
+      if (!id) return;
+      const now = realSlot(h.side, h.index);
+      predict(id, side, index, withCount(other, other.count - n));
+      predict(id, h.side, h.index, withCount(now, now.count + n));
+      h.count += n;
+      need -= n;
+    }
+  }
+  h.at = 0;
+}
+// Shift-click: to the other half of the screen, or inside a player's own inventory between hotbar, rows and armor.
+function quickMove(side, index, r) {
+  const to = screen.kind === 'inventory' ? 'p' : side === 'p' ? (screen.kind === 'ender' ? 'e' : 'c') : 'p';
+  if (to !== 'c' && !canEdit(to)) return;
+  sendMove({ from: side, fromSlot: index, to, toSlot: -1, amount: 0, item: r.item });
+}
+// The number keys and F over a slot: trade it with that hotbar slot, or the off hand.
+function keySwap(target) {
+  const at = screen && screen.hover;
+  if (!at || screen.hold || !canEdit('p') || !canEdit(at.side)) return;
+  if (at.side === 'p' && at.index === target) return;
+  const a = realSlot(at.side, at.index), b = realSlot('p', target);
+  if (!filled(a) && !filled(b)) return;
+  const id = filled(a)
+    ? sendMove({ from: at.side, fromSlot: at.index, to: 'p', toSlot: target, amount: 3, item: a.item })
+    : sendMove({ from: 'p', fromSlot: target, to: at.side, toSlot: at.index, amount: 3, item: b.item });
+  if (!id) return;
+  predict(id, at.side, at.index, b);
+  predict(id, 'p', target, a);
+  paintScreen();
+}
+
 let moveSeq = 0;
-async function sendMove(from, fromSlot, to, toSlot, amount) {
-  if (!screen || !screen.at || !socket || socket.readyState !== WebSocket.OPEN) return;
-  const at = screen.at, dimension = (screen.view && screen.view.dimension) || cameraDim, player = screen.player || '';
-  if (!controlsOn) { toast('Moving items changes the world: turn on controls first.', true); return; }
-  socket.send(JSON.stringify({ type: 'container_move', id: ++moveSeq, dimension, x: at[0], y: at[1], z: at[2], player, from, fromSlot, to, toSlot, amount }));
+const pendingMoves = new Map();
+function sendMove(fields, undo) {
+  if (!screen || !socket || socket.readyState !== WebSocket.OPEN) return 0;
+  const id = ++moveSeq;
+  const msg = { type: 'container_move', id, player: screenOwner() || '', ...fields };
+  if (fields.from === 'c' || fields.to === 'c') {
+    Object.assign(msg, { dimension: (screen.view && screen.view.dimension) || cameraDim, x: screen.at[0], y: screen.at[1], z: screen.at[2] });
+  }
+  socket.send(JSON.stringify(msg));
+  pendingMoves.set(id, { keys: [], undo, screen });
+  return id;
+}
+function predict(id, side, index, slot) {
+  screen.predict.set(side + index, { slot: slot || null, id, acked: false, at: performance.now() });
+  const p = pendingMoves.get(id);
+  if (p) p.keys.push(side + index);
 }
 function onContainerResult(msg) {
+  const p = pendingMoves.get(msg.id);
+  pendingMoves.delete(msg.id);
+  if (p && screen && p.screen === screen) {
+    for (const key of p.keys) {
+      const guess = screen.predict.get(key);
+      if (!guess || guess.id !== msg.id) continue;
+      if (msg.ok) guess.acked = true;
+      else screen.predict.delete(key);
+    }
+    if (!msg.ok && p.undo) p.undo();
+    if (!msg.ok) paintScreen();
+  }
   if (msg.ok) return;
   if (msg.locked) { noteLocked(); return; }
   toast(msg.message || 'Could not move that item.', true);
 }
-// Above the screen: whose inventory sits underneath, and how the clicks work.
-function containerBar() {
+// New contents from the server: guesses for moves it has finished give way to what it says, and a stack on the cursor
+// whose slot was emptied or changed in game goes away (it was never anywhere but that slot).
+function settleScreen(sides) {
+  if (!screen || !screen.predict) return false;
+  let changed = false;
+  const now = performance.now();
+  for (const [key, guess] of screen.predict) {
+    if ((guess.acked && sides.includes(key[0])) || now - guess.at > PREDICT_MS) { screen.predict.delete(key); changed = true; }
+  }
+  if (screen.hold && !heldSlot()) {
+    screen.hold = null;
+    screen.drag = null;
+    changed = true;
+  }
+  return changed;
+}
+
+// The stack on the cursor, drawn under the pointer like the game's carried item.
+const heldEl = document.createElement('div');
+heldEl.className = 'mc-held';
+heldEl.hidden = true;
+let pointerAt = { x: -100, y: -100 };
+function paintHeld() {
+  const src = screen ? heldSlot() : null;
+  let n = src ? heldCount() : 0;
+  if (n && screen.drag) {
+    const plan = dragPlan();
+    if (plan) for (const t of plan.values()) n -= t.n;
+  }
+  if (!src || n <= 0) { heldEl.hidden = true; heldEl.replaceChildren(); return; }
+  const host = document.fullscreenElement || document.body;
+  if (heldEl.parentNode !== host) host.append(heldEl);
+  heldEl.replaceChildren(mcSlot(withCount(src, n), 0, 0));
+  heldEl.hidden = false;
+  placeHeld();
+}
+function placeHeld() {
+  heldEl.style.left = (pointerAt.x - 8 * GUI) + 'px';
+  heldEl.style.top = (pointerAt.y - 8 * GUI) + 'px';
+}
+document.addEventListener('mousemove', (event) => {
+  pointerAt = { x: event.clientX, y: event.clientY };
+  if (!heldEl.hidden) placeHeld();
+});
+
+// The keys a screen understands, shown under it and in the Keys panel. One list, so the two can't disagree.
+const SCREEN_KEYS = [
+  [['Click'], 'Pick up a stack. Click again to put it down.'],
+  [['Right-click'], 'Pick up half. With a stack held, put down one.'],
+  [['Drag'], 'With a stack held: spread it evenly. Right-drag puts one in each.'],
+  [['Double-click'], 'Gather matching items onto the stack.'],
+  [['Shift', 'Click'], 'Send to the other side.'],
+  [['1', '–', '9'], 'Over a slot: swap it with that hotbar slot.'],
+  [['F'], 'Over a slot: swap it with the off hand.'],
+  [['Esc', 'E'], 'Close. A held stack is still in its slot.'],
+];
+function keysList(rows) {
+  const dl = document.createElement('dl');
+  for (const [caps, text] of rows) {
+    const dt = document.createElement('dt');
+    for (const cap of caps) dt.append(cap === '–' ? document.createTextNode('–') : Object.assign(document.createElement('kbd'), { textContent: cap }));
+    dl.append(dt, Object.assign(document.createElement('dd'), { textContent: text }));
+  }
+  return dl;
+}
+$('keys-screen').replaceChildren(keysList(SCREEN_KEYS));
+let screenKeysOpen = true;
+try { screenKeysOpen = localStorage.getItem('liveview-screen-keys') !== '0'; } catch (error) { screenKeysOpen = true; }
+
+// Above the screen: whether clicks move things, and (for a block) whose inventory sits underneath.
+function screenBar() {
   const bar = document.createElement('div');
   bar.className = 'screen-bar';
-  const label = document.createElement('label');
-  label.textContent = 'Inventory below ';
-  const select = document.createElement('select');
-  select.append(new Option('No player', ''));
-  for (const p of sortedPlayers()) select.append(new Option((p.name || p.uuid.slice(0, 8)) + (p.dimension !== cameraDim ? ' (' + dimName(p.dimension) + ')' : ''), p.uuid));
-  select.value = screen.player || '';
-  select.addEventListener('change', () => {
-    screen.player = select.value || null;
-    screen.pick = null;
-    if (screen.player) subscribe(screen.player);
+  const mode = document.createElement('span');
+  mode.className = 'screen-mode' + (controlsOn ? ' on' : '');
+  mode.textContent = controlsOn ? 'Editing: moves happen in game' : 'Looking only';
+  bar.append(mode);
+  if (!controlsOn) {
+    const on = document.createElement('button');
+    on.type = 'button'; on.className = 'btn'; on.textContent = 'Turn on controls';
+    on.addEventListener('click', () => turnOnControls());
+    bar.append(on);
+  }
+  if (screen.kind !== 'container') {
+    const p = players.get(screen.uuid);
+    const who = document.createElement('span');
+    who.className = 'screen-who';
+    who.textContent = (p ? p.name || p.uuid.slice(0, 8) : 'Player') + (screen.kind === 'ender' ? '’s ender chest' : '’s inventory');
+    bar.append(who);
+  } else {
+    const label = document.createElement('label');
+    label.textContent = 'Inventory below';
+    const select = document.createElement('select');
+    select.append(new Option('No player', ''));
+    for (const p of sortedPlayers()) select.append(new Option((p.name || p.uuid.slice(0, 8)) + (p.dimension !== cameraDim ? ' (' + dimName(p.dimension) + ')' : ''), p.uuid));
+    select.value = screen.player || '';
+    select.addEventListener('change', () => {
+      screen.player = select.value || null;
+      screen.hold = null; screen.drag = null; screen.told = '';
+      for (const key of [...screen.predict.keys()]) if (key[0] !== 'c') screen.predict.delete(key);
+      if (screen.player) subscribe(screen.player);
+      paintScreen();
+    });
+    label.append(select);
+    bar.append(label);
+  }
+  const keysBtn = document.createElement('button');
+  keysBtn.type = 'button'; keysBtn.className = 'btn btn-quiet screen-keys-btn'; keysBtn.textContent = screenKeysOpen ? 'Hide keys' : 'Keys';
+  keysBtn.setAttribute('aria-expanded', String(screenKeysOpen));
+  keysBtn.addEventListener('click', () => {
+    screenKeysOpen = !screenKeysOpen;
+    try { localStorage.setItem('liveview-screen-keys', screenKeysOpen ? '1' : '0'); } catch (error) { /* per-viewer convenience */ }
     paintScreen();
   });
-  label.append(select);
-  const hint = document.createElement('span');
-  hint.textContent = controlsOn ? 'Click to pick up, click to put down. Right-click: half, or one. Shift-click: move across.'
-    : 'Looking only. Moving items needs controls on.';
-  bar.append(label, hint);
+  bar.append(keysBtn);
   return bar;
 }
 
@@ -3267,23 +3622,42 @@ function pick(event) {
   return null;
 }
 
+// Flying as a spectator does (Player.travel while flying): each tick the keys push the velocity by the fly speed,
+// then air drag keeps 91% of the sideways speed and 60% of the up-down speed. So the camera speeds up over about a
+// second and glides to a stop instead of starting and stopping dead. Worked out per frame (not per 50 ms tick) so it
+// stays smooth at any frame rate; settings.speed is the top speed, as in the game (about 11 blocks a second).
+const velocity = new THREE.Vector3();
+const movedTo = new THREE.Vector3(NaN, NaN, NaN);
+const AIR_DRAG = 0.91, VERTICAL_DRAG = 0.6;
 function move(dt) {
+  // anything else that put the camera somewhere (go to, follow, /tp) also stopped it
+  if (!(camera.position.distanceToSquared(movedTo) < 1e-6)) velocity.set(0, 0, 0);
   const fast = keys.has('ControlLeft') || keys.has('ControlRight') ? settings.sprint : 1;
-  const speed = settings.speed * fast * dt;
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   const rx = Math.cos(yaw), rz = -Math.sin(yaw);
-  let dx = 0, dy = 0, dz = 0;
-  if (keys.has('KeyW')) { dx += fx; dz += fz; }
-  if (keys.has('KeyS')) { dx -= fx; dz -= fz; }
-  if (keys.has('KeyD')) { dx += rx; dz += rz; }
-  if (keys.has('KeyA')) { dx -= rx; dz -= rz; }
-  if (keys.has('Space')) dy += 1;
-  if (keys.has('ShiftLeft') || keys.has('ShiftRight')) dy -= 1;
-  const len = Math.hypot(dx, dz) || 1;
-  camera.position.x += dx / len * speed;
-  camera.position.z += dz / len * speed;
-  camera.position.y = Math.max(-2100, Math.min(2100, camera.position.y + dy * speed));
+  let ix = 0, iz = 0, iy = 0;
+  if (keys.has('KeyW')) { ix += fx; iz += fz; }
+  if (keys.has('KeyS')) { ix -= fx; iz -= fz; }
+  if (keys.has('KeyD')) { ix += rx; iz += rz; }
+  if (keys.has('KeyA')) { ix -= rx; iz -= rz; }
+  if (keys.has('Space')) iy += 1;
+  if (keys.has('ShiftLeft') || keys.has('ShiftRight')) iy -= 1;
+  const len = Math.hypot(ix, iz) || 1;
+  // The velocity the game settles on while a key is held: push / (1 - drag) per tick. Up and down is pushed three
+  // times as hard but drags more, ending at about two thirds of the sideways speed; sprinting is sideways only.
+  const top = settings.speed * fast;
+  const targetX = ix / len * top, targetZ = iz / len * top;
+  const targetY = iy * settings.speed * (3 * (1 - AIR_DRAG)) / (1 - VERTICAL_DRAG);
+  const ticks = dt * 20;
+  const keepH = Math.pow(AIR_DRAG, ticks), keepV = Math.pow(VERTICAL_DRAG, ticks);
+  velocity.x = targetX + (velocity.x - targetX) * keepH;
+  velocity.z = targetZ + (velocity.z - targetZ) * keepH;
+  velocity.y = targetY + (velocity.y - targetY) * keepV;
+  if (velocity.lengthSq() < 1e-6) velocity.set(0, 0, 0);
+  camera.position.addScaledVector(velocity, dt);
+  camera.position.y = Math.max(-2100, Math.min(2100, camera.position.y));
   camera.rotation.set(pitch, yaw, 0);
+  movedTo.copy(camera.position);
 }
 
 // The game's automatic GUI scale: the largest whole number that still leaves 320 x 240 scaled pixels on screen.
@@ -3582,6 +3956,7 @@ function connect() {
 function onServerMessage(msg) {
   if (msg.type === 'hello' && msg.view) {
     view = msg.view;
+    itemMoves = Number(msg.itemMoves) || 1;
     applySky();
   } else if (msg.type === 'status') {
     lastStatus = msg;
@@ -3631,10 +4006,12 @@ function onServerMessage(msg) {
     slots.clear();
     inventoryUnavailable = !!msg.unavailable;
     applySlots(msg.slots);
+    if (settleScreen(['p', 'e'])) paintScreen();
   } else if (msg.type === 'inventory_delta' && typeof msg.uuid === 'string') {
     if (msg.uuid !== inventoryUuid) return;
     inventoryUnavailable = false;
     applySlots(msg.slots);
+    if (settleScreen(['p', 'e'])) paintScreen();
   } else if (msg.type === 'entities' && Array.isArray(msg.entities)) {
     entities.clear();
     for (const entity of msg.entities) rememberEntity(entity);
@@ -3646,7 +4023,7 @@ function onServerMessage(msg) {
   } else if (msg.type === 'action') {
     const fresh = typeof msg.id !== 'number' || !seenActions.has(msg.id);
     addAction(msg);
-    if (fresh) pushChat(chatSegmentsFor(msg));
+    if (fresh) pushChat(chatSegmentsFor(msg), msg.time);
   } else if (msg.type === 'command_result') {
     onCommandResult(msg);
     return;
@@ -4273,6 +4650,13 @@ for (const button of root.querySelectorAll('[data-act]')) {
     const act = button.dataset.act;
     if (act === 'view') { location.hash = liveHash(''); selectPlayer(selected); return; }
     if (act === 'follow') { if (selected && players.has(selected)) { location.hash = liveHash(''); startFollow(selected, 'first'); } return; }
+    if (act === 'items' || act === 'ender-items') {
+      if (!selected || !players.has(selected)) { toast('This player is not online.', true); return; }
+      const uuid = selected;
+      location.hash = liveHash('');
+      requestAnimationFrame(() => openInventory(uuid, act === 'ender-items'));
+      return;
+    }
     const name = safeName(p);
     if (!name) { toast('This player is not online.', true); return; }
     let command = null;
@@ -4329,44 +4713,124 @@ $('cmd').addEventListener('keydown', (event) => {
 });
 
 // ---------- in-world chat (T, Enter or /), like the game's chat HUD ----------
-const chatLines = $('chat-lines'), chatForm = $('chat-form'), chatInput = $('chat-input'), chatHint = $('chat-hint');
+const chatLines = $('chat-lines'), chatForm = $('chat-form'), chatInput = $('chat-input');
 const chatHistory = [];
 let chatHistoryAt = 0;
 let chatOpen = false;
+// The game's chat HUD (ChatComponent): lines wrap at the chat width (320 GUI pixels), each line is 9 pixels tall
+// with a half-black background across the whole chat width, the text starts 4 pixels in, and a line fades out
+// over the last second of its 10 seconds. Closed, the last 10 lines show; open, up to 20 with the rest a scroll
+// away. Lines are kept as text so they can be drawn again once the game's font has loaded, or the stage resizes.
+const CHAT_WIDTH = 320, CHAT_ROW = 9, CHAT_SHOW_MS = 10000, CHAT_MAX = 100;
+const chatEntries = []; // { segs, time }
+let chatDrawnWidth = 0;
+// Only chat and the server's own messages: joins, leaves and deaths reach the chat as server messages too, so the
+// events for them would print each one twice.
 function chatSegmentsFor(a) {
-  const who = actorName(a);
-  switch (a.kind) {
-    case 'chat': return [['<' + who + '> ', -1, 0], [a.message || '', -1, 0]];
-    case 'join': return plain(who + ' joined the game', 0xFFFF55);
-    case 'leave': return plain(who + ' left the game', 0xFFFF55);
-    case 'death': return plain(a.message || who + ' died');
-    case 'system_message': return plain(a.message || '');
-    default: return null;
-  }
+  const line = Array.isArray(a.line) && a.line.length ? a.line : null;
+  if (a.kind === 'chat') return line || [['<' + actorName(a) + '> ', -1, 0], [a.message || '', -1, 0]];
+  if (a.kind === 'system_message') return line || (a.message ? legacyText(a.message) : null);
+  return null;
 }
-function pushChat(segs) {
-  if (!segs) return;
-  const line = textCanvas(segs, 2, { shadow: true, pad: 1 });
+// Text with § formatting codes (from older mods and plugins) as segments.
+function legacyText(text) {
+  const out = [];
+  let color = -1, flags = 0, buf = '';
+  const flush = () => { if (buf) out.push([buf, color, flags]); buf = ''; };
+  for (let i = 0; i < text.length; i++) {
+    const code = text[i] === '§' && i + 1 < text.length ? text[i + 1].toLowerCase() : null;
+    if (code === null) { buf += text[i]; continue; }
+    flush();
+    i++;
+    if (code in NAMED_COLORS) { color = NAMED_COLORS[code]; flags = 0; }
+    else if (code === 'r') { color = -1; flags = 0; }
+    else flags |= { l: 1, o: 2, n: 4, m: 8, k: 16 }[code] || 0;
+  }
+  flush();
+  return out;
+}
+function chatWidth() {
+  const w = stage.getBoundingClientRect().width;
+  return Math.max(80, Math.min(CHAT_WIDTH, Math.floor((w - 8) / GUI) - 8));
+}
+// ComponentRenderUtils.wrapComponents: break at the last space that fits (the space goes), or mid-word if one word
+// is wider than the chat.
+function wrapSegs(segs, width) {
+  const lines = [];
+  let line = [], w = 0, lastSpace = -1;
+  const adv = (c) => glyphAdvance(c[0], c[2] & 1);
+  for (const [text, color, flags = 0] of segs) {
+    for (const ch of String(text)) {
+      if (ch === '\n') { lines.push(line); line = []; w = 0; lastSpace = -1; continue; }
+      const c = [ch, color, flags];
+      if (w + adv(c) > width && line.length) {
+        if (lastSpace >= 0) { lines.push(line.slice(0, lastSpace)); line = line.slice(lastSpace + 1); }
+        else { lines.push(line); line = []; }
+        w = line.reduce((n, d) => n + adv(d), 0);
+        lastSpace = -1;
+        line.forEach((d, i) => { if (d[0] === ' ') lastSpace = i; });
+        if (!line.length && ch === ' ') continue;
+      }
+      if (ch === ' ') lastSpace = line.length;
+      line.push(c);
+      w += adv(c);
+    }
+  }
+  lines.push(line);
+  return lines.map((chars) => {
+    const out = [];
+    for (const [ch, color, flags] of chars) {
+      const last = out[out.length - 1];
+      if (last && last[1] === color && last[2] === flags) last[0] += ch;
+      else out.push([ch, color, flags]);
+    }
+    return out;
+  });
+}
+function chatRow(segs, width, time) {
+  const s = 2;
   const c = document.createElement('canvas');
-  c.width = Math.max(line.width, 1); c.height = line.height;
-  c.getContext('2d').drawImage(line, 0, 0);
-  c.style.width = (c.width / 2 * GUI) + 'px'; c.style.height = (c.height / 2 * GUI) + 'px';
-  chatLines.append(c);
-  while (chatLines.childElementCount > 100) chatLines.firstElementChild.remove();
-  // Vanilla fades a line after 200 ticks unless the chat is open; only the last 10 show while closed.
-  setTimeout(() => c.classList.add('gone'), 10000);
+  c.width = (width + 8) * s; c.height = CHAT_ROW * s;
+  drawText(c.getContext('2d'), segs, 4, 0, s, { shadow: true });
+  c.style.width = (width + 8) * GUI + 'px'; c.style.height = CHAT_ROW * GUI + 'px';
+  const age = Date.now() - time;
+  if (age >= CHAT_SHOW_MS) c.classList.add('gone');
+  else setTimeout(() => c.classList.add('gone'), Math.max(0, CHAT_SHOW_MS - 1000 - age));
+  return c;
+}
+function rowsFor(entry, width) { return wrapSegs(entry.segs, width).map((segs) => chatRow(segs, width, entry.time)); }
+// Everything again: after the font loads (lines drawn before it used a stand-in) or when the width changes.
+function redrawChat() {
+  const width = chatWidth();
+  chatDrawnWidth = width;
+  chatLines.replaceChildren(...chatEntries.flatMap((e) => rowsFor(e, width)));
+  layoutChat();
+}
+function pushChat(segs, time = Date.now()) {
+  if (!segs || !segs.length) return;
+  const entry = { segs, time };
+  chatEntries.push(entry);
+  if (chatEntries.length > CHAT_MAX) { chatEntries.splice(0, chatEntries.length - CHAT_MAX); redrawChat(); return; }
+  const width = chatWidth();
+  if (width !== chatDrawnWidth) { redrawChat(); return; }
+  chatLines.append(...rowsFor(entry, width));
   layoutChat();
 }
 function layoutChat() {
   const kids = [...chatLines.children];
   kids.forEach((c, i) => { c.hidden = !chatOpen && i < kids.length - 10; });
-  if (!chatOpen) kids.slice(0, Math.max(0, kids.length - 10)).forEach((c) => c.classList.add('gone'));
+  if (chatOpen) chatLines.scrollTop = chatLines.scrollHeight;
 }
+let chatResizeTimer = 0;
+new ResizeObserver(() => {
+  clearTimeout(chatResizeTimer);
+  chatResizeTimer = setTimeout(() => { if (chatEntries.length && chatWidth() !== chatDrawnWidth) redrawChat(); }, 150);
+}).observe(stage);
 function openChat(prefix = '') {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
   chatOpen = true;
   chatLines.classList.add('open');
-  chatForm.hidden = false; chatHint.hidden = false;
+  chatForm.hidden = false;
   layoutChat();
   chatInput.value = prefix;
   chatHistoryAt = chatHistory.length;
@@ -4375,7 +4839,7 @@ function openChat(prefix = '') {
 function closeChat() {
   chatOpen = false;
   chatLines.classList.remove('open');
-  chatForm.hidden = true; chatHint.hidden = true;
+  chatForm.hidden = true;
   layoutChat();
   canvas.focus();
 }
@@ -4667,67 +5131,116 @@ function paintSide(force) {
 
 // ---------- game screens over the world: a player's inventory, an ender chest, a block container ----------
 const screenWrap = $('screen-wrap'), screenHost = $('screen-host');
-let screen = null; // { kind: 'inventory'|'ender'|'container', uuid?, view? }
+screenWrap.tabIndex = -1;
+// { kind: 'inventory'|'ender'|'container', uuid?, player?, view?, viewMap?, at?, hold, drag, hover, predict, layout }
+let screen = null;
+function newScreen(fields) {
+  return { view: null, viewMap: new Map(), hold: null, drag: null, hover: null, predict: new Map(), layout: [], told: '', ...fields };
+}
 function closeScreen() {
   if (screen && screen.kind === 'container' && socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'close_container' }));
   screen = null;
   screenWrap.hidden = true;
   screenHost.replaceChildren();
   hideTooltip();
+  paintHeld();
+  if (mapVisible()) canvas.focus({ preventScroll: true });
 }
-screenWrap.addEventListener('click', (event) => { if (event.target === screenWrap) closeScreen(); });
+// Clicking off the screen: with a stack held, let go of it (it is still in its slot); otherwise close.
+screenWrap.addEventListener('mousedown', (event) => {
+  if (event.target !== screenWrap) return;
+  event.preventDefault();
+  if (screen && screen.hold) { screen.hold = null; screen.drag = null; paintScreen(); return; }
+  closeScreen();
+});
+screenWrap.addEventListener('contextmenu', (event) => event.preventDefault());
+function showScreen(fields) {
+  if (screen && screen.kind === 'container' && fields.kind !== 'container' && socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'close_container' }));
+  screen = newScreen(fields);
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  if (!side.hidden) toggleSide(false);
+}
 function openInventory(uuid, ender = false) {
   subscribe(uuid);
-  screen = { kind: ender ? 'ender' : 'inventory', uuid };
-  if (document.pointerLockElement === canvas) document.exitPointerLock();
+  showScreen({ kind: ender ? 'ender' : 'inventory', uuid });
   paintScreen();
+  screenWrap.focus({ preventScroll: true });
+}
+function nearestPlayer(x, y, z) {
+  let best = Infinity, uuid = null;
+  for (const p of players.values()) {
+    if (p.dimension !== cameraDim || !Number.isFinite(p.x)) continue;
+    const d = Math.hypot(p.x - x, p.y - y, p.z - z);
+    if (d < best) { best = d; uuid = p.uuid; }
+  }
+  return uuid;
 }
 function openContainerAt(x, y, z) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   // The inventory underneath: the player you follow, else the nearest one in this dimension.
-  let player = following && players.get(following) ? following : null;
-  if (!player) {
-    let best = Infinity;
-    for (const p of players.values()) {
-      if (p.dimension !== cameraDim || !Number.isFinite(p.x)) continue;
-      const d = Math.hypot(p.x - x, p.y - y, p.z - z);
-      if (d < best) { best = d; player = p.uuid; }
-    }
-  }
-  screen = { kind: 'container', view: null, at: [x, y, z], player, pick: null };
+  const player = following && players.get(following) ? following : nearestPlayer(x, y, z);
+  showScreen({ kind: 'container', at: [x, y, z], player });
   if (player) subscribe(player);
   socket.send(JSON.stringify({ type: 'open_container', dimension: cameraDim, x, y, z }));
 }
 function paintScreen() {
   if (!screen) return;
+  screen.layout = [];
   let el = null;
   if (screen.kind === 'inventory' || screen.kind === 'ender') {
     const p = players.get(screen.uuid);
     if (inventoryUnavailable || !p) el = Object.assign(document.createElement('div'), { className: 'empty', textContent: 'This inventory is hidden: the player left, or hid themselves with /liveview optout.' });
-    else if (screen.kind === 'ender') el = chestScreen(plain('Ender Chest'), 3, [...slots.values()], 100);
+    else if (screen.kind === 'ender') el = enderScreen();
     else {
-      el = inventoryScreen(p, slots);
-      screenLabel(el, plain(p.name || ''), 8, -10);
+      el = inventoryScreen(p, slots, (index, x, y, opts) => editSlot('p', index, x, y, opts));
     }
   } else if (screen.view) {
     el = containerScreen(screen.view);
   }
   if (!el) return;
-  const bar = screen.kind === 'container' ? containerBar() : null;
   const close = document.createElement('button');
   close.type = 'button'; close.className = 'lv-screen-close'; close.textContent = '×'; close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
   close.addEventListener('click', closeScreen);
-  if (el.classList.contains('mc-screen')) el.append(close);
-  if (bar) screenHost.replaceChildren(bar, el);
-  else screenHost.replaceChildren(el);
+  const parts = [];
+  if (el.classList.contains('mc-screen')) {
+    el.classList.toggle('editing', controlsOn);
+    // The bar and the keys are kept while what they show is the same, so a repaint from new slot contents can't
+    // swallow a click on them or close the player list while it's open.
+    const p = players.get(screenOwner());
+    const barSig = [screen.kind, controlsOn, screenKeysOpen, screen.player || '', p ? p.name : '', screen.kind === 'container' ? sortedPlayers().map((o) => o.uuid + o.name + o.dimension).join() : ''].join('|');
+    if (!screen.bar || screen.barSig !== barSig) {
+      screen.barSig = barSig;
+      screen.bar = screenBar();
+      close.className = 'btn btn-quiet'; close.textContent = 'Close'; close.removeAttribute('aria-label');
+      screen.bar.append(close);
+      screen.keys = null;
+      if (screenKeysOpen) {
+        screen.keys = document.createElement('div');
+        screen.keys.className = 'screen-keys';
+        screen.keys.append(keysList(SCREEN_KEYS));
+      }
+    }
+    parts.push(screen.bar, el);
+    if (screen.keys) parts.push(screen.keys);
+  } else {
+    el.append(close);
+    parts.push(el);
+  }
+  // swap only the game screen when the bar and keys around it stay (moving them would close an open player list)
+  if (screen.el && screen.el.parentNode === screenHost && parts.every((part) => part === el || part.parentNode === screenHost) && parts.length === screenHost.childElementCount) screen.el.replaceWith(el);
+  else screenHost.replaceChildren(...parts);
+  screen.el = el;
   screenWrap.hidden = false;
   if (tipFor) hideTooltip();
+  paintHeld();
 }
 function onContainer(msg) {
   if (!screen || screen.kind !== 'container' || !screen.at) return;
   if (msg.x !== screen.at[0] || msg.y !== screen.at[1] || msg.z !== screen.at[2]) return;
-  if (msg.missing) { toast('Nothing to open there: right-click a chest, barrel, shulker box, hopper or dispenser.', true); screen = null; return; }
+  if (msg.missing) { toast('Nothing to open there: right-click a chest, barrel, shulker box, hopper, dispenser or dropper.', true); closeScreen(); return; }
   screen.view = msg;
+  screen.viewMap = new Map((msg.slots || []).map((s) => [s.slot, s]));
+  settleScreen(['c']);
   paintScreen();
 }
 
@@ -4772,14 +5285,15 @@ document.addEventListener('fullscreenchange', () => {
   requestAnimationFrame(resize);
 });
 
-// Keys in the world view: T / Enter chat, / command, M players, F fullscreen, E inventory of the nearest player, Esc closes.
+// Keys in the world view: T / Enter chat, / command, M players, F fullscreen, E inventory of the followed or nearest
+// player, Esc closes. The full list is in the Keys panel (stats.html) and SCREEN_KEYS.
 document.addEventListener('keydown', (event) => {
   if (!mapVisible() || chatOpen) return;
   const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
   if (inField || keyDialog.open) return;
   const inWorld = document.activeElement === canvas || document.pointerLockElement === canvas || stage.contains(document.activeElement) || document.fullscreenElement === stage;
   if (!inWorld) return;
-  if (event.key === 'Escape' && screen) { closeScreen(); return; }
+  if (screen && !screenWrap.hidden) { screenKey(event); return; }
   if (event.key === 'Escape' && !side.hidden) { toggleSide(false); return; }
   if (event.key === 'Escape' && !settingsEl.hidden) { toggleSettings(false); return; }
   if (event.key === 'Escape' && !keysEl.hidden) { toggleKeys(false); return; }
@@ -4789,7 +5303,23 @@ document.addEventListener('keydown', (event) => {
   else if (event.key === '/') { event.preventDefault(); openChat('/'); }
   else if (event.key === 'm' || event.key === 'M') { event.preventDefault(); toggleSide(); }
   else if (event.key === 'f' || event.key === 'F') { event.preventDefault(); toggleFullscreen(); }
+  else if (event.key === 'e' || event.key === 'E') {
+    event.preventDefault();
+    const c = camera.position;
+    const uuid = following && players.get(following) ? following : nearestPlayer(c.x, c.y, c.z);
+    if (uuid) openInventory(uuid); else toast('Nobody is in this dimension to open an inventory for.', true);
+  }
 }, true);
+// Keys while a screen is open go to it and nowhere else (no flying, no chat), as in the game.
+function screenKey(event) {
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.repeat) return;
+  if (event.key === 'Escape' || event.key === 'e' || event.key === 'E') { closeScreen(); return; }
+  if (/^Digit[1-9]$/.test(event.code)) { keySwap(Number(event.code.slice(5)) - 1); return; }
+  if (event.key === 'f' || event.key === 'F') keySwap(40);
+}
 
 // ---------- small things ----------
 let toastTimer = 0;
@@ -4856,6 +5386,7 @@ $('fullbright').addEventListener('click', () => {
 lightingReady = true;
 applyLighting();
 Object.assign(debugState, { stats: () => ({ sections: sections.size, vertices: vertexTotal }), pickBlock: (x, y) => pickBlock({ clientX: x, clientY: y }), openContainerAt: (x, y, z) => openContainerAt(x, y, z), materials: [opaqueMaterial, translucentMaterial], particles: () => particlePool.length, sections: () => sections.size,
+  chat: (segs, time) => pushChat(segs, time), font: () => { buildFont(); textCache.clear(); redrawChat(); }, velocity,
   icon: itemIconCanvas, tooltip: tooltipCanvas, containerScreen, inventoryScreen, files, text: textCanvas, splash: spawnPotionSplash, camera,
   entities, players, settings, weather, follow: () => [following, followMode], sky: () => sky.state, look: (y, p) => { yaw = y; pitch = p; } });
 

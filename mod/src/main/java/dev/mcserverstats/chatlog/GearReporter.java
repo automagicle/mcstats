@@ -41,12 +41,19 @@ final class GearReporter {
 	private static final Pattern WEAPON = Pattern.compile("mace|trident|.*_(sword|axe|pickaxe|shovel|spear)");
 
 	private final Uploader uploader;
+	private final ProfileStore profiles;
 	private final Map<UUID, String> lastSent = new HashMap<>();
 	private final Map<UUID, Long> lastSentAt = new HashMap<>();
 	private int ticks;
 
-	GearReporter(Uploader uploader) {
+	GearReporter(Uploader uploader, ProfileStore profiles) {
 		this.uploader = uploader;
+		this.profiles = profiles;
+		// a player changed how they're shown (/mcstats): send their report within a second, not the next minute
+		profiles.onChange(id -> {
+			lastSentAt.remove(id);
+			ticks = Math.max(ticks, CHECK_TICKS - 20);
+		});
 	}
 
 	// Called at the end of every server tick.
@@ -60,6 +67,9 @@ final class GearReporter {
 			JsonObject gear;
 			try {
 				gear = report(player);
+				// what they picked to be shown with (/mcstats view → Your Profile), if anything
+				ProfileStore.Display display = profiles.get(id);
+				if (!display.isEmpty()) gear.add("display", display.toJson());
 			} catch (RuntimeException e) {
 				ChatLogMod.LOG.debug("Couldn't read {}'s gear", player.getScoreboardName(), e);
 				continue;
@@ -127,7 +137,7 @@ final class GearReporter {
 	}
 
 	// { id, n?, glint?, model?, egg?, name?, tip?, asset?, trim?: { pattern, palette }, dye? }
-	private static JsonObject item(ItemStack stack) {
+	static JsonObject item(ItemStack stack) {
 		JsonObject o = new JsonObject();
 		String id = id(stack);
 		o.addProperty("id", short_(id));

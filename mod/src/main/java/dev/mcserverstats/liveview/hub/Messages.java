@@ -19,7 +19,8 @@ public final class Messages {
 	}
 
 	public static String hello(long serverTime, int cameraChunkRadius, int playerChunkRadius, int entityRadiusBlocks) {
-		return "{\"type\":\"hello\",\"protocol\":1,\"serverTime\":"
+		// itemMoves 2: container_move takes the 'e' side, an exact count, amount 3 (swap) and the item check
+		return "{\"type\":\"hello\",\"protocol\":1,\"itemMoves\":2,\"serverTime\":"
 				+ serverTime
 				+ ",\"view\":{\"cameraChunkRadius\":"
 				+ cameraChunkRadius
@@ -129,6 +130,9 @@ public final class Messages {
 		string(out, event.target());
 		out.append(",\"message\":");
 		string(out, event.message());
+		if (event.line() != null) {
+			out.append(",\"line\":").append(event.line());
+		}
 		out.append('}');
 		return out.toString();
 	}
@@ -548,6 +552,9 @@ public final class Messages {
 		}
 		if (detail.maxDamage() > 0) {
 			out.append(",\"damage\":").append(detail.damage()).append(",\"maxDamage\":").append(detail.maxDamage());
+		}
+		if (detail.maxStack() > 0 && detail.maxStack() != 64) {
+			out.append(",\"max\":").append(detail.maxStack());
 		}
 		if (detail.tooltip() != null) {
 			out.append(",\"tooltip\":").append(detail.tooltip());

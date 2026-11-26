@@ -31,6 +31,8 @@ import { currentSeason } from './seasons.js';
 import { json, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { ADMIN_SENDER, deliverWhisper, parseCommand } from './whisper.js';
+import { modUpdateMessage } from './modupdate.js';
+import { uploadOrigin } from './site.js';
 
 export const MAX_WEB_CHAT = 256; // the game's own limit for a chat message
 const IGN_RE = /^[A-Za-z0-9_.]{1,20}$/;
@@ -86,7 +88,10 @@ export async function connectLink(request, env) {
   const denied = ingestDenied(env);
   if (denied) return denied;
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'expected a WebSocket' }, 426);
-  return link(env).fetch(new Request('https://link/connect', request));
+  // where this server's pages are, for the mod's /mcstats links (mod 2.2.0): https://<site>/s/<slug>/
+  const slug = env.TENANT?.slug;
+  const page = slug ? `${uploadOrigin(env, new URL(request.url))}/s/${encodeURIComponent(slug)}/` : '';
+  return link(env).fetch(new Request(`https://link/connect?page=${encodeURIComponent(page)}`, request));
 }
 
 const ADMIN = '@admin'; // roster_email's stand-in IGN for an admin (scripts/roster-sql.mjs)
@@ -281,9 +286,11 @@ export class ServerLink extends DurableObject {
   }
 
   async fetch(request) {
-    const path = new URL(request.url).pathname;
+    const reqUrl = new URL(request.url);
+    const path = reqUrl.pathname;
 
     if (path === '/connect') {
+      const page = reqUrl.searchParams.get('page') || '';
       // One server at a time: a new connection (say, after a restart) replaces any old one.
       for (const old of this.ctx.getWebSockets()) {
         try { old.close(4000, 'replaced by a newer connection'); } catch {}
@@ -297,8 +304,13 @@ export class ServerLink extends DurableObject {
         version: ua ? ua[1] : null, at: Date.now(), heard: Date.now(),
       });
       this.note(`mod ${ua ? ua[1] : '(unknown version)'} connected`);
+      // kept for the admin page while the mod isn't connected (it still needs updating then)
+      if (ua) this.ctx.waitUntil(this.ctx.storage.put('version', ua[1]));
       this.ctx.acceptWebSocket(server);
-      server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT }));
+      server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT, ...(page && { page }) }));
+      // a newer mod than this one is out (src/modupdate.js): 2.1.0 and newer tell operators in game; older ones ignore it
+      const update = ua ? modUpdateMessage(ua[1]) : null;
+      if (update) server.send(JSON.stringify(update));
       server.send(JSON.stringify({ type: 'web', names: await this.webList() }));
       this.ctx.waitUntil(tellPresence(this.env, '/link', { up: true }));
       return new Response(null, { status: 101, webSocket: client });
@@ -380,6 +392,8 @@ export class ServerLink extends DurableObject {
       this.log ??= (await this.ctx.storage.get('log')) ?? [];
       return json({
         linked: !!ws, sockets: this.ctx.getWebSockets().length, version: a.version ?? null,
+        // the version of the mod last connected, connected now or not
+        last_version: a.version ?? (await this.ctx.storage.get('version')) ?? null,
         // what the mod said about Liveview: { enabled, control, viewer_key, control_key, access: { email: 'viewer' | 'control' } }
         liveview: a.live ? { ...a.live, access: await this.liveAccess() } : null,
         connected_ago: ago(a.at), heard_ago: ago(a.heard), started_ago: ago(this.started),

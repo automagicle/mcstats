@@ -110,17 +110,18 @@ public final class ActionHooks {
 		});
 		ServerMessageEvents.GAME_MESSAGE.register((server, message, overlay) -> {
 			try {
-				if (message == null || mentionsHidden(server, message)) {
+				// overlay messages are the action bar above the hotbar, not chat
+				if (message == null || overlay || mentionsHidden(server, message)) {
 					return;
 				}
-				emit("system_message", null, "", null, null, null, "", message.getString());
+				emitLine("system_message", null, "", null, null, null, "", message.getString(), message);
 			} catch (Throwable thrown) {
 				LogOnce.warn("hook-system", "Liveview system_message hook failed", thrown);
 			}
 		});
 		ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
 			try {
-				emitChat(message, sender);
+				emitChat(message, sender, params);
 			} catch (Throwable thrown) {
 				LogOnce.warn("hook-chat", "Liveview chat hook failed", thrown);
 			}
@@ -131,7 +132,7 @@ public final class ActionHooks {
 				if (sender == null) {
 					return;
 				}
-				emitChat(message, sender);
+				emitChat(message, sender, params);
 			} catch (Throwable thrown) {
 				LogOnce.warn("hook-command-chat", "Liveview command chat hook failed", thrown);
 			}
@@ -258,7 +259,7 @@ public final class ActionHooks {
 		}
 	}
 
-	private void emitChat(PlayerChatMessage message, ServerPlayer sender) {
+	private void emitChat(PlayerChatMessage message, ServerPlayer sender, net.minecraft.network.chat.ChatType.Bound params) {
 		if (sender == null || hidden(sender.getUUID())) {
 			return;
 		}
@@ -271,15 +272,32 @@ public final class ActionHooks {
 				text = signed == null ? "" : signed;
 			}
 		}
-		emit(
-				"chat",
-				sender,
-				sender.level(),
-				sender.getBlockX(),
-				sender.getBlockY(),
-				sender.getBlockZ(),
-				"",
-				text);
+		// the whole line as players see it: "<Name> text", "[Name] text" for /say, "* Name text" for /me, team colors
+		Component shown = null;
+		try {
+			if (message != null && params != null) {
+				shown = params.decorate(message.decoratedContent());
+			}
+		} catch (Throwable thrown) {
+			LogOnce.warn("chat-decorate", "Liveview could not build a chat line as the game shows it", thrown);
+		}
+		emitLine("chat", sender.getUUID(), Ids.dimension(sender.level()), sender.getBlockX(), sender.getBlockY(), sender.getBlockZ(), "", text, shown);
+	}
+
+	/** Like emit, with the line as the chat shows it (colors and all) for the page's chat. */
+	private void emitLine(String kind, UUID actor, String dimension, Integer x, Integer y, Integer z, String target, String message, Component shown) {
+		if (actor != null && hidden(actor)) {
+			return;
+		}
+		try {
+			ActionEvent event = ActionEvent.of(kind, actor, dimension, x, y, z, target, message);
+			if (shown != null) {
+				event = event.withLine(Stacks.line(shown));
+			}
+			sink.accept(event);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-emit", "Liveview failed to enqueue an action", thrown);
+		}
 	}
 
 	private void emit(String kind, Player player, Level level, int x, int y, int z, String target, String message) {
