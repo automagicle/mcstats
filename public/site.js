@@ -1,5 +1,5 @@
 // The site's own pages: the landing page (/), joining a server (/join), making one (/new) and the mcstats
-// account (/account). Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js) and
+// account (/account) and the mod's own page (/mod). Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js) and
 // /api/account/* (src/account.js).
 (() => {
   const page = document.body.dataset.page;
@@ -449,29 +449,53 @@
     frame('Name the server', 'Pick its address and who can see it. You can change who can see it later.', form);
   }
 
-  async function stepInstall() {
-    W.mod ||= await api('/api/site/mod');
-    const m = W.mod;
+  // What the server needs and where the jar goes, read from the mod itself (/api/site/mod). With checks, each
+  // item can be ticked off (/new); without, it's a plain numbered list (/mod).
+  function installList(m, checks) {
     const item = (title, ...body) => h('li', { class: 'wiz-check' },
-      h('label', { class: 'wiz-check-head' }, h('input', { type: 'checkbox' }), h('span', { text: title })),
+      checks ? h('label', { class: 'wiz-check-head' }, h('input', { type: 'checkbox' }), h('span', { text: title }))
+        : h('div', { class: 'wiz-check-head mod-head' }, h('span', { text: title })),
       h('div', { class: 'wiz-check-body' }, ...body));
     const code = (t) => h('code', { text: t });
     const extra = Object.entries(m.other_depends || {});
+    return h('ol', { class: checks ? 'wiz-checks' : 'wiz-checks mod-steps' },
+      item(`Minecraft ${m.minecraft.replace(/^~/, '')}.x (Java Edition)`,
+        h('p', {}, 'The server must run Minecraft ', code(m.minecraft_built), ' (any ', code(`${m.minecraft_built}.x`), ' release; the mod asks for ', code(m.minecraft), '), on Java ', code(m.java.replace('>=', '')), ' or newer.')),
+      item(`Fabric Loader ${m.loader.replace('>=', '')} or newer`,
+        h('p', {}, 'The server needs the Fabric mod loader, version ', code(m.loader.replace('>=', '')), ' or newer (the mod is built with ', code(m.loader_built), '). Install it with the ', h('a', { href: m.loader_installer, target: '_blank', rel: 'noopener', text: 'official Fabric server installer' }), '. Many hosting panels can switch a server to Fabric for you.')),
+      item('Fabric API: not needed',
+        h('p', {}, 'The pieces of Fabric API the mod uses (', code(m.fabric_api.version), ') are built into its jar. If the server has Fabric API already, that’s fine too.')),
+      extra.length ? item('Other mods it needs', h('ul', {}, extra.map(([k, v]) => h('li', {}, code(k), ' ', code(String(v)))))) : null,
+      item(`The mcstats mod ${m.version}`,
+        h('p', {}, h('a', { class: 'btn btn-primary', href: m.jar_url, download: m.jar, text: `Download ${m.jar}` }))),
+      item('Put it in the server’s mods folder, and restart',
+        h('p', {}, 'Copy ', code(m.jar), ' into the ', code('mods/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
+        h('p', {}, 'On its first start the mod makes ', code(m.config_file), checks ? '; the next step fills it in.' : '; setting up your server’s page fills it in.')));
+  }
+
+  async function stepInstall() {
+    W.mod ||= await api('/api/site/mod');
     frame('Install the mods', 'On the Minecraft server, not on players’ games. These are read from the mod itself, so they’re exact.',
-      h('ol', { class: 'wiz-checks' },
-        item(`Minecraft ${m.minecraft.replace(/^~/, '')}.x (Java Edition)`,
-          h('p', {}, 'The server must run Minecraft ', code(m.minecraft_built), ' (any ', code(`${m.minecraft_built}.x`), ' release; the mod asks for ', code(m.minecraft), '), on Java ', code(m.java.replace('>=', '')), ' or newer.')),
-        item(`Fabric Loader ${m.loader.replace('>=', '')} or newer`,
-          h('p', {}, 'The server needs the Fabric mod loader, version ', code(m.loader.replace('>=', '')), ' or newer (the mod is built with ', code(m.loader_built), '). Install it with the ', h('a', { href: m.loader_installer, target: '_blank', rel: 'noopener', text: 'official Fabric server installer' }), '. Many hosting panels can switch a server to Fabric for you.')),
-        item('Fabric API: not needed',
-          h('p', {}, 'The pieces of Fabric API the mod uses (', code(m.fabric_api.version), ') are built into its jar. If the server has Fabric API already, that’s fine too.')),
-        extra.length ? item('Other mods it needs', h('ul', {}, extra.map(([k, v]) => h('li', {}, code(k), ' ', code(String(v)))))) : null,
-        item(`The mcstats mod ${m.version}`,
-          h('p', {}, h('a', { class: 'btn btn-primary', href: m.jar_url, download: m.jar, text: `Download ${m.jar}` }))),
-        item('Put it in the server’s mods folder, and restart',
-          h('p', {}, 'Copy ', code(m.jar), ' into the ', code('mods/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
-          h('p', {}, 'On its first start the mod makes ', code(m.config_file), '; the next step fills it in.'))),
-      next(4));
+      installList(W.mod, true), next(4));
+  }
+
+  // ---------------- /mod: the mod by itself, for whoever came looking for it ----------------
+  async function modPage() {
+    const m = await api('/api/site/mod');
+    const me = await api('/api/site/me').catch(() => ({ servers: [] }));
+    const mine = (me.servers || []).map((s) => h('li', {}, h('a', { href: `/new?server=${s.slug}&step=4`, text: s.name }), h('span', { class: 'site-hint', text: ' · make or replace its key' })));
+    main.replaceChildren(h('section', { class: 'card site-card mod-page' },
+      h('h1', { class: 'site-title', text: 'The mcstats mod' }),
+      h('p', { class: 'site-sub', text: 'It runs on the Minecraft server and sends what happens there to the server’s mcstats page. It’s for whoever runs the server: players don’t install anything.' }),
+      h('div', { class: 'mod-get' },
+        h('a', { class: 'btn btn-primary site-go', href: m.jar_url, download: m.jar, text: `Download mcstats ${m.version}` }),
+        h('span', { class: 'site-hint', text: `${m.jar} · Minecraft ${m.minecraft_built}.x · Fabric · server side` })),
+      h('h2', { class: 'site-h2', text: 'Installing it' }),
+      installList(m, false),
+      h('h2', { class: 'site-h2', text: 'Connecting it' }),
+      h('p', { class: 'site-sub', text: 'The mod needs your server’s key to know where to send things. You get the key, and the file to put it in, when you set up the server’s page.' }),
+      mine.length ? h('ul', { class: 'wiz-mine' }, mine) : null,
+      h('div', { class: 'site-row' }, h('a', { class: 'btn', href: mine.length ? '/new?fresh=1' : '/new', text: 'Create a server' }))));
   }
 
   function stepKey() {
@@ -676,4 +700,5 @@
   if (page === 'join') joinPage();
   else if (page === 'account') accountPage().catch(fail);
   else if (page === 'new') newPage().catch(fail);
+  else if (page === 'mod') modPage().catch(fail);
 })();

@@ -99,19 +99,30 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
 
 ## Seasons
 
-Each server has its own seasons: `CURRENT_SEASON`, `SEASONn_START`, `SEASONn_OPENS` and `CHAT_RESETS` are its
-settings (see [Deploy](#deploy)); a new server starts in season 1, and `n` below is any season. For the first server:
-everything recorded before `SEASON2_START` is season 1, shown at `/s1/`; the main page shows only
-what comes after. While it's empty, season 2 has no data (the main page says so and links to the archive) and season 1
-keeps recording. When season 2 begins:
+Each server has its own seasons. A season is only a stretch of time: season 1 runs from the first thing recorded,
+and season `n` from its start to the start of season `n+1`. Nothing is copied or deleted by changing them; a moment
+just counts towards whichever season it falls in. A new server is in season 1 and stays there until its admins say
+otherwise.
 
-1. Set `SEASON2_START` to the moment it starts, with its offset, e.g. `"2026-11-08T16:00:00-08:00"` (on the hour is tidiest:
-   hourly totals are per hour).
-2. If it's on a new Minecraft server, update the address (the server's `MC_SERVER` setting, on `/new`).
-3. `npm run deploy`.
+Admins manage them on **Admin → Server → Seasons** (`src/seasonadmin.js`, `/api/admin/seasons`):
 
-**Recording before the official start**: to test before a season opens, set `SEASON2_START` to when recording should
-begin and `SEASON2_OPENS` to the official start. Everything from `SEASON2_START` on is season 2 and counts; charts hatch
+- **Start a new season**: now, or at a set time. The main page becomes the new season at once; if it starts later, the
+  page says when and the season before keeps recording until then. It asks for the season's name to be typed
+  ("Season 3") before it does anything, and can bring over the teams, players and sign-in emails, which are per season.
+  A season that hasn't started yet can't be followed by another.
+- **Move a start** (and so the end of the season before): any time after the previous season's start and before the
+  next one's. Moving it across time that's already recorded asks first, since that time changes season.
+- **Officially opens** (optional): see below.
+- **Remove the newest season**: its time counts as the season before again, which goes back to being the main page.
+  Typed confirmation too; its teams and players stay in the database in case it's made again.
+
+Underneath these are the server's settings `CURRENT_SEASON`, `SEASONn_START` and `SEASONn_OPENS`.
+
+**Switching seasons** on the page is the **Season** menu at the far right of the footer, apart from the footer's
+links; it's only there once a server has more than one season. Earlier seasons live at `/s/<server>/s1/`, `/s2/`, ….
+
+**Recording before the official start**: to test before a season opens, set the season's start to when recording
+should begin and "officially opens" (`SEASON2_OPENS`) to the official start. Everything from `SEASON2_START` on is season 2 and counts; charts hatch
 the time before `SEASON2_OPENS` ("Season starts Sun 7:30 PM", then "Before the season") with what was recorded drawn
 over it, and a line at the top says the season hasn't started. To drop the test data once the season is on, move
 `SEASON2_START` to the official time (it then counts as the end of season 1) and remove `SEASON2_OPENS`.
@@ -411,6 +422,13 @@ roster file. The admin page does this, or:
 npx wrangler d1 execute mcstats --remote --command "INSERT OR REPLACE INTO player_aliases (alias, name) VALUES ('OldName', 'MainName')"
 npx wrangler d1 execute mcstats --remote --command "DELETE FROM player_aliases WHERE alias = 'OldName'"
 ```
+
+## Getting the mod
+
+The jar is in `public/downloads/` (kept in git, so a deploy from a push serves it). People find it at **`/mod`**: the
+download, what the server needs (read from the mod itself) and where the key comes from. `/mod` is linked from the home
+page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Server → Mod** (for its admins)
+and a small "Server owners: get the mod" link in the footer. Players never need it, and nothing else points them at it.
 
 ## Sign-in
 
