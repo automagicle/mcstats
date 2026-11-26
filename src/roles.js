@@ -3,7 +3,8 @@
 //
 // A member is a row in user_perms: an email with a role and five permissions, each on or off:
 //   view         see the dashboard at all
-//   chat         send chat and whispers from it (the email still has to be on the roster to have a name)
+//   chat         send chat and whispers from it, as the player Admin → Players links the email to (owners and
+//                admins with none send as Admin; a member with none can't)
 //   admin        the admin page: settings and analytics
 //   liveview     watch through Liveview
 //   liveview_op  Liveview's controls: commands and item moves
@@ -83,11 +84,12 @@ export function setRoleStmt(db, email, role, by) {
   ).bind(email, role, ...PERMS.map((k) => (p[k] ? 1 : 0)), Math.floor(Date.now() / 1000), by ?? null);
 }
 
-// GET /api/admin/roles: { users: [{ email, name, role, super, custom, perms, server, seen }], linked }
+// GET /api/admin/roles: { users: [{ email, name, role, super, custom, perms, server, seen, chat_as }], linked }
 //   role    'owner' | 'admin' | 'member', or null: known here (on the roster, or visited) but not a member
 //   custom  their permissions differ from their role's
 //   server  what the Minecraft server lets the account do in Liveview: 'viewer', 'control' or null
 //   seen    when they last had the dashboard open (unix seconds), or null
+//   chat_as the player they send chat from the dashboard as, '@admin' for Admin, or null if they can't
 async function rolesState(env, serverAccess) {
   const db = env.DB;
   const [rows, roster, visits] = await db.batch([
@@ -101,7 +103,7 @@ async function rolesState(env, serverAccess) {
     if (!users.has(e)) users.set(e, { email: e, name: null, role: null, super: false, custom: false, perms: { ...LOOK }, server: null, seen: null });
     return users.get(e);
   };
-  for (const r of roster.results) user(r.email).name = r.ign === '@admin' ? 'Admin (chat)' : r.ign;
+  for (const r of roster.results) user(r.email).name = r.ign; // '@admin': the roster file's admins, who chat as Admin
   for (const r of visits.results) if (EMAIL_RE.test(r.visitor)) user(r.visitor).seen = r.seen;
   for (const [e, level] of Object.entries(serverAccess?.access || {})) user(e).server = level;
   for (const r of rows.results) {
@@ -112,6 +114,14 @@ async function rolesState(env, serverAccess) {
   }
   // site operators are only listed once they've been here
   for (const e of list(env.SUPER_ADMIN_EMAIL)) if (users.has(e)) Object.assign(users.get(e), { super: true, perms: { ...ALL } });
+  // who each one sends chat as, by the same rules as sending (src/link.js playerFor): their player on
+  // Admin → Players, else Admin for owners and admins; null when they can't chat
+  for (const u of users.values()) {
+    const staff = u.super || u.role === 'owner' || u.role === 'admin';
+    u.chat_as = !u.perms.chat || !(u.role || u.super) ? null
+      : u.name === '@admin' ? '@admin'
+      : u.name || (staff ? '@admin' : null);
+  }
   const order = { owner: 0, admin: 1, member: 2 };
   return json({
     users: [...users.values()].sort((a, b) => ((order[a.role] ?? 3) - (order[b.role] ?? 3)) || a.email.localeCompare(b.email)),

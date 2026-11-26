@@ -93,7 +93,7 @@ export async function handleApi(request, env, url, ctx) {
   // Roles: the server's owners set its members' roles and permissions.
   if (url.pathname === '/api/admin/roles') return handleRoles(request, env, url, who, () => serverAccess(env));
 
-  // Chat from the dashboard, for players whose login email is on the roster.
+  // Chat from the dashboard, for accounts Roles lets chat: as their player (Admin → Players), or as Admin.
   if (url.pathname === '/api/chat/send') {
     if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
     return sendWebChat(request, env, url, who);
@@ -106,7 +106,7 @@ export async function handleApi(request, env, url, ctx) {
   // Who's online, pushed over a WebSocket as players join and leave (src/presence.js).
   // The page says who's signed in, so whispers reach them and the server knows they're on the website.
   if (url.pathname === '/api/live') {
-    const player = await playerFor(env, who.email).catch(() => null);
+    const player = await playerFor(env, who.email, who.perms).catch(() => null);
     const watch = new Request('https://presence/watch', request);
     watch.headers.set('X-Viewer', JSON.stringify(player?.admin ? { admin: true } : player?.ign ? { ign: player.ign } : {}));
     return presence(env).fetch(watch);
@@ -126,7 +126,7 @@ export async function handleApi(request, env, url, ctx) {
   if (url.pathname === '/api/chat/whispers') {
     const season = seasonFor(env, url);
     if (!season) return json({ error: 'bad season' }, 400);
-    const player = await playerFor(env, who.email);
+    const player = await playerFor(env, who.email, who.perms);
     return readWhispers(env, url, player?.admin ? ADMIN_SENDER : player?.ign ?? null, season);
   }
 

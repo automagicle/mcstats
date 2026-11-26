@@ -63,9 +63,17 @@ export class Tenant extends DurableObject {
     return tenantEnv(this.env, this.tenant, this.db, this.settings, extra);
   }
 
-  // The status check runs while there's an address to check and nothing has paused the server.
+  // Whether the once-a-minute check has anything to go on: an address to ping, or the server mod, which
+  // reports who's online by itself (the address is optional on /new, and without one the mod's list is
+  // the whole check: src/poll.js).
+  collecting() {
+    if (this.settings.PAUSED === '1') return false;
+    return ADDRESS_RE.test(this.settings.MC_SERVER || '') || !!this.settings.FIRST_UPLOAD_AT;
+  }
+
+  // The status check runs while there's something to check and nothing has paused the server.
   async arm() {
-    const want = !!this.settings.SLUG && ADDRESS_RE.test(this.settings.MC_SERVER || '') && this.settings.PAUSED !== '1';
+    const want = !!this.settings.SLUG && this.collecting();
     const at = await this.ctx.storage.getAlarm();
     if (want && at == null) await this.ctx.storage.setAlarm(Math.ceil((Date.now() + 1) / MINUTE) * MINUTE);
     if (!want && at != null) await this.ctx.storage.deleteAlarm();
@@ -74,7 +82,7 @@ export class Tenant extends DurableObject {
   async alarm() {
     const now = Math.floor(Date.now() / 1000);
     try {
-      if (ADDRESS_RE.test(this.settings.MC_SERVER || '') && this.settings.PAUSED !== '1') {
+      if (this.collecting()) {
         const env = this.serverEnv();
         await poll(env, now);
         // once an hour, fill in minutes an outage kept from being recorded (src/gapfill.js)
@@ -158,15 +166,18 @@ export class Tenant extends DurableObject {
       if (legacy && (await sameString(token, this.env.CHAT_INGEST_TOKEN))) ok = true;
       else ok = this.ctx.storage.sql.exec('SELECT 1 FROM api_keys WHERE key_hash = ?', await sha256Hex(token)).toArray().length > 0;
     }
-    if (ok) this.noteUpload();
+    if (ok && this.noteUpload()) await this.arm(); // the mod's first upload starts the checks on a server with no address
     return { ok, paused: this.settings.PAUSED === '1' };
   }
 
+  // Returns true for the server's first upload ever.
   noteUpload() {
     const now = Math.floor(Date.now() / 1000);
-    if (!this.settings.FIRST_UPLOAD_AT) this.put('FIRST_UPLOAD_AT', now);
+    const first = !this.settings.FIRST_UPLOAD_AT;
+    if (first) this.put('FIRST_UPLOAD_AT', now);
     if (now - (Number(this.settings.LAST_UPLOAD_AT) || 0) >= 60) this.put('LAST_UPLOAD_AT', now);
     this.load();
+    return first;
   }
 
   // Changes from /new's settings step. Returns info(), or { error }.

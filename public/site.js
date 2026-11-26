@@ -799,7 +799,7 @@
     const save = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Save' });
     const form = h('form', { class: 'site-form' },
       field('Display name', name),
-      field('Server address', address, 'For the online count and charts: the site checks the server once a minute. Leave blank to skip.'),
+      field('Server address', address, 'The site also pings the server once a minute, which shows its player limit and covers moments the mod can’t report. Optional: with the mod installed, playtime and charts are recorded without it.'),
       field('Time zone', tz, 'Times on the pages are shown in it, e.g. Europe/London.'),
       h('fieldset', { class: 'site-field wiz-fieldset' }, h('legend', { class: 'site-label', text: 'Who can see the stats' }), visibilityChoice(vis, pick), needPass),
       passWrap,

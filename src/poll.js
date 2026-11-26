@@ -8,25 +8,25 @@ const SESSION_GAP = 210;
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
+// A server with no address (it's optional on /new) is checked from the server mod's list alone.
 export async function poll(env, nowSeconds) {
   const address = (env.MC_SERVER || '').trim();
-  if (!ADDRESS_RE.test(address)) {
-    console.error('MC_SERVER secret is missing or not a host[:port]');
-    return;
-  }
+  const pingable = ADDRESS_RE.test(address);
 
   const ts = Math.floor(nowSeconds / POLL_SECONDS) * POLL_SECONDS;
 
   const db = env.DB;
   let data = null;
-  try {
-    const res = await fetch(`https://api.mcstatus.io/v2/status/java/${address}`, {
-      headers: { 'User-Agent': 'mcserverstats (personal stats tracker)' },
-    });
-    if (!res.ok) throw new Error(`mcstatus.io responded ${res.status}`);
-    data = await res.json();
-  } catch (err) {
-    console.error('status check failed:', err.message);
+  if (pingable) {
+    try {
+      const res = await fetch(`https://api.mcstatus.io/v2/status/java/${address}`, {
+        headers: { 'User-Agent': 'mcserverstats (personal stats tracker)' },
+      });
+      if (!res.ok) throw new Error(`mcstatus.io responded ${res.status}`);
+      data = await res.json();
+    } catch (err) {
+      console.error('status check failed:', err.message);
+    }
   }
   const mod = await modOnline(db, nowSeconds);
   // An API failure is not the server being offline, so without the mod's list either, record nothing.

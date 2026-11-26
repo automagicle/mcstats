@@ -5,7 +5,7 @@ use one site at the same time; each has its own page (`/s/<server>/`), its own p
 members, and none can see or change another's (see [How servers are kept apart](#how-servers-are-kept-apart)).
 It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay on at home.
 
-- **Collector**: each server's Durable Object sets its own alarm to ask [mcstatus.io](https://mcstatus.io) about its Minecraft server every minute, and records the player count plus each named player's session in its own SQLite.
+- **Collector**: each server's Durable Object sets its own alarm to ask [mcstatus.io](https://mcstatus.io) about its Minecraft server every minute, and records the player count plus each named player's session in its own SQLite. The server mod's own list of who's online is added to it, and a server with no address set (it's optional) is checked from the mod's list alone, from its first upload on.
 - **Dashboard**: static files in `public/`, served by the same Worker. It shows players online over time, a GitHub-style daily heatmap, a leaderboard, busiest hours, and a page for each player.
 - **Chat log, combat, gear and advancements** (optional): a Fabric server mod in `mod/` posts public chat, every death
   (who died, who or what did it, and how), what each player wears and carries, and their advancements, to the Worker,
@@ -142,7 +142,7 @@ ignores `roster-*.json`; see `roster.example.json` for the format:
 `"IGN": { "name": "Real name", "egg": "gravity", "email": "them@example.org" }`, egg ids as in the Egg SMP datapack;
 `email` can be a list) and run `npm run roster:remote` after each change; it replaces the season's roster, takes effect
 at once and needs no deploy. `npm run roster:local` does the same for local development.
-A player's emails are who may send chat from the dashboard as them. They stay off the public pages; admins set them on Admin → Players.
+A player's emails are who may send chat from the dashboard as them, whether or not the player is on a team yet. They stay off the public pages; admins set them on Admin → Players.
 `"admins": ["someone@example.org"]` beside the teams lets people who aren't players send chat too; their messages show
 with a yellow **Admin** tag instead of a name (in game: `[Web] [Admin] message`).
 
@@ -257,7 +257,7 @@ saved at once (table `user_perms`, `src/roles.js`):
 | Permission | Lets them |
 | --- | --- |
 | **View** | See the dashboard at all. Without it every page says the account has no access. |
-| **Chat** | Send chat and whispers from the Chat log (their email still has to be on the roster). |
+| **Chat** | Send chat and whispers from the Chat log, as the player Admin → Players links their email to. Owners and admins whose email isn't linked to a player send as **Admin**; a member's has to be linked. Each row says who they chat as. |
 | **Admin page** | The admin page, except Roles. |
 | **Liveview** | Watch through Liveview, once the Minecraft server lets the account in. |
 | **Liveview controls** | Run commands and move items from Liveview, once the server allows that too. |
@@ -470,8 +470,8 @@ which says nothing to an account that can no longer see it), and can be dragged 
 takes it off the list, and it isn't put back by itself afterwards. The list is kept in the directory
 (`account_servers`); members from before it existed show up the next time they open their server.
 
-**Sending chat** also needs the email to be on the season's roster (see Teams above); anyone else sees the message box
-disabled with the reason. Making servers (`/new`) needs an account too.
+**Sending chat** also needs the email to be linked to a player on Admin → Players (owners and admins without one send as
+Admin; see Roles above); anyone else sees the message box disabled with the reason. Making servers (`/new`) needs an account too.
 
 ### Accounts (`src/account.js`, `src/password.js`)
 
@@ -611,7 +611,7 @@ connections; the page reconnects by itself.
   tab is visible), with animations that are skipped when the system's reduce-motion setting is on.
 - **Chat log**: the server's chat, newest at the bottom, loading older messages as you scroll up and new ones every
   10 seconds. Scrolled back to another day, that day's date floats at the top of the log (the Death log and a
-  player's latest kills and deaths do the same). Players whose login email is on the roster can **send chat** from the box under the log: it shows in game
+  player's latest kills and deaths do the same). Accounts with the Chat permission can **send chat** from the box under the log, as their linked player or as Admin: it shows in game
   as `[Web] <name> message` (needs mod 1.3.0 and the server online; the box says when it can't send) and comes back into
   the log with a "web" tag. At most one message every 1.5 seconds and 8 per 30 seconds per player, 256 characters each.
   Above it, a players online graph follows the chat. Its cursor marks the time of the bottom message on screen,

@@ -96,17 +96,21 @@ export async function connectLink(request, env) {
 
 const ADMIN = '@admin'; // roster_email's stand-in IGN for an admin (scripts/roster-sql.mjs)
 
-// Who a login email sends as this season: { ign, team } for a roster player, { admin: true } for an
-// admin, or null.
-export async function playerFor(env, email) {
+// Who a login email sends as this season, by what the admin page says:
+//   { ign, team }    the player Admin → Players gave this email to (team is null when they have none yet)
+//   { admin: true }  the roster file's "admins" (@admin), or an owner or admin (Roles) with no player of their own
+//   null             nobody: a member whose email isn't linked to a player
+// perms: what Roles gives the account (src/roles.js loadPerms), when known.
+export async function playerFor(env, email, perms = null) {
   if (!email) return null;
   const row = await env.DB.prepare(
     `SELECT e.ign, r.team FROM roster_email e LEFT JOIN roster r ON r.season = e.season AND r.ign = e.ign
      WHERE e.season = ? AND e.email = ?`
   ).bind(currentSeason(env), email).first();
-  if (!row) return null;
-  if (row.ign === ADMIN) return { admin: true };
-  return row.team ? { ign: row.ign, team: row.team } : null;
+  if (row?.ign === ADMIN) return { admin: true };
+  if (row) return { ign: row.ign, team: row.team ?? null };
+  if (perms && (perms.super || perms.role === 'owner' || perms.role === 'admin')) return { admin: true };
+  return null;
 }
 
 // A player's name the way the game spells it (the roster's capitals can differ). The game looks up a
@@ -128,7 +132,7 @@ async function gameName(env, ign) {
 export async function webChatMe(env, who) {
   // someone a super admin has stopped from chatting (src/roles.js) is told so, rather than "not on the roster"
   const blocked = who.perms ? !who.perms.chat : false;
-  const player = blocked ? null : await playerFor(env, who.email);
+  const player = blocked ? null : await playerFor(env, who.email, who.perms);
   const linked = player ? (await linkUp(env)) === true : false;
   return json({ email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, linked, max: MAX_WEB_CHAT, blocked });
 }
@@ -141,9 +145,9 @@ export async function sendWebChat(request, env, url, who) {
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return json({ error: 'expected JSON' }, 415);
 
   if (who.perms && !who.perms.chat) return json({ error: 'This account isn’t allowed to send chat from the dashboard.' }, 403);
-  const player = await playerFor(env, who.email);
+  const player = await playerFor(env, who.email, who.perms);
   if (!player) {
-    return json({ error: who.email ? `${who.email} isn't on this season's roster, so it can't send chat` : 'not signed in with an email' }, 403);
+    return json({ error: who.email ? `${who.email} isn’t linked to a player yet (an admin links it on Admin → Players), so it can’t send chat` : 'not signed in with an email' }, 403);
   }
   let text;
   try {

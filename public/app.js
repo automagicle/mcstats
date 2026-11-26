@@ -4243,7 +4243,8 @@ async function pollChat() {
 
 /* ---------- sending chat into the game ---------- */
 
-// Players whose login email is on the roster can send chat; the server mod shows it in game as
+// Accounts Roles lets chat send as the player Admin → Players links their email to (owners and admins
+// with none send as Admin); the server mod shows it in game as
 // "[Web] <name> message" and logs it, so it comes back into this log a few seconds later. Meanwhile
 // it shows at the end of the log as one of your messages: grey and slanted with "sending…" until the
 // server says it showed it, then like any other, and its logged copy takes its place unnoticed.
@@ -4276,7 +4277,7 @@ function renderComposer() {
   chatInput.disabled = !can;
   chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
     : !me.ign && !me.admin
-    ? (me.email ? `${me.email} isn't on the roster, so it can't send messages` : 'Sign in with your roster email to send messages')
+    ? (me.email ? `${me.email} isn’t linked to a player yet, so it can’t send messages (an admin links it on Admin → Players)` : 'Sign in to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"
     : `Message the server as ${me.admin ? 'Admin' : shownName(me.ign)} · /w to whisper`;
   $('#chat-compose-me').replaceChildren(me.admin ? adminTag() : me.ign ? headImg(me.ign, 24) : '');
@@ -7464,7 +7465,7 @@ const stats = { days: 30, data: null, noAdmins: true };
 // the Minecraft server keeps its own list of who it lets in, shown in the last column.
 const ROLE_PERMS = [
   ['view', 'View', 'See the dashboard: Activity, Combat, the Chat log and player pages'],
-  ['chat', 'Chat', 'Send chat and whispers from the Chat log (their email also has to be on the roster)'],
+  ['chat', 'Chat', 'Send chat and whispers from the Chat log, as the player their email is linked to on Players (owners and admins with none send as Admin)'],
   ['admin', 'Admin page', 'Settings and Analytics on the admin page (not Roles)'],
   ['liveview', 'Liveview', 'Watch the world live. The Minecraft server also has to let the account in'],
   ['liveview_op', 'Liveview controls', 'Run commands and move items from Liveview. The Minecraft server also has to allow it'],
@@ -7536,6 +7537,13 @@ function renderRoles() {
     return pick;
   };
   const fixed = (u) => u.super || u.role === 'owner';
+  // what sending chat would do for them (src/roles.js chat_as), so a Chat tick never promises more than it gives
+  const chatAs = (u) => {
+    const who = (n) => (n === '@admin' ? 'Admin' : n);
+    if (u.chat_as) return `chats as ${who(u.chat_as)}`;
+    if (u.perms.chat && (u.role || u.super)) return 'can’t chat until their email is linked to a player on Players';
+    return u.name ? `player ${who(u.name)}` : null;
+  };
   const body = d.users.map((u) => {
     const boxes = ROLE_PERMS.map(([key, label]) => {
       const box = el('input', { type: 'checkbox', 'aria-label': `${label} for ${u.email}` });
@@ -7548,7 +7556,7 @@ function renderRoles() {
       el('td', {},
         el('div', { class: 'role-who' }, el('span', { class: 'adm-ign', text: u.email }),
           u.custom && !fixed(u) ? el('span', { class: 'an-tag', text: 'Changed' }) : null),
-        el('div', { class: 'role-sub muted', text: [u.name, u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site'].filter(Boolean).join(', ') })),
+        el('div', { class: 'role-sub muted', text: [chatAs(u), u.seen ? `here ${ago(u.seen)}` : 'hasn’t opened the site'].filter(Boolean).join(', ') })),
       el('td', {}, roleCell(u)),
       ...boxes,
       el('td', {}, serverCell(u)),

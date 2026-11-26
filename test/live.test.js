@@ -57,3 +57,27 @@ describe('the status check', () => {
     expect(status.online.map((p) => p.name)).toEqual(['Alex']);
   });
 });
+
+describe('a server with no address', () => {
+  it('records sessions from the mod’s list alone, from its first upload on', async () => {
+    const a = await makeServer('noaddr-a');
+    expect(await runInDurableObject(tenant(a), (_o, s) => s.storage.getAlarm())).toBe(null);
+    // no address means nothing to ping: the status API must not be asked
+    const asked = [];
+    vi.stubGlobal('fetch', async (u) => { asked.push(String(u)); return new Response('{}', { status: 503 }); });
+    const key = await newKey(a);
+    const online = await upload(key, null, { path: '/api/ingest/online', body: { players: [{ uuid: '00000000-0000-4000-8000-0000000000cc', name: 'Steve' }] } });
+    expect(online.status, await online.clone().text()).toBe(200);
+    // the first upload started the checks
+    expect(await runInDurableObject(tenant(a), (_o, s) => s.storage.getAlarm())).toBeGreaterThan(Date.now());
+    expect(await runDurableObjectAlarm(tenant(a))).toBe(true);
+    expect(asked.some((u) => u.includes('mcstatus.io'))).toBe(false);
+    const rows = await runInDurableObject(tenant(a), (_o, s) => ({
+      snaps: s.storage.sql.exec('SELECT online FROM snapshots').toArray(),
+      sessions: s.storage.sql.exec('SELECT p.name FROM sessions x JOIN players p ON p.uuid = x.uuid').toArray().map((r) => r.name),
+    }));
+    expect(rows.snaps).toEqual([{ online: 1 }]);
+    expect(rows.sessions).toEqual(['Steve']);
+    expect(await runInDurableObject(tenant(a), (_o, s) => s.storage.getAlarm())).toBeGreaterThan(Date.now());
+  });
+});
