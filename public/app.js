@@ -7643,6 +7643,20 @@ function renderRoles() {
     if (u.perms.chat && (u.role || u.super)) return 'can’t chat until their email is linked to a player on Players';
     return u.name ? `player ${who(u.name)}` : null;
   };
+  // Reset (back to the role's ticks) and Remove (no longer a member), for anyone but an owner
+  const actions = (u) => {
+    if (fixed(u)) return null;
+    const reset = u.custom ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to what the role gives' }) : null;
+    reset?.addEventListener('click', () => save({ email: u.email, reset: true }));
+    const remove = u.role ? el('button', { type: 'button', class: 'btn btn-quiet role-remove', text: 'Remove', 'aria-label': `Remove ${u.email}` }) : null;
+    remove?.addEventListener('click', () => {
+      const note = MCS.public
+        ? 'They lose their role and ticks. The server is public, so they can still look, and they become a member again if they choose to use their account here.'
+        : 'They lose their role and ticks, and can’t open the server again unless they have its join password.';
+      if (confirm(`Remove ${u.email} from this server?\n\n${note}`)) save({ email: u.email, remove: true });
+    });
+    return reset || remove ? el('div', { class: 'role-acts' }, reset, remove) : null;
+  };
   const body = d.users.map((u) => {
     const boxes = ROLE_PERMS.map(([key, label]) => {
       const box = el('input', { type: 'checkbox', 'aria-label': `${label} for ${u.email}` });
@@ -7659,13 +7673,8 @@ function renderRoles() {
       el('td', {}, roleCell(u)),
       ...boxes,
       el('td', {}, serverCell(u)),
-      el('td', { class: 'adm-act' }, u.custom && !fixed(u)
-        ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to what the role gives' }, ) : null));
+      el('td', { class: 'adm-act' }, actions(u)));
   });
-  for (const [i, tr] of body.entries()) {
-    const u = d.users[i];
-    tr.querySelector('.btn-quiet')?.addEventListener('click', () => save({ email: u.email, reset: true }));
-  }
   const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
   const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }));
   const add = el('form', { class: 'adm-form role-add' }, email, role, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
