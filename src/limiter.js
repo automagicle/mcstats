@@ -42,8 +42,10 @@ export async function limit(env, rules) {
   return { ok: true, retry: 0 };
 }
 
+// One IPv6 customer usually has a whole /64 (2^64 addresses) to send from: they count as one.
+const network = (ip) => (ip.includes(':') ? ip.toLowerCase().replace(/::.*$/, '').split(':').slice(0, 4).join(':') + '::/64' : ip);
 export const ipKey = async (env, request) =>
-  `ip:${(await sha256Hex(`${env.SESSION_SECRET || ''}:${request.headers.get('CF-Connecting-IP') || 'local'}`)).slice(0, 32)}`;
+  `ip:${(await sha256Hex(`${env.SESSION_SECRET || ''}:${network(request.headers.get('CF-Connecting-IP') || 'local')}`)).slice(0, 32)}`;
 
 export const tooMany = (retry) => new Response(JSON.stringify({ error: 'Too many tries. Wait a little and try again.', retry }), {
   status: 429,

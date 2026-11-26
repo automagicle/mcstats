@@ -1,16 +1,15 @@
-// Cookies, join passwords, mod keys and sign-in codes.
+// Cookies, join passwords, mod keys and emailed codes.
 //
-// Every cookie is a signed token: base64url(JSON payload) "." base64url(HMAC-SHA256). The HMAC key is
-// derived from the SESSION_SECRET secret *and what the token is for*, including the server's id, so a token
-// made for server A doesn't verify for server B even if it were sent there; the payload names the server
-// as well, and it's checked too.
+//   __Host-mcs  Path=/          The account session (src/account.js): a random token, nothing else. The
+//               directory keeps its SHA-256 and which account it is; deleting that row signs the browser out.
+//               "__Host-" makes browsers refuse it unless it's Secure, for this exact host, and Path=/.
+//   mcs_view    Path=/s/<slug>/ { k: 'view', s: server id, p: a piece of the join password's hash, x: expiry }
+//               Lets someone look at one server. A signed token: base64url(JSON payload) "." base64url(HMAC-SHA256),
+//               with a key derived from SESSION_SECRET *and the server's id*, so a token made for server A
+//               doesn't verify for server B. Changing the join password changes p, which ends every one of them.
 //
-//   mcs_view  Path=/s/<slug>/   { k: 'view', s: server id, p: a piece of the join password's hash, x: expiry }
-//             Lets someone look. Changing the join password changes p, which ends every one of them.
-//   mcs_id    Path=/s/<slug>/   { k: 'id', s: server id, e: email, x }  Signed in on that server only.
-//   mcs_site  Path=/api/site/   { k: 'site', e: email, x }  Signed in to make and set up servers (/new).
-//
-// All are HttpOnly, Secure, SameSite=Lax.
+// Both are HttpOnly, Secure, SameSite=Lax. The cookies from before accounts (mcs_id, mcs_site) aren't read
+// any more: everyone who was signed in with one is signed out.
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -49,6 +48,12 @@ async function hmacKey(env, purpose) {
   keys.set(cacheKey, key);
   if (keys.size > 1000) keys.delete(keys.keys().next().value);
   return key;
+}
+
+// HMAC-SHA256 of `bytes` with a key derived from SESSION_SECRET for one purpose (src/password.js's pepper).
+export async function keyed(env, purpose, bytes) {
+  if (!sessionReady(env)) throw new Error('SESSION_SECRET is not set');
+  return crypto.subtle.sign('HMAC', await hmacKey(env, purpose), bytes);
 }
 
 const purposeOf = (p) => (p.k === 'site' ? 'site' : `${p.k}:${p.s}`);
@@ -97,10 +102,9 @@ export const clearCookie = (name, path) => cookie(name, '', { path, maxAge: 0 })
 
 export const DAY = 86400;
 export const VIEW_DAYS = 30;
-export const ID_DAYS = 30;
-export const SITE_DAYS = 7;
+export const SESSION_DAYS = 30;
+export const SESSION_COOKIE = '__Host-mcs';
 export const serverPath = (slug) => `/s/${slug}/`;
-export const SITE_PATH = '/api/site/';
 
 // ---- join passwords ----
 
@@ -141,13 +145,21 @@ export function newApiKey(serverId) {
 }
 export const keyServer = (token) => KEY_RE.exec(token || '')?.[1] ?? null;
 
-// ---- sign-in codes ----
+// ---- emailed codes (they prove an email address: src/account.js) ----
 
 export const CODE_MINUTES = 10;
 export const CODE_TRIES = 5;
 export function newCode() {
   const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000;
   return String(n).padStart(6, '0');
+}
+// Account codes are 8 digits: with five tries a code and five codes an hour, guessing one is out of reach.
+export const ACCOUNT_CODE_RE = /^\d{8}$/;
+export function newAccountCode() {
+  const buf = new Uint32Array(1);
+  // every code equally likely: values past the last whole multiple of 10^8 are drawn again
+  do crypto.getRandomValues(buf); while (buf[0] >= 4_200_000_000);
+  return String(buf[0] % 100_000_000).padStart(8, '0');
 }
 export const codeHash = (scope, email, code) => sha256Hex(`${scope}\u0000${email}\u0000${code}`);
 

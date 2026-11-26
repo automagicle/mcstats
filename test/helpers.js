@@ -1,13 +1,21 @@
 // Making servers, keys and cookies the way the site does, for the tests.
 import { env, SELF } from 'cloudflare:test';
-import { signToken } from '../src/session.js';
+import { b64url, sha256Hex } from '../src/session.js';
 
 export const ORIGIN = 'https://mcstats.test';
 const now = () => Math.floor(Date.now() / 1000);
 
-export async function siteCookie(email) {
-  return `mcs_site=${await signToken(env, { k: 'site', e: email, x: now() + 3600 })}`;
+// The cookie of a signed-in mcstats account with that email (made if there isn't one), as signing in gives it.
+export async function accountCookie(email) {
+  await env.DIRECTORY.prepare('INSERT INTO accounts (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT(email) DO NOTHING')
+    .bind(b64url(crypto.getRandomValues(new Uint8Array(12))), email, now()).run();
+  const account = await env.DIRECTORY.prepare('SELECT id FROM accounts WHERE email = ?').bind(email).first();
+  const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  await env.DIRECTORY.prepare('INSERT INTO sessions (token_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(await sha256Hex(token), account.id, now(), now() + 3600).run();
+  return `__Host-mcs=${token}`;
 }
+export const siteCookie = accountCookie;
 
 export function call(path, { method = 'GET', body, cookie, headers = {} } = {}) {
   const h = { Origin: ORIGIN, ...headers };
@@ -39,9 +47,8 @@ export async function viewerCookie(server) {
   return cookieOf(res, 'mcs_view');
 }
 
-export async function idCookie(server, email) {
-  return `mcs_id=${await signToken(env, { k: 'id', s: server.id, e: email, x: now() + 3600 })}`;
-}
+// Signed in is site-wide now: the same account cookie on any server.
+export const idCookie = (_server, email) => accountCookie(email);
 
 let n = 0;
 export function chatEvent(text, extra = {}) {

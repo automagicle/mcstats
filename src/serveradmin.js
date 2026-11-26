@@ -16,7 +16,7 @@ import { json } from './util.js';
 import { loadPerms } from './roles.js';
 import { forgetSlug, serverById, slugProblem } from './directory.js';
 import {
-  clearCookie, cookie, DAY, hashPassword, ID_DAYS, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
+  clearCookie, cookie, DAY, hashPassword, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
 } from './session.js';
 import { limit, tooMany } from './limiter.js';
 import { ADDONS, addonList } from './addons.js';
@@ -130,7 +130,7 @@ export async function handleServerAdmin(t, request, url, who) {
     t.put('SLUG', slug);
     t.load();
     forgetSlug(slug);
-    cookies.push(clearCookie('mcs_view', serverPath(row.slug)), clearCookie('mcs_id', serverPath(row.slug)));
+    cookies.push(clearCookie('mcs_view', serverPath(row.slug)));
     console.log(`server: ${who.email} moved ${row.slug} to ${slug}`);
   }
   if (sets.length) await t.env.DIRECTORY.batch(sets);
@@ -143,7 +143,6 @@ export async function handleServerAdmin(t, request, url, who) {
     const now = Math.floor(Date.now() / 1000);
     const path = serverPath(row.slug);
     cookies.push(cookie('mcs_view', await signToken(t.env, { k: 'view', s: t.id, p: passwordStamp(row), x: now + VIEW_DAYS * DAY }), { path, maxAge: VIEW_DAYS * DAY }));
-    if (slug) cookies.push(cookie('mcs_id', await signToken(t.env, { k: 'id', s: t.id, e: who.email, x: now + ID_DAYS * DAY }), { path, maxAge: ID_DAYS * DAY }));
   }
   const headers = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   for (const c of cookies) headers.append('Set-Cookie', c);

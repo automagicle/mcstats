@@ -2,23 +2,24 @@
 // own objects. It never takes a server from a request's body or query string.
 //
 //   /s/<slug>/...        a server's pages and API; the server is the one the directory has for <slug>.
-//                        Cookies (src/session.js) are checked here and what they prove goes along as X-MCS-Who.
+//                        Cookies (src/session.js, src/account.js) are checked here and what they prove goes along as X-MCS-Who.
 //   /api/ingest/*        the mod's uploads; the server is the one its key names (mcs_<server id>_…), and that
 //                        server's object checks the key itself. The old shared CHAT_INGEST_TOKEN still works,
 //                        for the first server (LEGACY_SLUG) only.
 //   /api/site/*          joining and making servers (src/site.js);  /api/ops/*  the operator's (src/ops.js)
+//   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear
-//   everything else      the static pages in public/ (/, /join, /new)
+//   everything else      the static pages in public/ (/, /join, /new, /account)
 import { handleApi } from './api.js';
 import { handleSite } from './site.js';
+import { accountOf, handleAccount } from './account.js';
 import { handleOps } from './ops.js';
 import { serverById, serverBySlug, SLUG_RE } from './directory.js';
 import { tenantEnv, tenantStub } from './tenantenv.js';
 import { remoteDb } from './sql.js';
 import { keyServer, parseCookies, passwordStamp, sameString, verifyToken } from './session.js';
 import { currentSeason } from './seasons.js';
-import { ipKey, limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { serveHomeAsset } from './mcassets.js';
 import { ADDONS, addonList } from './addons.js';
@@ -35,15 +36,17 @@ const INGEST = /^\/api\/ingest\/(chat|gear|online|advancements|link|liveview)$/;
 // LiveRelay or ServerLink object) and game textures (kept in Cloudflare's cache).
 const HERE = (p) => p === '/api/live' || p === '/api/liveview/ws' || p.startsWith('/api/liveview/assets/') || p.startsWith('/api/mc/') || p.startsWith('/api/skin/');
 
-// What the cookies on a request to server `row` prove: { viewer, email }.
+// What the cookies on a request to server `row` prove: { viewer, email }. viewer: they joined with this
+// server's password. email: the mcstats account that's signed in (src/account.js); what it may do here, if
+// anything, is the server's to say (src/tenant.js, access()).
 async function proof(request, env, row, url) {
   if (env.DEV_NO_AUTH === '1' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
     return { viewer: true, email: env.DEV_EMAIL ? env.DEV_EMAIL.toLowerCase() : null };
   }
   const c = parseCookies(request);
   const view = await verifyToken(env, c.mcs_view, 'view', row.id);
-  const id = await verifyToken(env, c.mcs_id, 'id', row.id);
-  return { viewer: !!view && view.p === passwordStamp(row), email: id?.e ?? null };
+  const account = await accountOf(request, env);
+  return { viewer: !!view && view.p === passwordStamp(row), email: account?.email ?? null };
 }
 
 // The request as the server's own code expects it: its path without /s/<slug>, and none of our own
@@ -89,11 +92,6 @@ async function server(request, env, url, ctx, slug, rest) {
   if (!row) {
     // No such server looks the same as one you can't see.
     if (!isApi) return joinPage(slug);
-    if (rest === '/api/auth/code' && request.method === 'POST') {
-      const lim = await limit(env, [[`code-ip:${await ipKey(env, request)}`, 20, 3600]]);
-      return lim.ok ? json({ ok: true }) : tooMany(lim.retry);
-    }
-    if (rest === '/api/auth/verify') return json({ error: 'That code isn’t right, or it has expired.' }, 400);
     return json({ error: 'unauthorized' }, 401);
   }
   const stub = tenantStub(env, row.id);
@@ -126,7 +124,8 @@ async function server(request, env, url, ctx, slug, rest) {
   const addons = addonList(g.settings);
   const config = {
     base: `/s/${row.slug}`, slug: row.slug, name: row.name, season: current,
-    email: g.who.email, public: g.settings.PUBLIC === '1', accent: look.accent, tabs: look.tabs, addons,
+    // email: who they are on this server (a member). account: the mcstats account that's signed in, member or not.
+    email: g.who.email, account: who.email, public: g.settings.PUBLIC === '1', accent: look.accent, tabs: look.tabs, addons,
   };
   // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
   const extras = addons.flatMap((id) => [
@@ -154,6 +153,7 @@ export default {
     const ing = INGEST.exec(p);
     if (ing) return ingest(request, env, url, ctx, ing[1]);
     if (p.startsWith('/api/site/')) return handleSite(request, env, url);
+    if (p.startsWith('/api/account/')) return handleAccount(request, env, url);
     if (p.startsWith('/api/ops/')) return handleOps(request, env, url);
 
     const s = /^\/s\/([^/]+)(\/.*)?$/.exec(p);

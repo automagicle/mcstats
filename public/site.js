@@ -1,5 +1,6 @@
-// The site's own pages: the landing page (/), joining a server (/join) and making one (/new).
-// Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js).
+// The site's own pages: the landing page (/), joining a server (/join), making one (/new) and the mcstats
+// account (/account). Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js) and
+// /api/account/* (src/account.js).
 (() => {
   const page = document.body.dataset.page;
   const $ = (s, root = document) => root.querySelector(s);
@@ -77,16 +78,15 @@
   const params = new URLSearchParams(location.search);
   const main = $('#site-main');
 
-  // A sign-in link from an email (src/email.js) ends in #email=…&code=…. Taken off the address at once, so
+  // The link in a code email (src/email.js) leads to /account and ends in #email=…&code=…. Taken off the address at once, so
   // it isn't left in the history or copied along with the page's address. -> { email, code } or null
   const emailed = (() => {
     const hash = new URLSearchParams(location.hash.slice(1));
     const email = hash.get('email'), code = hash.get('code');
-    if (!email || !/^\d{6}$/.test(code || '')) return null;
+    if (!email || !/^\d{8}$/.test(code || '')) return null;
     history.replaceState(null, '', location.pathname + location.search);
     return { email, code };
   })();
-  const LINK_FAILED = 'That sign-in link didn’t work. It may have expired or been used already. You can ask for a new code here.';
 
   // ---------------- /join ----------------
   function joinPage() {
@@ -112,68 +112,161 @@
       });
     });
 
-    // members (an invited admin, say) can sign in with their email instead of the password
-    const mErr = errorLine();
-    const mServer = input({ autocomplete: 'off', required: true, autocapitalize: 'none', spellcheck: 'false', value: params.get('server') || '' });
-    const mEmail = input({ type: 'email', autocomplete: 'email', required: true });
-    const mCode = input({ inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '7', placeholder: '123456' });
-    const mSend = h('button', { type: 'submit', class: 'btn', text: 'Email me a code' });
-    const mGo = h('button', { type: 'submit', class: 'btn btn-primary', text: 'Sign in' });
+    // members (an invited admin, say) get in with their mcstats account instead of the password
     const slugOf = (v) => v.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s_-]/g, '').trim().replace(/[\s_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    const mStep2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', mCode, 'Or open the link in the email.'), mGo);
-    const mStep1 = h('form', { class: 'site-form' },
-      field('Server name', mServer), field('Your email', mEmail, 'The one the server’s owner added.'), mSend);
-    mStep1.addEventListener('submit', (e) => {
-      e.preventDefault();
-      say(mErr, '');
-      busy(mSend, async () => {
-        try {
-          await api(`/s/${encodeURIComponent(slugOf(mServer.value))}/api/auth/code`, { email: mEmail.value });
-          mStep1.hidden = true;
-          mStep2.hidden = false;
-          mCode.focus();
-        } catch (x) { say(mErr, x.message); }
-      });
+    const signIn = h('a', { href: '/account', text: 'Sign in to your mcstats account' });
+    signIn.addEventListener('click', () => {
+      const slug = slugOf(name.value);
+      if (slug) signIn.href = `/account?${new URLSearchParams({ next: `/s/${slug}/` })}`;
     });
-    mStep2.addEventListener('submit', (e) => {
-      e.preventDefault();
-      say(mErr, '');
-      busy(mGo, async () => {
-        const slug = slugOf(mServer.value);
-        try {
-          await api(`/s/${encodeURIComponent(slug)}/api/auth/verify`, { email: mEmail.value, code: mCode.value });
-          location.assign(`/s/${slug}/`);
-        } catch (x) { say(mErr, x.message); }
-      });
-    });
-    const members = h('details', { class: 'site-more' },
-      h('summary', { text: 'Added by email? Sign in with it instead' }), mStep1, mStep2, mErr);
+    const members = h('p', { class: 'site-hint site-more' }, 'Did the owner add you by email? ', signIn, ' instead: no server password needed.');
 
     main.replaceChildren(h('section', { class: 'card site-card' },
       h('h1', { class: 'site-title', text: 'Join a server' }),
       h('p', { class: 'site-sub', text: 'See its players, chat and fights. You need the server’s name and password from its owner.' }),
       form, members));
     (name.value ? pass : name).focus();
+  }
 
-    // opened from the link in a sign-in email: sign in with its code, and go to the server
-    if (emailed && mServer.value) {
-      const slug = slugOf(mServer.value);
-      members.open = true;
-      mEmail.value = emailed.email;
-      busy(mSend, async () => {
+  // ---------------- signing in to an mcstats account (/account, and the first step of /new) ----------------
+
+  // A page of this site to go on to after signing in (never another site's address).
+  const localPath = (v) => (typeof v === 'string' && /^\/(?![/\\])[A-Za-z0-9\-._~/?=&%]{0,200}$/.test(v) ? v : null);
+
+  // The forms: sign in with a password; or prove the email with a code and choose a password, which is both
+  // how an account is made and how a forgotten password is replaced. done(email) runs once signed in.
+  //   next   where the link in the code email should lead on to
+  //   start  { email, code } from that link: opens on choosing a password
+  function authForms({ next, start, done }) {
+    const err = errorLine();
+    const box = h('div', { class: 'auth' });
+    let address = start?.email || '';
+
+    const passwordField = (auto) => {
+      const pw = input({ type: 'password', autocomplete: auto, required: true, minlength: auto === 'new-password' ? '8' : null, maxlength: '200' });
+      const show = h('input', { type: 'checkbox' });
+      show.addEventListener('change', () => { pw.type = show.checked ? 'text' : 'password'; });
+      return { pw, show: h('label', { class: 'site-check auth-show' }, show, 'Show password') };
+    };
+    const link = (text, fn) => h('button', { type: 'button', class: 'auth-link', text, onclick: () => { say(err, ''); fn(); } });
+    const draw = (title, form, ...links) => {
+      box.replaceChildren(...[title && h('h2', { class: 'site-h2 auth-title', text: title }), form, err,
+        links.length && h('p', { class: 'auth-links' }, ...links)].filter(Boolean));
+      const first = [...form.querySelectorAll('input')].find((i) => !i.value && !i.readOnly && i.type !== 'checkbox');
+      if (first) first.focus();
+    };
+    const submit = (form, btn, fn) => form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      say(err, '');
+      busy(btn, async () => {
+        try { await fn(); } catch (x) { say(err, x.message); }
+      });
+    });
+
+    function signIn() {
+      const email = input({ type: 'email', name: 'email', autocomplete: 'username', required: true, value: address });
+      const { pw, show } = passwordField('current-password');
+      const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Sign in' });
+      const form = h('form', { class: 'site-form' }, field('Email', email), field('Password', pw), show, go);
+      email.addEventListener('input', () => { address = email.value; });
+      submit(form, go, async () => {
+        const r = await api('/api/account/login', { email: email.value, password: pw.value }).catch((x) => { pw.select(); throw x; });
+        await done(r.email);
+      });
+      draw(null, form, link('Create an account', () => askCode('create')), link('Forgot password?', () => askCode('forgot')));
+    }
+
+    // what: 'create' | 'forgot'. The same thing happens either way; only the words differ.
+    function askCode(what) {
+      const email = input({ type: 'email', name: 'email', autocomplete: 'username', required: true, value: address });
+      const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Email me a code' });
+      const form = h('form', { class: 'site-form' },
+        field('Email', email, what === 'create' ? 'We’ll email a code, to check the address is yours.' : 'We’ll email a code that lets you set a new password.'), go);
+      submit(form, go, async () => {
+        await api('/api/account/code', { email: email.value, ...(next && { next }) });
+        address = email.value.trim();
+        choose(what);
+      });
+      draw(what === 'create' ? 'Create an account' : 'Forgot password', form, link('Back to sign in', signIn));
+    }
+
+    function choose(what, code = '') {
+      const email = input({ type: 'email', name: 'email', autocomplete: 'username', readonly: true, value: address });
+      const codeIn = input({ name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]{8,9}', maxlength: '9', placeholder: '12345678', required: true, value: code });
+      const { pw, show } = passwordField('new-password');
+      const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: what === 'create' ? 'Create account' : 'Save and sign in' });
+      const form = h('form', { class: 'site-form' },
+        field('Email', email),
+        field('The 8-digit code we emailed you', codeIn, code ? null : 'Or open the link in the email. Both work for 10 minutes.'),
+        field(what === 'create' ? 'Choose a password' : 'New password', pw, 'At least 8 characters. A few words in a row is a good one.'), show, go);
+      submit(form, go, async () => {
+        const r = await api('/api/account/password', { email: address, code: codeIn.value, password: pw.value })
+          .catch((x) => { (x.field === 'code' ? codeIn : pw).select(); throw x; });
+        await done(r.email);
+      });
+      draw(what === 'create' ? 'Create an account' : what === 'forgot' ? 'Forgot password' : null, form,
+        link('Send a new code', () => askCode(what === 'link' ? 'forgot' : what)), link('Back to sign in', signIn));
+    }
+
+    if (start) choose('link', start.code);
+    else signIn();
+    return box;
+  }
+
+  async function accountPage() {
+    const next = localPath(params.get('next'));
+    const me = emailed ? { email: null } : await api('/api/account/me').catch(() => ({ email: null }));
+    if (!me.email) {
+      main.replaceChildren(h('section', { class: 'card site-card' },
+        h('h1', { class: 'site-title', text: emailed ? 'Choose a password' : 'Sign in' }),
+        h('p', { class: 'site-sub', text: emailed ? `For the mcstats account of ${emailed.email}.` : 'One mcstats account for every server you’re part of, and for making your own.' }),
+        authForms({ next, start: emailed, done: () => location.assign(next || '/account') })));
+      return;
+    }
+    if (next) { location.replace(next); return; }
+
+    const site = await api('/api/site/me').catch(() => ({ servers: [] }));
+    const servers = (site.servers || []).map((s) => h('li', {},
+      h('a', { href: `/s/${s.slug}/`, text: s.name }), ' · ', h('a', { class: 'site-hint', href: `/new?server=${s.slug}`, text: s.step < 7 ? `finish setting up (step ${s.step} of 7)` : 'setup' })));
+
+    const err = errorLine();
+    const ok = h('p', { class: 'site-ok', role: 'status', hidden: true, text: 'Password changed. Your other devices were signed out.' });
+    const user = input({ type: 'email', autocomplete: 'username', readonly: true, value: me.email, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+    const current = input({ type: 'password', autocomplete: 'current-password', required: true, maxlength: '200' });
+    const fresh = input({ type: 'password', autocomplete: 'new-password', required: true, minlength: '8', maxlength: '200' });
+    const save = h('button', { type: 'submit', class: 'btn', text: 'Change password' });
+    const change = h('form', { class: 'site-form' }, user, field('Current password', current), field('New password', fresh, 'At least 8 characters.'), save, err, ok);
+    change.addEventListener('submit', (e) => {
+      e.preventDefault();
+      say(err, '');
+      ok.hidden = true;
+      busy(save, async () => {
         try {
-          await api(`/s/${encodeURIComponent(slug)}/api/auth/verify`, emailed);
-          location.replace(`/s/${slug}/`);
+          await api('/api/account/change', { current: current.value, password: fresh.value });
+          current.value = fresh.value = '';
+          ok.hidden = false;
         } catch (x) {
-          say(mErr, x.status === 400 ? LINK_FAILED : x.message);
-          mEmail.focus();
+          say(err, x.message);
+          (x.field === 'current' ? current : fresh).select();
         }
       });
-    }
+    });
+    const out = (path, text) => h('button', { type: 'button', class: 'btn', text, onclick: async () => { await api(path, {}).catch(() => {}); location.assign('/'); } });
+
+    main.replaceChildren(h('section', { class: 'card site-card acct-page' },
+      h('h1', { class: 'site-title', text: 'Your account' }),
+      h('p', { class: 'site-sub', text: `Signed in as ${me.email}` }),
+      h('h2', { class: 'site-h2', text: 'Your servers' }),
+      servers.length ? h('ul', { class: 'wiz-mine' }, servers) : h('p', { class: 'site-sub', text: 'You haven’t made a server yet.' }),
+      h('div', { class: 'site-row' }, h('a', { class: 'btn', href: '/new?fresh=1', text: 'Create a server' }), h('a', { class: 'btn', href: '/join', text: 'Join a server' })),
+      h('h2', { class: 'site-h2', text: 'Password' }), change,
+      h('h2', { class: 'site-h2', text: 'Sign out' }),
+      h('p', { class: 'site-sub', text: '“Everywhere” also signs out your other browsers and devices.' }),
+      h('div', { class: 'site-row' }, out('/api/account/logout', 'Sign out'), out('/api/account/logout-all', 'Sign out everywhere'))));
   }
 
   // ---------------- /new ----------------
-  const STEPS = ['Your email', 'Name the server', 'Install the mods', 'Connect the mod', 'First upload', 'Optional setup', 'Done'];
+  const STEPS = ['Your account', 'Name the server', 'Install the mods', 'Connect the mod', 'First upload', 'Optional setup', 'Done'];
   const W = { me: null, server: null, view: 1, key: null, mod: null, poll: null, waitingSince: null };
 
   function stepper() {
@@ -205,7 +298,7 @@
 
   function accountLine() {
     const out = h('button', { type: 'button', class: 'btn btn-quiet', text: 'Sign out' });
-    out.addEventListener('click', async () => { await api('/api/site/logout', {}); location.assign('/new'); });
+    out.addEventListener('click', async () => { await api('/api/account/logout', {}); location.assign('/new'); });
     const mine = (W.me.servers || []).map((s) => h('li', {}, h('a', { href: `/new?server=${s.slug}`, text: s.name }), s.step < 7 ? h('span', { class: 'site-hint', text: ` · step ${s.step} of 7` }) : null));
     return h('div', { class: 'wiz-account' },
       h('p', { class: 'site-hint', text: `Signed in as ${W.me.email}` }),
@@ -234,37 +327,8 @@
   const next = (n) => h('button', { type: 'button', class: 'btn btn-primary site-go', text: 'Next', onclick: () => show(n) });
 
   function stepEmail() {
-    const err = errorLine();
-    const email = input({ type: 'email', autocomplete: 'email', required: true });
-    const code = input({ inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '7', placeholder: '123456' });
-    const send = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Email me a code' });
-    const go = h('button', { type: 'submit', class: 'btn btn-primary site-go', text: 'Continue' });
-    const f2 = h('form', { class: 'site-form', hidden: true }, field('The 6-digit code we emailed you', code, 'Or open the link in the email. Both work for 10 minutes.'), go);
-    const f1 = h('form', { class: 'site-form' }, field('Your email', email, 'You’ll be the server’s owner. We only use it to sign you in.'), send);
-    f1.addEventListener('submit', (e) => {
-      e.preventDefault();
-      say(err, '');
-      busy(send, async () => {
-        try {
-          await api('/api/site/code', { email: email.value });
-          f1.hidden = true;
-          f2.hidden = false;
-          code.focus();
-        } catch (x) { say(err, x.message); }
-      });
-    });
-    f2.addEventListener('submit', (e) => {
-      e.preventDefault();
-      say(err, '');
-      busy(go, async () => {
-        try {
-          await api('/api/site/verify', { email: email.value, code: code.value });
-          W.me = await api('/api/site/me');
-          show(2);
-        } catch (x) { say(err, x.message); }
-      });
-    });
-    frame('Make a server', 'First, sign in with your email.', f1, f2, err);
+    frame('Make a server', 'First, sign in to your mcstats account, or create one. You’ll be the server’s owner.',
+      authForms({ next: '/new', done: async () => { W.me = await api('/api/site/me'); markAccount(W.me.email); show(2); } }));
   }
 
   // Who can see the stats: a pair of choices, the picked one greyer with a green line under it.
@@ -523,7 +587,7 @@
     const iGo = h('button', { type: 'submit', class: 'btn', text: 'Invite' });
     const invite = h('form', { class: 'site-form' },
       h('div', { class: 'site-inline' }, iEmail, iRole, iGo),
-      h('span', { class: 'site-hint', text: 'They get an email, and sign in with that address on the join page. Admins can use the Admin page; you can change anyone’s access later on its Roles tab.' }),
+      h('span', { class: 'site-hint', text: 'They get an email, and sign in to mcstats with that address (making an account if they don’t have one). Admins can use the Admin page; you can change anyone’s access later on its Roles tab.' }),
       iErr, iOk);
     invite.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -567,17 +631,7 @@
   }
 
   async function newPage() {
-    // opened from the link in a sign-in email: sign in with its code first
-    let linkFailed = null;
-    if (emailed) await api('/api/site/verify', emailed).catch((x) => { linkFailed = x.status === 400 ? LINK_FAILED : x.message; });
     W.me = await api('/api/site/me').catch(() => ({ email: null, servers: [] }));
-    if (!W.me.email && linkFailed) {
-      show(1);
-      const email = main.querySelector('input[type="email"]');
-      if (email) email.value = emailed.email;
-      say(main.querySelector('.site-err'), linkFailed);
-      return;
-    }
     if (!W.me.email) return show(1);
     const want = params.get('server');
     const pick = want ? W.me.servers.find((x) => x.slug === want) : (!params.has('fresh') && W.me.servers.find((x) => x.step < 7));
@@ -595,6 +649,19 @@
     show(2);
   }
 
+  // The top bar says who's signed in, on every one of these pages: a link to /account.
+  const acct = h('a', { class: 'btn btn-quiet acct-btn top-acct', href: '/account', hidden: true });
+  toggle?.before(acct);
+  function markAccount(email) {
+    // on a phone the bar has no room for an address
+    acct.textContent = email ? (matchMedia('(max-width: 640px)').matches ? 'Account' : email) : 'Sign in';
+    acct.title = email ? `Signed in as ${email}` : '';
+    acct.hidden = page === 'account' && !email;
+  }
+  api('/api/account/me').then((me) => markAccount(me.email), () => {});
+  const fail = (x) => main.replaceChildren(h('section', { class: 'card site-card' }, h('p', { class: 'site-err', text: x.message })));
+
   if (page === 'join') joinPage();
-  else if (page === 'new') newPage().catch((x) => main.replaceChildren(h('section', { class: 'card site-card' }, h('p', { class: 'site-err', text: x.message }))));
+  else if (page === 'account') accountPage().catch(fail);
+  else if (page === 'new') newPage().catch(fail);
 })();

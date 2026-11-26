@@ -1,10 +1,8 @@
-// Making a server on /new, the way an owner does: sign in with an emailed code, pick the address, choose
+// Making a server on /new, the way an owner does: signed in to an mcstats account (test/account.test.js), pick the address, choose
 // private or public, and the stats are then shown (or not) to someone without a password.
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { call, cookieOf, siteCookie } from './helpers.js';
-import { codeHash } from '../src/session.js';
-import { codeEmail, signInLink } from '../src/email.js';
 
 const make = (cookie, body) => call('/api/site/servers', { method: 'POST', cookie, body });
 const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(name)}`, { cookie });
@@ -12,41 +10,7 @@ const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(n
 const anonymousPage = (slug) => call(`/s/${slug}/`);
 const join = (slug, password) => call('/api/site/join', { method: 'POST', body: { server: slug, password } });
 
-describe('the sign-in email', () => {
-  it('has the code and a link that carries the same code after the #, where no server sees it', () => {
-    const link = signInLink('https://mcstats.test', '/join?server=my-smp', 'a+b@example.org', '424242');
-    const url = new URL(link);
-    expect(url.pathname + url.search).toBe('/join?server=my-smp');
-    expect(Object.fromEntries(new URLSearchParams(url.hash.slice(1)))).toEqual({ email: 'a+b@example.org', code: '424242' });
-    const mail = codeEmail('424242', 'Tom & <b>Jerry</b>', link);
-    expect(mail.subject).toContain('424242');
-    expect(mail.text).toContain('424242');
-    expect(mail.text).toContain(link);
-    // the server's name is its owner's to choose: it's text in the email, never markup
-    expect(mail.html).not.toContain('<b>Jerry');
-    expect(mail.html).toContain('href="https://mcstats.test/join?server=my-smp#email=a%2Bb%40example.org&#38;code=424242"');
-    expect(codeEmail('424242', 'x').html).toBeUndefined();
-  });
-});
-
 describe('signing in on /new', () => {
-  it('a code by email signs you in; a wrong one does not', async () => {
-    const email = 'newowner@example.org';
-    expect((await call('/api/site/code', { method: 'POST', body: { email } })).status).toBe(200);
-    // the emailed code is only stored hashed: put in one we know
-    await env.DIRECTORY.prepare('UPDATE login_codes SET code_hash = ? WHERE email = ?').bind(await codeHash('site', email, '424242'), email).run();
-
-    expect((await call('/api/site/verify', { method: 'POST', body: { email, code: '111111' } })).status).toBe(400);
-    const ok = await call('/api/site/verify', { method: 'POST', body: { email, code: '424242' } });
-    expect(ok.status).toBe(200);
-    const cookie = cookieOf(ok, 'mcs_site');
-    expect(cookie).toBeTruthy();
-    const me = await (await call('/api/site/me', { cookie })).json();
-    expect(me.email).toBe(email);
-    // a code works once
-    expect((await call('/api/site/verify', { method: 'POST', body: { email, code: '424242' } })).status).toBe(400);
-  });
-
   it('making a server or checking an address needs a sign-in', async () => {
     expect((await make(null, { name: 'Nope', slug: 'nope-server', visibility: 'public' })).status).toBe(401);
     expect((await check(null, 'nope-server')).status).toBe(401);

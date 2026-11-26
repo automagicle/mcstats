@@ -2271,6 +2271,34 @@ select:not([multiple]) {
 .site-more { margin-top: 18px; }
 .site-more summary { cursor: pointer; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
 .site-more[open] summary { margin-bottom: 12px; }
+p.site-more { margin-bottom: 0; }
+
+/* signing in to an mcstats account (/account, the first step of /new) */
+.top-acct[hidden] { display: none; }
+@media (max-width: 640px) {
+  .top-acct { padding: 6px 4px; }
+}
+.auth { display: grid; gap: 12px; max-width: 380px; }
+.auth-title { margin: 0; }
+.acct-page .site-h2 { margin: 28px 0 8px; }
+.acct-page .site-form { max-width: 380px; }
+.acct-page .site-row { margin-top: 10px; }
+.auth-show { font-size: 13px; }
+.auth-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 0; }
+.auth-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.auth-link:hover { color: var(--ink); }
+.auth-link:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 .site-main code { font-size: 0.92em; background: var(--surface-2); padding: 1px 4px; overflow-wrap: anywhere; }
 
 /* the create-a-server steps: a list of steps beside the current one */

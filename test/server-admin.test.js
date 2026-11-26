@@ -114,11 +114,9 @@ describe('the address and the password', () => {
     expect(res.status).toBe(200);
     const out = await res.json();
     expect(out).toMatchObject({ slug: 'sa-moved', moved: '/s/sa-moved/' });
-    const set = res.headers.getSetCookie();
-    expect(set.some((c) => c.startsWith('mcs_id=') && c.includes('Path=/s/sa-moved/'))).toBe(true);
-    expect(set.some((c) => c.startsWith('mcs_id=;') && c.includes('Path=/s/sa-move/'))).toBe(true);
-
-    const fresh = both(cookieOf(res, 'mcs_view'), set.map((c) => c.split(';')[0]).find((c) => c.startsWith('mcs_id=') && c.length > 8));
+    // the account is signed in site-wide, so it comes along; the viewer cookie is made again for the new address
+    expect(res.headers.getSetCookie().some((c) => c.startsWith('mcs_view=') && c.includes('Path=/s/sa-moved/'))).toBe(true);
+    const fresh = both(cookieOf(res, 'mcs_view'), owner);
     expect((await call('/s/sa-moved/api/me', { cookie: fresh })).status).toBe(200);
     expect((await (await call('/s/sa-moved/api/me', { cookie: fresh })).json()).email).toBe(a.owner);
     // the old address is no server at all now, and the data came along
