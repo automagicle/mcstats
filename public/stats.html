@@ -32,8 +32,9 @@
     <div class="top-left">
       <!-- the server: its name and whether it's up. Everything on the right is the visitor's own. -->
       <div class="top-id">
+        <!-- the logo goes back to mcstats itself; the server's name, beside it, to this server's first page -->
+        <a class="home-link" href="/" title="Back to mcstats" aria-label="Back to mcstats"><span class="logo" aria-hidden="true"></span></a>
         <a class="brand" href="#/">
-          <span class="logo" aria-hidden="true"></span>
           <span>mcstats</span>
         </a>
         <div id="live" class="live" aria-live="polite"><span class="dot"></span><span id="live-text">Loading…</span></div>
@@ -48,10 +49,6 @@
       </nav>
     </div>
     <div class="top-right">
-      <button type="button" class="search-btn" id="search-btn" aria-expanded="false" aria-controls="search-pop" title="Search chat" hidden>
-        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
-        <span class="search-btn-label">Search</span><kbd id="search-kbd"></kbd>
-      </button>
       <div class="seg name-toggle" id="name-toggle" role="group" aria-label="Show players by" hidden>
         <button type="button" data-v="ign" title="Show in-game names">IGN</button><button type="button" data-v="real" title="Show real names">Name</button>
       </div>
@@ -62,35 +59,6 @@
       </button>
     </div>
   </header>
-
-  <div class="search-pop" id="search-pop" role="dialog" aria-label="Search chat" hidden>
-    <div class="search-bar">
-      <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
-      <input id="search-q" type="search" placeholder="Search chat" autocomplete="off" spellcheck="false" aria-label="Search chat">
-      <button type="button" class="icon-btn search-filter-btn" id="search-filter-btn" aria-expanded="false" aria-controls="search-filters" title="Filters">
-        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/></svg>
-        <span class="search-filter-n" id="search-filter-n" hidden></span>
-      </button>
-      <button type="button" class="icon-btn" id="search-close" aria-label="Close search" title="Close (Esc)">
-        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-      </button>
-    </div>
-    <div class="search-filters" id="search-filters" hidden>
-      <div class="sf-row"><span class="sf-label">Look in</span>
-        <div class="seg" id="sf-in" role="group" aria-label="Look in">
-          <button type="button" data-v="all">Everything</button><button type="button" data-v="text">Messages</button><button type="button" data-v="name">Names</button>
-        </div>
-      </div>
-      <div class="sf-row"><label class="sf-label" for="sf-from">From</label><select id="sf-from"><option value="">Anyone</option></select></div>
-      <div class="sf-row"><label class="sf-label" for="sf-kind">Type</label>
-        <select id="sf-kind">
-          <option value="">Everything</option><option value="chat">Chat messages</option><option value="death">Deaths</option>
-          <option value="advancement">Advancements</option><option value="joins">Joins &amp; leaves</option>
-        </select>
-      </div>
-    </div>
-    <div class="search-results" id="search-results"></div>
-  </div>
 
   <main>
     <div id="error" class="notice notice-error" hidden></div>
@@ -177,6 +145,17 @@
             </div>
           </div>
           <div id="weekgrid"></div>
+        </section>
+
+        <!-- what players can type in game (the mod's /mcstats and /liveview; app.js MC_COMMANDS) -->
+        <section class="card" data-sec="commands">
+          <div class="card-head">
+            <div class="card-title card-title-stacked">
+              <h2>In-game commands</h2>
+              <span class="card-sub">type these in Minecraft chat · click one to copy it</span>
+            </div>
+          </div>
+          <ul class="cmd-list" id="cmd-list"></ul>
         </section>
       </div>
     </section>
@@ -689,6 +668,38 @@
       </section>
 
       <section class="card chat-card">
+        <!-- search, at the head of the log it searches: results and filters drop down over the log (app.js openSearch) -->
+        <div class="chat-find" id="chat-find" role="search">
+          <div class="search-bar">
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+            <input id="search-q" type="search" placeholder="Search chat" autocomplete="off" spellcheck="false" aria-label="Search chat" aria-controls="search-pop" aria-expanded="false">
+            <kbd class="search-kbd" id="search-kbd" aria-hidden="true"></kbd>
+            <button type="button" class="icon-btn search-filter-btn" id="search-filter-btn" aria-expanded="false" aria-controls="search-filters" title="Filters">
+              <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/></svg>
+              <span class="search-filter-n" id="search-filter-n" hidden></span>
+            </button>
+            <button type="button" class="icon-btn" id="search-close" aria-label="Close search results" title="Close (Esc)" hidden>
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+          </div>
+          <div class="search-pop" id="search-pop" aria-label="Search results" hidden>
+            <div class="search-filters" id="search-filters" hidden>
+              <div class="sf-row"><span class="sf-label">Look in</span>
+                <div class="seg" id="sf-in" role="group" aria-label="Look in">
+                  <button type="button" data-v="all">Everything</button><button type="button" data-v="text">Messages</button><button type="button" data-v="name">Names</button>
+                </div>
+              </div>
+              <div class="sf-row"><label class="sf-label" for="sf-from">From</label><select id="sf-from"><option value="">Anyone</option></select></div>
+              <div class="sf-row"><label class="sf-label" for="sf-kind">Type</label>
+                <select id="sf-kind">
+                  <option value="">Everything</option><option value="chat">Chat messages</option><option value="death">Deaths</option>
+                  <option value="advancement">Advancements</option><option value="joins">Joins &amp; leaves</option>
+                </select>
+              </div>
+            </div>
+            <div class="search-results" id="search-results"></div>
+          </div>
+        </div>
         <div class="chat-scroll" id="chat-scroll" role="log" aria-label="Chat log" tabindex="0">
           <div class="chat-edge" id="chat-top"></div>
           <div id="chat-list"></div>

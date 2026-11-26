@@ -14,7 +14,7 @@
 export const WIDTHS = ['full', 'wide', 'half', 'narrow'];
 
 export const SECTIONS = {
-  home: [['about', 'full'], ['now', 'full'], ['timeline', 'full'], ['daily', 'full'], ['leaderboard', 'wide'], ['busiest', 'narrow']],
+  home: [['about', 'full'], ['now', 'full'], ['timeline', 'full'], ['daily', 'full'], ['leaderboard', 'wide'], ['busiest', 'narrow'], ['commands', 'full']],
   player: [['addon', 'narrow'], ['combat', 'wide'], ['activity', 'full'], ['when', 'narrow'], ['recent', 'wide'], ['advancements', 'full']],
   combat: [['score', 'full'], ['chart', 'full'], ['leaderboard', 'full']],
 };

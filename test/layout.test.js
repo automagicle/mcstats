@@ -21,7 +21,7 @@ describe('layouts', () => {
   it('fills in what’s missing, drops what it doesn’t know, and keeps nothing for the default', () => {
     const l = cleanLayout({ home: [{ id: 'busiest', w: 'full', hide: true, title: '  Peak\u0007 hours ' }, { id: 'nope' }, { id: 'busiest' }], tiles: { home: [{ id: 'seen' }] } });
     expect(l.home[0]).toEqual({ id: 'busiest', w: 'full', hide: true, title: 'Peak hours' });
-    expect(l.home.map((s) => s.id)).toEqual(['busiest', 'about', 'now', 'timeline', 'daily', 'leaderboard']);
+    expect(l.home.map((s) => s.id)).toEqual(['busiest', 'about', 'now', 'timeline', 'daily', 'leaderboard', 'commands']);
     expect(l.tiles.home.map((t) => t.id)).toEqual(['seen', 'online', 'peak', 'played']);
     expect(l.player).toEqual(defaultLayout().player);
     expect(cleanLayout('not json')).toBeNull();
@@ -71,7 +71,11 @@ describe('the server’s icon and description', () => {
     // nobody who can't look at the server gets it
     expect((await call(`/s/${a.slug}${got.icon}`)).status).toBe(401);
     const html = await (await call(`/s/${a.slug}/`, { cookie: viewer })).text();
-    expect(html).toContain(`<link rel="icon" href="/s/${a.slug}${got.icon}">`);
+    // the browser tab keeps the mcstats icon; link previews show the server's own icon, name and description
+    expect(html).toContain('<link rel="icon" href="data:image/svg+xml');
+    expect(html).toMatch(new RegExp(`<meta property="og:image" content="https?://[^"]+/s/${a.slug}/api/icon\\?v=\\d+">`));
+    expect(html).toContain('<meta property="og:description" content="A survival server\nfor friends.">');
+    expect(html).not.toContain('og:image:width');
     expect(html).toContain('"about":"A survival server\\nfor friends."');
 
     expect((await settings(a, owner, { icon: png(10, 10) })).status).toBe(400);

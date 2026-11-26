@@ -211,6 +211,9 @@ a { color: inherit; }
 /* a long server name is cut short (the whole name is its tooltip); the tabs and controls never are */
 .brand > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .brand .logo { flex: none; }
+/* the mcstats logo, on its own: back to the site's front page */
+.home-link { display: flex; flex: none; align-items: center; }
+.home-link:hover .logo { filter: brightness(1.15); }
 /* the server's name with its status beside it, as plain text: it says something about the server, it isn't a control */
 .top-id { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 0 1 auto; }
 .top .live { padding: 0; background: none; box-shadow: none; gap: 7px; color: var(--ink-2); }
@@ -1310,34 +1313,18 @@ a.msg-name:hover { text-decoration: underline; }
 .peek-text { margin-top: 8px; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
 .peek-text .msg-name { font-weight: 600; }
 
-/* chat search */
-.search-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 6px 5px 10px;
-  border: 0;
-  background: var(--surface-2);
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.search-btn[hidden] { display: none; }
-.search-btn:hover, .search-btn[aria-expanded="true"] { color: var(--ink); background: var(--grid); }
-.search-btn kbd { padding: 1px 6px; background: var(--grid); color: var(--muted); font: inherit; font-size: 11px; }
-.search-btn:hover kbd { background: var(--raise); }
-@media (max-width: 1100px) { .search-btn-label, .search-btn kbd { display: none; } .search-btn { padding: 7px; } .top-left { gap: 14px; } .top-left > .tabs { padding-left: 14px; } .tabs a { padding: 5px 9px; } }
+@media (max-width: 1100px) { .top-left { gap: 14px; } .top-left > .tabs { padding-left: 14px; } .tabs a { padding: 5px 9px; } }
 
+/* chat search: a strip at the head of the chat log; its results and filters drop down over the log, from the
+   right, so the messages they jump to stay in view beside them */
+.chat-find { position: relative; z-index: 6; flex: none; }
 .search-pop {
-  position: fixed;
-  z-index: 18;
-  top: 56px;
-  right: max(16px, calc((100vw - 1120px) / 2));
+  position: absolute;
+  top: 100%;
+  right: 0;
   width: 440px;
-  max-width: calc(100vw - 32px);
-  max-height: min(70vh, 620px);
+  max-width: 100%;
+  max-height: min(64vh, 580px);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1345,7 +1332,12 @@ a.msg-name:hover { text-decoration: underline; }
   animation: rise-in 0.16s ease-out;
 }
 .search-pop[hidden] { display: none; }
-.search-bar { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--edge); color: var(--muted); }
+.search-bar { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--edge); color: var(--muted); background: var(--surface); }
+/* searching: the strip's bottom line takes the server's color, which is also where the keyboard focus shows */
+.search-bar:focus-within { color: var(--ink-2); box-shadow: inset 0 -2px 0 var(--series-1); }
+.search-kbd { padding: 1px 6px; background: var(--grid); color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; }
+.search-bar input:focus ~ .search-kbd, .search-bar input:not(:placeholder-shown) ~ .search-kbd { display: none; }
+#search-close[hidden] { display: none; }
 .search-bar input {
   flex: 1;
   min-width: 0;
@@ -1419,7 +1411,8 @@ a.msg-name:hover { text-decoration: underline; }
 .search-pop mark { background: color-mix(in srgb, var(--warning) 45%, transparent); color: inherit; }
 .sr-more { display: block; margin: 6px auto 4px; padding: 5px 12px; border: 0; background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: 12.5px; cursor: pointer; }
 .sr-more:hover { color: var(--ink); background: var(--grid); }
-@media (max-width: 640px) { .search-pop { right: 16px; left: 16px; width: auto; max-width: none; top: 58px; } }
+/* a phone: the results take the log's whole width, and the shortcut isn't there to press */
+@media (max-width: 640px) { .search-pop { left: 0; width: auto; max-height: 70vh; } .search-kbd { display: none; } }
 @media (prefers-reduced-motion: reduce) { .search-pop { animation: none; } }
 
 /* ---------- seasons ---------- */
@@ -2296,7 +2289,7 @@ a.pcb-who:hover { text-decoration: underline; }
    dots are plain squares. Only the marker riding a chart's line stays round. */
 .card, .now, .tiles, .pcb-stats { box-shadow: var(--frame), var(--drop); }
 .now > .tiles { box-shadow: none; }
-.seg, .icon-btn, .live, .search-btn, .theme-toggle, .adv-tabs, .adm-periods, .pc-stat,
+.seg, .icon-btn, .live, .theme-toggle, .adv-tabs, .adm-periods, .pc-stat,
 .dl-open { --pc: var(--surface-2); box-shadow: var(--pixel); }
 .seg button[aria-pressed="true"], .adv-tabs button[aria-selected="true"], .adm-tabs a[aria-selected="true"] { --pc: var(--raise); }
 .btn-primary, .btn-primary:hover:not(:disabled), .chat-send:not(:disabled) { --pc: var(--series-1); box-shadow: var(--pixel), var(--drop-sm); }
@@ -2933,6 +2926,12 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .layout-note a { color: var(--series-1); }
 
 /* the top of the Activity page: the server's icon, name and description */
+/* the in-game commands on the Activity page: each command a button that copies it */
+.cmd-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 6px 20px; }
+.cmd-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.cmd-code { flex: none; font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--surface-2); border: 0; padding: 2px 7px; cursor: pointer; white-space: nowrap; }
+.cmd-code:hover { color: var(--accent-green); }
+.cmd-what { color: var(--ink-2); font-size: 14px; min-width: 0; }
 .about-card { display: flex; align-items: center; gap: 16px; }
 .about-icon { width: 64px; height: 64px; flex: none; image-rendering: pixelated; }
 .about-text { min-width: 0; }

@@ -414,6 +414,7 @@ const LAYOUT_PAGES = {
       ['daily', 'Daily activity', 'bars', true],
       ['leaderboard', 'Leaderboard', 'rows', true],
       ['busiest', 'Busiest times', 'grid', true],
+      ['commands', 'In-game commands', 'rows', true],
     ],
     tiles: [['online', 'Online now'], ['peak', 'Peak today'], ['played', 'Total played'], ['seen', 'Players seen']],
   },
@@ -436,7 +437,7 @@ const LAYOUT_PAGES = {
   },
 };
 const LAYOUT_DEFAULT_W = {
-  home: { about: 'full', now: 'full', timeline: 'full', daily: 'full', leaderboard: 'wide', busiest: 'narrow' },
+  home: { about: 'full', now: 'full', timeline: 'full', daily: 'full', leaderboard: 'wide', busiest: 'narrow', commands: 'full' },
   player: { addon: 'narrow', combat: 'wide', activity: 'full', when: 'narrow', recent: 'wide', advancements: 'full' },
   combat: { score: 'full', chart: 'full', leaderboard: 'full' },
 };
@@ -543,6 +544,40 @@ function renderAbout() {
   $('#about-desc').hidden = !about;
   img.hidden = !iconUrl;
   if (iconUrl && img.getAttribute('src') !== iconUrl) img.src = iconUrl;
+}
+
+// What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP) and the Liveview
+// ones every player may use (LiveviewCommands.PLAYER_HELP). Keep them in step with the mod.
+const MC_COMMANDS = [
+  ['/mcstats', 'Open the mcstats menu'],
+  ['/mcstats profile', 'Choose what you hold and your particles on the website'],
+  ['/mcstats stats', 'Every player’s stats'],
+  ['/mcstats stats <player>', 'One player’s stats'],
+  ['/mcstats top', 'Leaderboards'],
+  ['/mcstats link', 'A link to your page on the website'],
+  ['/mcstats particle <name>', 'Set your particles (or none)'],
+  ['/mcstats reset', 'Go back to the automatic look'],
+  ['/mcstats help', 'This list, in game'],
+  ['/liveview optout', 'Hide yourself from Liveview'],
+  ['/liveview optin', 'Show yourself in Liveview again'],
+];
+function renderCommands() {
+  const list = $('#cmd-list');
+  if (!list || list.firstChild) return;
+  for (const [cmd, what] of MC_COMMANDS) {
+    // up to the first "<": the part that can be typed as it is, as the mod's own help does
+    const typed = cmd.includes('<') ? cmd.slice(0, cmd.indexOf('<')) : cmd;
+    const btn = el('button', { type: 'button', class: 'cmd-code', title: `Copy ${typed.trim()}`, text: cmd });
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(typed);
+        toast(`Copied ${typed.trim()}`);
+      } catch {
+        toast('Couldn’t copy. Type it in Minecraft chat.', { error: true });
+      }
+    });
+    list.append(el('li', { class: 'cmd-row' }, btn, el('span', { class: 'cmd-what', text: what })));
+  }
 }
 
 /* ---------- gear ---------- */
@@ -2965,7 +3000,6 @@ function showView(name) {
   if (name !== 'live') liveMod?.hide(); // Liveview stops drawing, and lets go of its connection after a while
   document.body.classList.toggle('chat-mode', name === 'chat');
   document.body.classList.toggle('live-mode', name === 'live'); // Liveview shows in-game names only: no IGN / Name switch
-  $('#search-btn').hidden = name !== 'chat';
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
   renderLayoutNote(name);
@@ -2982,6 +3016,7 @@ async function showHome() {
   await loadStatus();
   await loadHourly();
   renderAbout();
+  renderCommands();
   renderTiles();
   renderOnlineChips();
   renderServerWeekGrid().catch((e) => showError(e.message));
@@ -5095,20 +5130,23 @@ const search = { q: '', in: 'all', from: '', kind: '', results: [], more: false,
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 $('#search-kbd').textContent = isMac ? '⌘F' : 'Ctrl F';
 
+// The search sits at the head of the chat log; its results and filters drop down over the log while it's open.
 function openSearch() {
+  const q = $('#search-q');
+  if (!$('#search-pop').hidden) { q.focus(); q.select(); return; }
   closeCard();
   $('#search-pop').hidden = false;
-  $('#search-btn').setAttribute('aria-expanded', 'true');
-  const q = $('#search-q');
-  q.focus();
-  q.select();
+  $('#search-close').hidden = false;
+  q.setAttribute('aria-expanded', 'true');
+  if (document.activeElement !== q) { q.focus(); q.select(); }
   loadSearchPlayers().catch(() => {});
   if (!search.results.length) renderSearch();
 }
 
 function closeSearch() {
   $('#search-pop').hidden = true;
-  $('#search-btn').setAttribute('aria-expanded', 'false');
+  $('#search-close').hidden = true;
+  $('#search-q').setAttribute('aria-expanded', 'false');
 }
 
 async function loadSearchPlayers() {
@@ -5229,8 +5267,16 @@ const searchSoon = () => {
   clearTimeout(search.timer);
   search.timer = setTimeout(() => runSearch().catch((e) => showError(e.message)), 220);
 };
-$('#search-btn').addEventListener('click', () => ($('#search-pop').hidden ? openSearch() : closeSearch()));
-$('#search-close').addEventListener('click', closeSearch);
+$('#search-q').addEventListener('focus', () => { if ($('#search-pop').hidden) openSearch(); });
+$('#search-close').addEventListener('click', () => { closeSearch(); $('#search-q').blur(); });
+// a click anywhere outside the search (the log, the chart) puts the results away
+document.addEventListener('pointerdown', (e) => {
+  if (!$('#search-pop').hidden && !$('#chat-find').contains(e.target)) closeSearch();
+});
+// on a phone the results cover the log: picking one puts them away, to show it there
+$('#search-results').addEventListener('click', (e) => {
+  if (e.target.closest('.sr-item') && matchMedia('(max-width: 640px)').matches) closeSearch();
+});
 $('#search-filter-btn').addEventListener('click', () => toggleFilters());
 $('#search-q').addEventListener('input', (e) => { search.q = e.target.value; searchSoon(); });
 $('#search-q').addEventListener('keydown', (e) => {
@@ -6759,7 +6805,6 @@ async function srvSave() {
     MCS.about = r.about;
     MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
     layoutSaved = fullLayout(r.layout);
-    if (MCS.icon) for (const link of document.querySelectorAll('link[rel="icon"]')) link.href = MCS.icon;
     // a new address is a new page; a new name is on every page's title: load it afresh
     if (r.moved) { srv.draft = null; location.href = `${r.moved}#/admin/server`; return; }
     if (body.name || body.addons) { srv.draft = null; location.reload(); return; }

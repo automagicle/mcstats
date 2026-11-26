@@ -179,12 +179,20 @@ async function server(request, env, url, ctx, slug, rest) {
     ...ADDONS[id].scripts.map((src) => `<script src="${src}" defer></script>`),
   ]).join('');
   const script = `<script>window.MCS=${JSON.stringify(config).replace(/</g, '\\u003c')};</script><script src="/tenant.js"></script>`;
+  // Link previews (Discord and the like) show the server: its name, its description and its icon, as set in
+  // Admin → Server. The browser tab keeps the mcstats icon. A crawler only gets this far on a public server.
+  const ogDesc = (config.about || `Stats for ${row.name} on mcstats: who played, the chat, deaths and advancements.`).slice(0, 300);
+  const ogImage = config.icon ? new URL(config.icon, url).href : null;
   const out = absoluteOgImage(new HTMLRewriter(), url)
     // the server's accent color and tab style, on <html> before anything is drawn (src/look.js)
     .on('html', { element(e) { for (const [k, v] of Object.entries(lookAttrs(look))) e.setAttribute(k, v); } })
     .on('head', { element(e) { e.prepend(script, { html: true }); } })
-    // the server's own icon in the browser tab, when it has one
-    .on('link[rel="icon"]', { element(e) { if (config.icon) e.setAttribute('href', config.icon); } })
+    .on('title', { element(e) { e.setInnerContent(row.name); } })
+    .on('meta[property="og:title"]', { element(e) { e.setAttribute('content', row.name); } })
+    .on('meta[property="og:description"]', { element(e) { e.setAttribute('content', ogDesc); } })
+    .on('meta[property="og:image"]', { element(e) { if (ogImage) e.setAttribute('content', ogImage); } })
+    // the icon's own size (16-256, always square) isn't known here, so leave it to the crawler
+    .on('meta[property="og:image:width"], meta[property="og:image:height"]', { element(e) { if (ogImage) e.remove(); } })
     // after the site's stylesheet, so an add-on's rules can build on it
     .on('script[src="/app.js"]', { element(e) { if (extras) e.before(extras, { html: true }); } })
     .transform(html);
