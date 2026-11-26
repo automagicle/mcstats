@@ -83,10 +83,15 @@ public final class PlayerSampler {
 	private static String texturesProperty(ServerPlayer player) {
 		try {
 			GameProfile profile = player.getGameProfile();
-			if (profile == null || profile.properties() == null) {
+			//#if MC >= 1.21.9
+			var properties = profile == null ? null : profile.properties();
+			//#else
+			//$$ var properties = profile == null ? null : profile.getProperties();
+			//#endif
+			if (properties == null) {
 				return null;
 			}
-			for (Property property : profile.properties().get("textures")) {
+			for (Property property : properties.get("textures")) {
 				if (property != null && property.value() != null && !property.value().isBlank()) {
 					return property.value();
 				}

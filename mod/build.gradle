@@ -1,40 +1,34 @@
+// One build per Minecraft version group: each target in versions/<mc>/ compiles the same source
+// (src/main), run through the preprocessor in target.gradle for that version. See versions/README.md.
+//   ./gradlew build            every version's jar, collected in build/libs/
+//   ./gradlew :26.2:build      one version
 plugins {
-	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	// 26.x is unobfuscated (Mojang's names, no remapping); 1.21.x is obfuscated and remapped to
+	// intermediary names, with Mojang's names used while compiling.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}" apply false
 }
 
-base {
-	archivesName = 'mcstats-chat'
+subprojects {
+	apply from: rootProject.file('target.gradle')
 }
 
-dependencies {
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-	// Only the Fabric API pieces this mod uses, bundled inside its jar,
-	// so the server doesn't need Fabric API installed separately.
-	// Chat needs the message and lifecycle events; Liveview adds its /liveview command and the events
-	// its action feed is built from (blocks broken and used, attacks, deaths, joins).
-	for (name in ['fabric-api-base', 'fabric-message-api-v1', 'fabric-lifecycle-events-v1',
-			'fabric-command-api-v2', 'fabric-entity-events-v1', 'fabric-events-interaction-v0', 'fabric-networking-api-v1']) {
-		def dep = fabricApi.module(name, project.fabric_api_version)
-		implementation dep
-		include dep
+// Every target's jar, in build/libs/ (what npm run build:mod copies to the website).
+tasks.register('build') {
+	group = 'build'
+	description = 'Builds the mod for every Minecraft version.'
+	dependsOn subprojects.collect { "${it.path}:build" }
+	doLast {
+		def out = layout.buildDirectory.dir('libs').get().asFile
+		out.mkdirs()
+		subprojects.each { p ->
+			p.layout.buildDirectory.dir('libs').get().asFile.listFiles()
+				?.findAll { it.name.endsWith('.jar') && !it.name.contains('-sources') }
+				?.each { f -> java.nio.file.Files.copy(f.toPath(), new File(out, f.name).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+		}
 	}
 }
-
-processResources {
-	def version = project.version
-	inputs.property 'version', version
-	filesMatching('fabric.mod.json') {
-		expand 'version': version
-	}
-}
-
-tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
-}
-
-java {
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
+tasks.register('clean', Delete) {
+	delete layout.buildDirectory
+	dependsOn subprojects.collect { "${it.path}:clean" }
 }

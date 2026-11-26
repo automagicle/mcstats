@@ -91,23 +91,34 @@
   <main>
     <div id="error" class="notice notice-error" hidden></div>
     <div id="season-note" class="notice season-note" hidden></div>
+    <div id="layout-note" class="notice layout-note" role="status" hidden></div>
     <div id="mod-update" class="notice mod-update" role="status" hidden></div>
 
     <!-- Home -->
     <section id="view-home" hidden>
-      <div class="now">
-      <div class="tiles">
-        <div class="tile"><div class="tile-label" id="t-online-label">Online now</div><div class="tile-value" id="t-online">–</div><div class="tile-sub" id="t-online-sub"></div></div>
-        <div class="tile"><div class="tile-label" id="t-peak-label">Peak today</div><div class="tile-value" id="t-peak">–</div><div class="tile-sub">players at once</div></div>
-        <div class="tile"><div class="tile-label" id="t-week-label">Total played</div><div class="tile-value" id="t-week">–</div><div class="tile-sub" id="t-week-sub">player-hours, <select id="t-week-mode" class="tile-select" aria-label="Period"><option value="all">all time</option><option value="7d">last 7 days</option></select></div></div>
-        <div class="tile"><div class="tile-label">Players seen</div><div class="tile-value" id="t-players">–</div><div class="tile-sub">this season</div></div>
+      <div id="sample-warning" class="notice" hidden></div>
+      <!-- the sections of each page are arranged by the server's layout (Admin → Layout, src/layout.js): data-sec
+           names each one, data-tile each number tile -->
+      <div class="lay" data-page="home">
+      <section class="card about-card" data-sec="about" id="about-card" hidden>
+        <img class="about-icon" id="about-icon" alt="" width="64" height="64" hidden>
+        <div class="about-text">
+          <h1 class="about-name" id="about-name"></h1>
+          <p class="about-desc" id="about-desc"></p>
+        </div>
+      </section>
+      <div class="now" data-sec="now">
+      <div class="tiles" data-tiles="home">
+        <div class="tile" data-tile="online"><div class="tile-label" id="t-online-label">Online now</div><div class="tile-value" id="t-online">–</div><div class="tile-sub" id="t-online-sub"></div></div>
+        <div class="tile" data-tile="peak"><div class="tile-label" id="t-peak-label">Peak today</div><div class="tile-value" id="t-peak">–</div><div class="tile-sub">players at once</div></div>
+        <div class="tile" data-tile="played"><div class="tile-label" id="t-week-label">Total played</div><div class="tile-value" id="t-week">–</div><div class="tile-sub" id="t-week-sub">player-hours, <select id="t-week-mode" class="tile-select" aria-label="Period"><option value="all">all time</option><option value="7d">last 7 days</option></select></div></div>
+        <div class="tile" data-tile="seen"><div class="tile-label">Players seen</div><div class="tile-value" id="t-players">–</div><div class="tile-sub">this season</div></div>
       </div>
 
       <div id="online-list" class="chips"></div>
       </div>
-      <div id="sample-warning" class="notice" hidden></div>
 
-      <section class="card">
+      <section class="card" data-sec="timeline">
         <div class="card-head">
           <div class="card-title">
             <h2>Players online</h2>
@@ -126,7 +137,7 @@
         <div id="timeline" class="chart"></div>
       </section>
 
-      <section class="card">
+      <section class="card" data-sec="daily">
         <div class="card-head">
           <div class="card-title">
             <h2>Daily activity</h2>
@@ -137,8 +148,7 @@
         <div id="heatmap" class="chart chart-bars"></div>
       </section>
 
-      <div class="grid2 grid-side">
-        <section class="card">
+        <section class="card" data-sec="leaderboard">
           <div class="card-head">
             <div class="card-title card-title-stacked">
               <h2>Leaderboard</h2>
@@ -149,7 +159,7 @@
           <div id="leaderboard"></div>
         </section>
 
-        <section class="card">
+        <section class="card" data-sec="busiest">
           <div class="card-head">
             <div class="card-title card-title-stacked">
               <h2>Busiest times</h2>
@@ -185,11 +195,11 @@
             </div>
           </div>
 
-          <div class="tiles">
-            <div class="tile"><div class="tile-label">Total played</div><div class="tile-value" id="p-total">–</div><div class="tile-sub" id="p-total-sub"></div></div>
-            <div class="tile"><div class="tile-label">Sessions</div><div class="tile-value" id="p-sessions">–</div><div class="tile-sub" id="p-avg"></div></div>
-            <div class="tile"><div class="tile-label">Longest session</div><div class="tile-value" id="p-longest">–</div><div class="tile-sub" id="p-longest-sub"></div></div>
-            <div class="tile">
+          <div class="tiles" data-tiles="player">
+            <div class="tile" data-tile="total"><div class="tile-label">Total played</div><div class="tile-value" id="p-total">–</div><div class="tile-sub" id="p-total-sub"></div></div>
+            <div class="tile" data-tile="sessions"><div class="tile-label">Sessions</div><div class="tile-value" id="p-sessions">–</div><div class="tile-sub" id="p-avg"></div></div>
+            <div class="tile" data-tile="longest"><div class="tile-label">Longest session</div><div class="tile-value" id="p-longest">–</div><div class="tile-sub" id="p-longest-sub"></div></div>
+            <div class="tile" data-tile="chat">
               <div class="tile-label">Chat messages
                 <select id="p-chat-mode" class="tile-select" aria-label="Count">
                   <option value="total">total</option><option value="today">today</option>
@@ -201,21 +211,20 @@
         </div>
       </div>
 
-      <!-- the card on the left is a server's add-ons' (public/addons/); without any, Combat has the row to itself -->
-      <div class="grid2 p-side-combat no-side" id="p-side-combat">
-        <section class="card addon-card" id="p-addon-card" hidden>
+      <div class="lay" data-page="player">
+        <!-- a server's add-ons' card (public/addons/); without any, the cards beside it take its room -->
+        <section class="card addon-card" id="p-addon-card" data-sec="addon" hidden>
           <div id="p-addon-body"></div>
         </section>
-        <section class="card pcombat-card" id="p-combat-card">
+        <section class="card pcombat-card" id="p-combat-card" data-sec="combat">
           <div class="card-head">
             <div class="card-title"><h2>Combat</h2><span class="card-sub" id="pcb-sub"></span></div>
             <a class="card-link" href="#/combat">Combat page</a>
           </div>
           <div id="p-combat"></div>
         </section>
-      </div>
 
-      <section class="card">
+      <section class="card" data-sec="activity">
         <div class="card-head">
           <div class="card-title">
             <h2>Activity</h2>
@@ -226,8 +235,7 @@
         <div id="p-heatmap" class="chart chart-bars chart-strip"></div>
       </section>
 
-      <div class="grid2 grid-side grid-side-left">
-        <section class="card">
+        <section class="card" data-sec="when">
           <div class="card-head"><h2>When they play</h2><span class="card-sub">total time by hour</span></div>
           <div id="p-weekgrid"></div>
           <div class="p-usual">
@@ -235,19 +243,19 @@
             <div id="p-usual"></div>
           </div>
         </section>
-        <section class="card recent-card">
+        <section class="card recent-card" data-sec="recent">
           <div class="card-head"><h2>Recent sessions</h2></div>
           <div id="p-recent"></div>
         </section>
-      </div>
 
-      <section class="card adv-card" id="p-adv-card" hidden>
+      <section class="card adv-card" id="p-adv-card" data-sec="advancements" hidden>
         <div class="card-head">
           <div class="card-title"><h2>Advancements</h2><span class="card-sub" id="adv-sub"></span></div>
           <div class="adv-tabs" id="adv-tabs" role="tablist" aria-label="Advancement tabs"></div>
         </div>
         <div class="adv-view" id="adv-view" tabindex="-1"><div class="adv-tree" id="adv-tree"></div></div>
       </section>
+      </div>
     </section>
 
     <!-- Combat -->
@@ -266,14 +274,15 @@
             </button>
           </div>
 
-          <section class="card" id="cb-score-card">
+          <div class="lay" data-page="combat">
+          <section class="card" id="cb-score-card" data-sec="score">
             <div class="card-head">
               <div class="card-title"><h2>Teams</h2><span class="card-sub">each team's kills and deaths</span></div>
             </div>
             <div id="cb-score"></div>
           </section>
 
-          <section class="card">
+          <section class="card" data-sec="chart">
             <div class="card-head">
               <div class="card-title"><h2>Kills and deaths over time</h2><span id="cb-chart-label" class="card-sub"></span></div>
               <div class="seg" id="cb-chart-mode" role="group" aria-label="Chart shows">
@@ -284,12 +293,13 @@
             <div id="cb-chart" class="chart chart-bars"></div>
           </section>
 
-          <section class="card">
+          <section class="card" data-sec="leaderboard">
             <div class="card-head">
               <div class="card-title"><h2>Leaderboard</h2><span id="cb-lb-note" class="card-sub"></span></div>
             </div>
             <div id="cb-leaderboard" class="cb-leaderboard"></div>
           </section>
+          </div>
         </div>
 
         <aside class="card death-log" id="death-log" aria-label="Death log">
@@ -312,20 +322,34 @@
 
     <!-- Admin (this server's members with the admin permission) -->
     <section id="view-admin" hidden>
-      <div class="adm-top">
-        <h1 class="page-title adm-title">Admin</h1>
-        <div class="seg adm-tabs" role="tablist" aria-label="Admin sections">
-          <a role="tab" href="#/admin" id="adm-tab-settings">Settings</a>
-          <a role="tab" href="#/admin/server" id="adm-tab-server">Server</a>
-          <a role="tab" href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
-          <!-- super admins only (app.js shows it once /api/me says so) -->
-          <a role="tab" href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
+      <div class="adm-shell">
+        <!-- the admin page's sections; the first two belong to the season the page is on, the rest to the whole server -->
+        <nav class="adm-rail" aria-label="Admin sections">
+          <h1 class="page-title adm-title">Admin</h1>
+          <div class="adm-rail-list">
+            <span class="adm-rail-cap" id="adm-season-cap">This season</span>
+            <a href="#/admin/players" id="adm-tab-players">Players<i class="adm-rail-n" hidden></i></a>
+            <a href="#/admin/teams" id="adm-tab-teams">Teams<i class="adm-rail-n" hidden></i></a>
+            <span class="adm-rail-rule" aria-hidden="true"></span>
+            <a href="#/admin/layout" id="adm-tab-layout">Layout<i class="adm-rail-n" hidden></i></a>
+            <a href="#/admin/server" id="adm-tab-server">Server<i class="adm-rail-n" hidden></i></a>
+            <!-- owners and super admins only (app.js shows it once /api/me says so) -->
+            <a href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
+            <span class="adm-rail-rule" aria-hidden="true"></span>
+            <a href="#/admin/moderation" id="adm-tab-moderation">Chat and deaths</a>
+            <a href="#/admin/mod" id="adm-tab-mod">Mod and data<i class="adm-rail-dot" id="adm-mod-dot" hidden></i></a>
+            <a href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
+          </div>
+        </nav>
+        <div class="adm-main">
+          <div id="admin"></div>
+          <div id="layout-admin" hidden></div>
+          <div id="server-admin" hidden></div>
+          <div id="analytics" hidden></div>
+          <div id="roles" hidden></div>
+          <div id="adm-bar"></div>
         </div>
       </div>
-      <div id="admin"></div>
-      <div id="server-admin" hidden></div>
-      <div id="analytics" hidden></div>
-      <div id="roles" hidden></div>
     </section>
 
     <!-- Liveview: admins watching the world live (public/liveview.js, loaded when this is first opened).

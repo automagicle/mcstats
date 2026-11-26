@@ -2,26 +2,18 @@
 export const MOD = {
   "id": "mcstats_chat",
   "name": "mcstats",
-  "version": "2.2.0",
-  "jar": "mcstats-chat-2.2.0.jar",
+  "version": "2.3.0",
+  "jar": "mcstats-chat-2.3.0.jar",
   "environment": "server",
-  "minecraft": "~26.2",
+  "minecraft": "${minecraft}",
   "minecraft_built": "26.2",
-  "loader": ">=0.18.4",
+  "loader": "${loader}",
   "loader_built": "0.20.1",
-  "java": ">=25",
+  "java": "${java}",
   "fabric_api": {
     "version": "0.161.0+26.2",
-    "bundled": true,
-    "modules": [
-      "fabric-api-base",
-      "fabric-message-api-v1",
-      "fabric-lifecycle-events-v1",
-      "fabric-command-api-v2",
-      "fabric-entity-events-v1",
-      "fabric-events-interaction-v0",
-      "fabric-networking-api-v1"
-    ]
+    "bundled": false,
+    "modules": []
   },
   "other_depends": {},
   "config_file": "config/mcstats-chat.properties",

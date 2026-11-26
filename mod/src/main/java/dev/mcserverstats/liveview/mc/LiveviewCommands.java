@@ -38,11 +38,11 @@ public final class LiveviewCommands {
 						.then(Commands.literal("optout").executes(context -> toggle(context.getSource(), optOut, true)))
 						.then(Commands.literal("optin").executes(context -> toggle(context.getSource(), optOut, false)))
 						.then(Commands.literal("who")
-								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
+								.requires(dev.mcserverstats.compat.Compat.admins())
 								.executes(context -> who(context.getSource(), watchers)))
 						// Who may use Liveview is the server's call: this list names every dashboard account that may.
 						.then(Commands.literal("access")
-								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
+								.requires(dev.mcserverstats.compat.Compat.admins())
 								.executes(context -> access(context.getSource(), keys))
 								.then(Commands.literal("list").executes(context -> access(context.getSource(), keys)))
 								.then(Commands.literal("viewer").then(Commands.argument("account", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
@@ -52,7 +52,7 @@ public final class LiveviewCommands {
 								.then(Commands.literal("remove").then(Commands.argument("account", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
 										.executes(context -> setAccess(context.getSource(), keys, com.mojang.brigadier.arguments.StringArgumentType.getString(context, "account"), null)))))
 						.then(Commands.literal("key")
-								.requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
+								.requires(dev.mcserverstats.compat.Compat.admins())
 								.then(Commands.literal("viewer").executes(context -> reset(context.getSource(), keys, KeyStore.Level.VIEWER)))
 								.then(Commands.literal("control").executes(context -> reset(context.getSource(), keys, KeyStore.Level.CONTROL)))));
 	}
@@ -75,7 +75,7 @@ public final class LiveviewCommands {
 	};
 
 	private static int help(CommandSourceStack source) {
-		boolean op = Commands.hasPermission(Commands.LEVEL_ADMINS).test(source);
+		boolean op = dev.mcserverstats.compat.Compat.admins().test(source);
 		source.sendSuccess(() -> Component.literal("Liveview commands").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
 		for (String[] line : PLAYER_HELP) source.sendSuccess(() -> helpLine(line), false);
 		if (op) {
@@ -90,7 +90,7 @@ public final class LiveviewCommands {
 		// up to the first "<": the part that can be typed as it is
 		String typed = command.contains("<") ? command.substring(0, command.indexOf('<')) : command;
 		return Component.literal("  " + command).withStyle(style -> style.withColor(ChatFormatting.AQUA)
-						.withClickEvent(new ClickEvent.SuggestCommand(typed)))
+						.withClickEvent(dev.mcserverstats.compat.Compat.suggestCommand(typed)))
 				.append(Component.literal("  " + line[1]).withStyle(ChatFormatting.GRAY));
 	}
 
@@ -212,7 +212,7 @@ public final class LiveviewCommands {
 			}
 			String key = result.key();
 			Component secret = Component.literal(key)
-					.withStyle(style -> style.withClickEvent(new ClickEvent.CopyToClipboard(key)))
+					.withStyle(style -> style.withClickEvent(dev.mcserverstats.compat.Compat.copyToClipboard(key)))
 					.withStyle(ChatFormatting.GREEN, ChatFormatting.UNDERLINE);
 			source.sendSuccess(() -> Component.literal("New Liveview " + which + " (click to copy, shown once): ").append(secret), false);
 			source.sendSuccess(() -> Component.literal(level == KeyStore.Level.VIEWER

@@ -378,7 +378,7 @@ $('#name-toggle').addEventListener('click', (e) => {
 //   modelSpec(name, gear)  -> { offhand?, aura? }  what the model holds in its off hand, and its particles
 //   playerCard(name, gear) -> node|null  a card beside Combat on the player's page
 //   rosterColumn()         -> { key, title, plural, none, options: [[value, label]], label(value) }
-//                             a column on Admin → Settings' roster, kept in the roster row's `key`
+//                             a column on Admin → Teams' roster and in Players, kept in the roster row's `key`
 //   sampleData()           -> options for the sample data's generator (public/dummy.js)
 // With no add-ons, every one of those places is simply empty.
 const ADDONS = Array.isArray(window.MCS_ADDONS) ? window.MCS_ADDONS : [];
@@ -398,6 +398,151 @@ function addons(hook, ...args) {
     }
   }
   return out;
+}
+
+/* ---------- layout: how each page's sections and number tiles are arranged (Admin → Layout) ---------- */
+
+// The same pages, sections and tiles as src/layout.js, as the admin page names them.
+//   section: [id, name, glyph (the little drawing Admin → Layout shows), renamable, note?]
+const LAYOUT_PAGES = {
+  home: {
+    name: 'Activity', href: '#/',
+    sections: [
+      ['about', 'About the server', 'about', false, 'Icon, name and description from Server. Shows once there’s an icon or a description.'],
+      ['now', 'Right now', 'tiles', false, 'The number tiles and who’s online'],
+      ['timeline', 'Players online', 'line', true],
+      ['daily', 'Daily activity', 'bars', true],
+      ['leaderboard', 'Leaderboard', 'rows', true],
+      ['busiest', 'Busiest times', 'grid', true],
+    ],
+    tiles: [['online', 'Online now'], ['peak', 'Peak today'], ['played', 'Total played'], ['seen', 'Players seen']],
+  },
+  player: {
+    name: 'Player', href: null,
+    sections: [
+      ['addon', 'Add-on card', 'card', false, 'What the server’s add-ons show beside Combat. Only there with an add-on.'],
+      ['combat', 'Combat', 'score', true],
+      ['activity', 'Activity', 'bars', true],
+      ['when', 'When they play', 'grid', true],
+      ['recent', 'Recent sessions', 'rows', true],
+      ['advancements', 'Advancements', 'tree', true, 'Shows once the mod has sent their advancements.'],
+    ],
+    tiles: [['total', 'Total played'], ['sessions', 'Sessions'], ['longest', 'Longest session'], ['chat', 'Chat messages']],
+  },
+  combat: {
+    name: 'Combat', href: '#/combat',
+    sections: [['score', 'Teams', 'score', true], ['chart', 'Kills and deaths over time', 'bars', true], ['leaderboard', 'Leaderboard', 'rows', true]],
+    tiles: null,
+  },
+};
+const LAYOUT_DEFAULT_W = {
+  home: { about: 'full', now: 'full', timeline: 'full', daily: 'full', leaderboard: 'wide', busiest: 'narrow' },
+  player: { addon: 'narrow', combat: 'wide', activity: 'full', when: 'narrow', recent: 'wide', advancements: 'full' },
+  combat: { score: 'full', chart: 'full', leaderboard: 'full' },
+};
+const LAYOUT_SPAN = { full: 6, wide: 4, half: 3, narrow: 2 };
+
+// Every page and tile, in a layout's order, filled in where it says nothing (as src/layout.js cleanLayout).
+function fullLayout(l) {
+  const out = { tiles: {} };
+  for (const [page, info] of Object.entries(LAYOUT_PAGES)) {
+    const ids = info.sections.map(([id]) => id);
+    const given = (Array.isArray(l?.[page]) ? l[page] : []).filter((s) => ids.includes(s?.id));
+    const rows = given.map((s) => ({ id: s.id, w: LAYOUT_SPAN[s.w] ? s.w : LAYOUT_DEFAULT_W[page][s.id], ...(s.hide && { hide: true }), ...(s.title && { title: s.title }) }));
+    for (const id of ids) if (!rows.some((r) => r.id === id)) rows.push({ id, w: LAYOUT_DEFAULT_W[page][id] });
+    out[page] = rows;
+    if (info.tiles) {
+      const tids = info.tiles.map(([id]) => id);
+      const t = (Array.isArray(l?.tiles?.[page]) ? l.tiles[page] : []).filter((x) => tids.includes(x?.id)).map((x) => ({ id: x.id, ...(x.hide && { hide: true }) }));
+      for (const id of tids) if (!t.some((x) => x.id === id)) t.push({ id });
+      out.tiles[page] = t;
+    }
+  }
+  return out;
+}
+const defaultLayout = () => fullLayout({});
+let layoutSaved = fullLayout(MCS.layout); // as everyone sees it
+
+// A section's heading, where it can be renamed.
+const layoutHeading = (node) => node.querySelector(':scope > .card-head h2');
+
+// Rows of sections in a 6-column grid: each takes its width, and the last one in a row grows to fill it,
+// so a section that's switched off (or has nothing to show yet, like Advancements) leaves no hole.
+function packLayout(box) {
+  const items = [...box.children].filter((n) => n.dataset.sec && !n.hidden && !n.classList.contains('lay-off'));
+  let row = [], used = 0;
+  const close = () => {
+    if (!row.length) return;
+    row.at(-1)[1] += 6 - used;
+    for (const [n, span] of row) {
+      n.style.setProperty('--span', span);
+      n.classList.toggle('lay-solo', row.length === 1);
+    }
+    row = [];
+    used = 0;
+  };
+  for (const n of items) {
+    const span = LAYOUT_SPAN[n.dataset.w] || 6;
+    if (used + span > 6) close();
+    row.push([n, span]);
+    used += span;
+  }
+  close();
+}
+
+// Puts a layout on the page: the saved one, or Admin → Layout's while it's being changed.
+function applyLayout(layout, { redraw = true } = {}) {
+  for (const page of Object.keys(LAYOUT_PAGES)) {
+    const box = document.querySelector(`.lay[data-page="${page}"]`);
+    if (!box) continue;
+    for (const s of layout[page]) {
+      const node = box.querySelector(`:scope > [data-sec="${s.id}"]`);
+      if (!node) continue;
+      box.append(node);
+      node.dataset.w = s.w;
+      node.classList.toggle('lay-off', !!s.hide);
+      const h = layoutHeading(node);
+      if (h) {
+        h.dataset.title0 ??= h.textContent;
+        h.textContent = s.title || h.dataset.title0;
+      }
+    }
+    packLayout(box);
+  }
+  for (const [page, tiles] of Object.entries(layout.tiles)) {
+    const box = document.querySelector(`[data-tiles="${page}"]`);
+    if (!box) continue;
+    for (const t of tiles) {
+      const node = box.querySelector(`:scope > [data-tile="${t.id}"]`);
+      if (node) { box.append(node); node.classList.toggle('lay-off', !!t.hide); }
+    }
+    const shown = [...box.children].filter((n) => !n.classList.contains('lay-off'));
+    box.dataset.n = String(shown.length);
+    // in a row of two, an odd one out takes the whole row
+    for (const n of box.children) n.classList.toggle('tile-wide', shown.length % 2 === 1 && n === shown.at(-1));
+  }
+  if (redraw) redrawCharts();
+}
+// a section that shows or hides itself (no add-on card, no advancements yet) is packed again
+for (const box of document.querySelectorAll('.lay')) {
+  const mo = new MutationObserver(() => packLayout(box));
+  for (const n of box.children) mo.observe(n, { attributes: true, attributeFilter: ['hidden'] });
+}
+applyLayout(layoutSaved, { redraw: false });
+
+// The top of the Activity page: the server's icon, name and description (Admin → Server), as saved, or as
+// they're being changed there.
+function renderAbout() {
+  const f = srv.draft;
+  const about = f ? f.about.trim() : MCS.about || '';
+  const iconUrl = f && f.icon !== undefined ? f.icon || null : MCS.icon || null;
+  const img = $('#about-icon');
+  $('#about-card').hidden = !about && !iconUrl;
+  $('#about-name').textContent = (f?.name.trim() || MCS.name || '');
+  $('#about-desc').textContent = about;
+  $('#about-desc').hidden = !about;
+  img.hidden = !iconUrl;
+  if (iconUrl && img.getAttribute('src') !== iconUrl) img.src = iconUrl;
 }
 
 /* ---------- gear ---------- */
@@ -1578,6 +1723,14 @@ function starPath(cx, cy, r) {
     d += `${i ? 'L' : 'M'}${(cx + rr * Math.cos(a)).toFixed(2)},${(cy + rr * Math.sin(a)).toFixed(2)}`;
   }
   return `${d}Z`;
+}
+
+// Every chart drawn again at the size it has now (after Admin → Layout changed how wide its section is).
+function redrawCharts() {
+  for (const [root, redraw] of redraws) {
+    if (!root.isConnected) redraws.delete(root);
+    else if (root.offsetParent && !tweens.has(root)) redraw();
+  }
 }
 
 let resizeTimer;
@@ -2813,6 +2966,7 @@ function showView(name) {
   $('#search-btn').hidden = name !== 'chat';
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
+  renderLayoutNote(name);
   const tab = name === 'chat' || name === 'combat' || name === 'live' ? name : name === 'admin' ? null : 'activity';
   for (const t of ['activity', 'chat', 'combat', 'live']) {
     if (t === tab) $(`#tab-${t}`).setAttribute('aria-current', 'page');
@@ -2825,6 +2979,7 @@ async function showHome() {
   document.title = SITE;
   await loadStatus();
   await loadHourly();
+  renderAbout();
   renderTiles();
   renderOnlineChips();
   renderServerWeekGrid().catch((e) => showError(e.message));
@@ -2888,7 +3043,6 @@ function showPlayerLoading(uuid) {
   $('#p-combat').replaceChildren(el('div', { class: 'empty', text: 'Loading…' }));
   $('#pcb-sub').textContent = '';
   $('#p-addon-card').hidden = true;
-  $('#p-side-combat').classList.add('no-side');
   $('#p-adv-card').hidden = true;
   adv.key = null;
   adv.drawn = null;
@@ -3193,7 +3347,6 @@ function drawAdvancements() {
 // What a server's add-ons put beside Combat on a player's page (the Egg SMP add-on: their egg).
 function renderPlayerAddons(name, gear) {
   const parts = addons('playerCard', name, gear);
-  $('#p-side-combat').classList.toggle('no-side', !parts.length);
   $('#p-addon-card').hidden = !parts.length;
   $('#p-addon-body').replaceChildren(...parts);
 }
@@ -6168,7 +6321,7 @@ function renderModUpdate() {
     el('strong', { text: u.urgent ? 'Urgent mod update. ' : 'Mod update available. ' }),
     `The server runs mcstats ${u.current}; ${u.latest} is out${u.behind > 1 ? ` (${u.behind} releases newer)` : ''}`
       + (u.urgent ? ' and fixes something serious, so update it soon. ' : '. '),
-    el('a', { href: '#/admin', text: 'See what changed' }),
+    el('a', { href: '#/admin/mod', text: 'See what changed' }),
     ...(u.urgent ? [] : [' · ', later]));
   box.hidden = false;
 }
@@ -6236,15 +6389,19 @@ function toast(text, { error = false, ms = 3000 } = {}) {
   setTimeout(() => t.remove(), ms);
 }
 
-// The page's settings (teams, the roster, each player's teams over time, hidden players, merged
-// accounts) are edited as a draft: nothing changes on the server until Save is pressed, and Reset
-// changes puts the draft back to what's saved. The rest of the page (restoring a message, counting a
-// death again, filling gaps, testing the link) acts at once.
+// The season's settings (teams, the roster with each player's real name, their teams over time, the emails
+// they chat from the website with, hidden players, merged accounts) are edited as a draft: nothing changes
+// on the server until Save is pressed, and Reset puts the draft back to what's saved. The same goes for
+// Admin → Layout and Server (srv below); one Save bar at the bottom of the admin page saves them all. The
+// rest of the page (restoring a message, counting a death again, filling gaps, testing the link) acts at once.
 const admin = {
   data: null, // as the server has it
-  draft: null, // { teams, roster, history, hidden, aliases } as edited here
+  loadedAt: 0,
+  draft: null, // { teams, roster, history, hidden, aliases, emails } as edited here
   busy: false,
-  open: new Set(), // lowercased IGNs whose teams-over-time editor is open
+  tab: 'players', // the admin section showing (ADMIN_SECTIONS)
+  pick: null, // Players: the lowercased name being edited
+  pf: { q: '', show: 'all' }, // Players: the list's search and filter
   stale: false, // the draft changed without the page being redrawn (typing in a field)
 };
 
@@ -6252,18 +6409,19 @@ const admCopy = (v) => JSON.parse(JSON.stringify(v));
 function adminDraftFrom(d) {
   return {
     teams: admCopy(d.teams || []),
-    roster: admCopy(d.roster),
+    roster: admCopy(d.roster).map((r) => ({ ...r, name: r.name || '' })),
     history: admCopy(d.history || []),
     hidden: admCopy(d.hidden),
     aliases: admCopy(d.aliases),
+    emails: admCopy(d.emails || []),
   };
 }
 
-// What Save would change, part by part: { teams: [text, …], roster, history, hidden, aliases }.
+// What Save would change, part by part: { teams: [text, …], roster, history, hidden, aliases, emails }.
 // A part with nothing listed is left alone when saving.
 function adminChanges() {
   const base = admin.data, draft = admin.draft;
-  const out = { teams: [], roster: [], history: [], hidden: [], aliases: [] };
+  const out = { teams: [], roster: [], history: [], hidden: [], aliases: [], emails: [] };
   if (!base || !draft) return out;
   const lower = (v) => v.toLowerCase();
   const tName = (id) => draft.teams.find((t) => t.id === id)?.name || (base.teams || []).find((t) => t.id === id)?.name || id || 'no team';
@@ -6289,8 +6447,9 @@ function adminChanges() {
   // roster
   for (const r of draft.roster) {
     const was = base.roster.find((x) => lower(x.ign) === lower(r.ign));
-    if (!was) { out.roster.push(`Add ${r.ign} (${tName(r.team)})`); continue; }
+    if (!was) { out.roster.push(`Add ${r.ign} (${tName(r.team)})${r.name ? `, real name ${r.name}` : ''}`); continue; }
     if (was.team !== r.team) out.roster.push(`${r.ign}: ${tName(was.team)} → ${tName(r.team)}`);
+    if ((was.name || '') !== (r.name || '')) out.roster.push(`${r.ign}: real name → ${r.name || 'none'}`);
     for (const c of addons('rosterColumn')) {
       if ((was[c.key] || null) !== (r[c.key] || null)) out.roster.push(`${r.ign}: ${c.title.toLowerCase()} → ${r[c.key] ? c.label(r[c.key]) : 'none'}`);
     }
@@ -6314,7 +6473,7 @@ function adminChanges() {
     }
   }
 
-  // hidden players, merged accounts
+  // hidden players, merged accounts, sign-in emails
   for (const h of draft.hidden) {
     const b = base.hidden.find((x) => lower(x.name) === lower(h.name));
     if (!b) out.hidden.push(`Hide ${h.name}`);
@@ -6326,28 +6485,71 @@ function adminChanges() {
     if (!b || lower(b.name) !== lower(a.name)) out.aliases.push(`Count ${a.alias} as ${a.name}`);
   }
   for (const a of base.aliases) if (!draft.aliases.some((x) => lower(x.alias) === lower(a.alias))) out.aliases.push(`Unmerge ${a.alias}`);
+  const baseEmails = base.emails || [];
+  for (const e of draft.emails) {
+    const b = baseEmails.find((x) => x.email === e.email);
+    if (!b || lower(b.ign) !== lower(e.ign)) out.emails.push(`${e.email} chats as ${e.ign}`);
+  }
+  for (const e of baseEmails) if (!draft.emails.some((x) => x.email === e.email)) out.emails.push(`${e.email} no longer chats as ${e.ign}`);
   return out;
 }
 const adminDirty = () => Object.values(adminChanges()).some((list) => list.length);
+
+// Everything about one player, as a string: compared between what's saved and the draft, to mark the
+// players with unsaved changes in Admin → Players.
+function playerState(src, key) {
+  const lower = (v) => v.toLowerCase();
+  const r = src.roster.find((x) => lower(x.ign) === key);
+  return JSON.stringify([
+    r ? [r.team, r.name || '', ...addons('rosterColumn').map((c) => r[c.key] || null)] : null,
+    (src.history || []).filter((h) => lower(h.ign) === key).map((h) => `${h.until}:${h.team}`).sort(),
+    src.hidden.filter((h) => lower(h.name) === key).map((h) => h.note || ''),
+    src.aliases.filter((a) => lower(a.alias) === key || lower(a.name) === key).map((a) => `${lower(a.alias)}>${lower(a.name)}`).sort(),
+    (src.emails || []).filter((e) => lower(e.ign) === key).map((e) => e.email).sort(),
+  ]);
+}
+function changedPlayers() {
+  const d = admin.data, f = admin.draft;
+  if (!d || !f) return new Set();
+  const keys = new Set();
+  for (const src of [d, f]) {
+    for (const r of src.roster) keys.add(r.ign.toLowerCase());
+    for (const h of src.hidden) keys.add(h.name.toLowerCase());
+    for (const a of src.aliases) { keys.add(a.alias.toLowerCase()); keys.add(a.name.toLowerCase()); }
+    for (const e of src.emails || []) keys.add(e.ign.toLowerCase());
+    for (const h of src.history || []) keys.add(h.ign.toLowerCase());
+  }
+  return new Set([...keys].filter((k) => playerState(d, k) !== playerState(f, k)));
+}
 
 window.addEventListener('beforeunload', (e) => {
   if ((admin.draft && adminDirty()) || (srv.draft && srvChanges().length)) e.preventDefault(); // "Leave site? Changes you made may not be saved."
 });
 
-// The admin page's tabs (Settings, Server, Analytics, Roles): one shows, the others hide.
+// The admin page's sections, and the box each draws in (Players, Teams and the two at-once ones share #admin).
+const ADMIN_SECTIONS = {
+  players: ['admin', 'Players'], teams: ['admin', 'Teams'], layout: ['layout-admin', 'Layout'], server: ['server-admin', 'Server'],
+  roles: ['roles', 'Roles'], moderation: ['admin', 'Chat and deaths'], mod: ['admin', 'Mod and data'], analytics: ['analytics', 'Analytics'],
+};
 function adminTab(name) {
-  $('#admin').hidden = name !== 'settings';
-  $('#server-admin').hidden = name !== 'server';
-  $('#analytics').hidden = name !== 'analytics';
-  $('#roles').hidden = name !== 'roles';
+  admin.tab = name;
+  for (const box of new Set(Object.values(ADMIN_SECTIONS).map(([b]) => b))) $(`#${box}`).hidden = ADMIN_SECTIONS[name][0] !== box;
   $('#adm-tab-roles').hidden = !site.super;
-  for (const t of ['settings', 'server', 'analytics', 'roles']) $(`#adm-tab-${t}`).setAttribute('aria-selected', String(t === name));
+  $('#adm-season-cap').textContent = `Season ${SEASON}`;
+  for (const t of Object.keys(ADMIN_SECTIONS)) {
+    const a = $(`#adm-tab-${t}`);
+    if (t === name) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  }
+  document.title = `${ADMIN_SECTIONS[name][1]} · Admin · ${SITE}`;
+  renderAdminBar();
 }
 
-async function showAdmin() {
+// Players, Teams, Chat and deaths, Mod and data: all drawn from GET /api/admin. pick: a player to edit.
+async function showAdmin(section = 'players', pick = null) {
   showView('admin');
-  adminTab('settings');
-  document.title = `Admin · ${SITE}`;
+  adminTab(section);
+  admin.pick = pick ? pick.toLowerCase() : null;
   const root = $('#admin');
   if (!site.admin) {
     // the check may still be on its way
@@ -6358,11 +6560,85 @@ async function showAdmin() {
     root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for admins.' }));
     return;
   }
-  if (!admin.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
-  const keep = admin.draft && adminDirty(); // unsaved changes from an earlier visit stay
-  [admin.data] = await Promise.all([api('/api/admin'), loadStatus()]);
-  if (!keep) admin.draft = adminDraftFrom(admin.data);
+  // moving between players doesn't fetch everything again; coming back after a while does
+  if (!admin.data || Date.now() - admin.loadedAt > 60_000) {
+    if (!admin.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
+    const keep = admin.draft && adminDirty(); // unsaved changes from an earlier visit stay
+    [admin.data] = await Promise.all([api('/api/admin'), loadStatus()]);
+    admin.loadedAt = Date.now();
+    if (!keep) admin.draft = adminDraftFrom(admin.data);
+  }
   renderAdmin();
+  $('#adm-mod-dot').hidden = !admin.data.mod_update;
+  if (pick) root.querySelector('.adm-pedit')?.scrollIntoView?.({ block: 'nearest' });
+}
+
+// The one Save bar under every admin section, for everything that waits for Save: the season's settings
+// (Players, Teams) and the server's (Layout, Server). It only shows while something is unsaved. The rail
+// beside it counts what's unsaved in each section.
+function renderAdminBar() {
+  const box = $('#adm-bar');
+  if (!box) return;
+  const a = admin.draft ? adminChanges() : null;
+  const s = srv.draft ? srvChanges() : [];
+  const lay = srv.draft ? layoutChanges(srv.data.layout, srv.draft.layout) : [];
+  const counts = {
+    players: admin.draft ? changedPlayers().size : 0,
+    teams: a ? a.teams.length : 0,
+    layout: lay.length,
+    server: s.length - lay.length,
+  };
+  for (const [t, n] of Object.entries(counts)) {
+    const badge = $(`#adm-tab-${t} .adm-rail-n`);
+    badge.hidden = !n;
+    badge.textContent = n ? String(n) : '';
+    badge.title = n ? `${n} unsaved` : '';
+  }
+  const all = [...(a ? Object.values(a).flat() : []), ...s];
+  if (!all.length) { box.replaceChildren(); return; }
+  const busy = admin.busy || srv.busy;
+  const button = (text, cls, run) => {
+    const b = el('button', { type: 'button', class: `btn ${cls}`, text, 'data-fk': `bar:${text}` });
+    b.disabled = busy;
+    b.addEventListener('click', run);
+    return b;
+  };
+  const list = el('details', { class: 'adm-bar-list' },
+    el('summary', { text: 'What changes' }),
+    el('ul', {}, ...all.slice(0, 60).map((c) => el('li', { text: c })), all.length > 60 ? el('li', { class: 'muted', text: `and ${all.length - 60} more` }) : null));
+  if (admin.barOpen) list.open = true;
+  list.addEventListener('toggle', () => { admin.barOpen = list.open; });
+  box.replaceChildren(el('div', { class: 'adm-bar', role: 'region', 'aria-label': 'Unsaved changes' },
+    el('i', { class: 'adm-bar-mark', 'aria-hidden': 'true' }),
+    el('div', { class: 'adm-bar-text' },
+      el('strong', { text: `${all.length} unsaved ${all.length === 1 ? 'change' : 'changes'}` }),
+      el('span', { class: 'muted', text: 'Nobody else sees them until you save.' }), list),
+    el('div', { class: 'adm-bar-actions' }, button('Reset', 'btn-quiet', adminResetAll), button(busy ? 'Saving…' : 'Save', 'btn-primary', adminSaveAll))));
+}
+
+async function adminSaveAll() {
+  if (admin.busy || srv.busy) return;
+  if (admin.draft && adminDirty() && !(await adminSave())) return;
+  if (srv.draft && srvChanges().length) await srvSave();
+  renderAdminBar();
+}
+function adminResetAll() {
+  if (admin.busy || srv.busy) return;
+  if (admin.data) {
+    admin.draft = adminDraftFrom(admin.data);
+    if (ADMIN_SECTIONS[admin.tab][0] === 'admin') renderAdmin();
+  }
+  if (srv.data) {
+    srv.draft = srvDraftFrom(srv.data);
+    srv.errors = {};
+    applyLook(srv.data.accent, srv.data.tab_style);
+    applyLayout(layoutSaved);
+    renderAbout();
+    if (admin.tab === 'server') renderServerAdmin();
+    if (admin.tab === 'layout') renderLayoutAdmin();
+  }
+  renderAdminBar();
+  toast('Back to what’s saved');
 }
 
 /* ---------- admin: the server's own details (Admin → Server) ---------- */
@@ -6391,7 +6667,9 @@ function applyLook(accent, tabs) {
     else root.style.removeProperty(k);
   }
 }
-const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons] });
+// icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
+const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
+  about: d.about || '', icon: undefined, layout: fullLayout(d.layout) });
 // What Save would change, one line each.
 function srvChanges() {
   const d = srv.data, f = srv.draft;
@@ -6404,6 +6682,9 @@ function srvChanges() {
   if (f.password) out.push(d.has_password ? 'A new join password (everyone who joined with the old one joins again)' : 'A join password');
   if (f.accent !== d.accent) out.push(`Accent: ${accentName(d.accent)} → ${accentName(f.accent)}`);
   if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
+  if (f.about.trim() !== (d.about || '')) out.push(f.about.trim() ? (d.about ? 'A new description' : 'A description') : 'No description');
+  if (f.icon !== undefined) out.push(f.icon ? (d.icon ? 'A new icon' : 'An icon') : 'Remove the icon');
+  out.push(...layoutChanges(d.layout, f.layout));
   for (const a of d.known_addons || []) {
     if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
   }
@@ -6451,9 +6732,13 @@ async function srvSave() {
   if (f.accent !== d.accent) body.accent = f.accent;
   if (f.tab_style !== d.tab_style) body.tab_style = f.tab_style;
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
+  if (f.about.trim() !== (d.about || '')) body.about = f.about.trim();
+  if (f.icon !== undefined) body.icon = f.icon;
+  if (layoutChanges(d.layout, f.layout).length) body.layout = f.layout;
   srv.busy = true;
   srv.errors = {};
   $('#server-admin').classList.add('adm-busy');
+  renderAdminBar();
   try {
     const res = await fetch('/api/admin/server', {
       method: 'POST', credentials: 'same-origin',
@@ -6463,9 +6748,14 @@ async function srvSave() {
     const r = await res.json().catch(() => null);
     if (!res.ok) {
       srv.errors = { [r?.field || 'form']: r?.error || `The server answered ${res.status}.` };
-      toast('That wasn’t saved. See the note by the field.', { error: true, ms: 5000 });
+      toast(r?.field ? 'That wasn’t saved. See the note by the field, under Server.' : `Not saved: ${srv.errors.form}`, { error: true, ms: 5000 });
       return;
     }
+    // what every page shows from here on
+    MCS.about = r.about;
+    MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
+    layoutSaved = fullLayout(r.layout);
+    if (MCS.icon) for (const link of document.querySelectorAll('link[rel="icon"]')) link.href = MCS.icon;
     // a new address is a new page; a new name is on every page's title: load it afresh
     if (r.moved) { srv.draft = null; location.href = `${r.moved}#/admin/server`; return; }
     if (body.name || body.addons) { srv.draft = null; location.reload(); return; }
@@ -6477,7 +6767,13 @@ async function srvSave() {
   } finally {
     srv.busy = false;
     $('#server-admin').classList.remove('adm-busy');
-    if (srv.draft) renderServerAdmin();
+    if (srv.draft) {
+      applyLayout(fullLayout(srv.draft.layout));
+      renderAbout();
+      if (admin.tab === 'server') renderServerAdmin();
+      if (admin.tab === 'layout') renderLayoutAdmin();
+    }
+    renderAdminBar();
   }
 }
 
@@ -6581,7 +6877,7 @@ function newSeasonDialog() {
         el('div', { class: 'sea-opts', role: 'radiogroup', 'aria-label': 'When it starts' }, nowOpt, laterOpt, later),
         el('label', { class: 'sea-opt sea-copy' }, copy, el('span', {},
           `Bring over Season ${cur}’s teams, players and sign-in emails`,
-          el('span', { class: 'site-hint', text: `Without them Season ${n} has no teams, and nobody can chat from the website until players are added in Admin → Settings.` }))));
+          el('span', { class: 'site-hint', text: `Without them Season ${n} has no teams, and nobody can chat from the website until players are added in Admin → Players.` }))));
       return () => {
         const out = { action: 'create', copy: copy.checked };
         if (laterRadio.checked) {
@@ -6684,7 +6980,7 @@ function renderServerAdmin(focusKey) {
   const text = (key, attrs) => {
     const box = el('input', { class: 'adm-input srv-input', 'data-fk': `srv:${key}`, ...attrs });
     box.value = f[key];
-    box.addEventListener('input', () => { f[key] = box.value; drawBar(); });
+    box.addEventListener('input', () => { f[key] = box.value; renderAdminBar(); });
     box.addEventListener('keydown', (e) => { if (e.key === 'Enter') srvSave(); });
     return box;
   };
@@ -6697,8 +6993,38 @@ function renderServerAdmin(focusKey) {
   const slugBox = text('slug', { type: 'text', maxlength: '32', spellcheck: 'false', autocapitalize: 'none', autocomplete: 'off', 'aria-label': 'Address',
     disabled: owner && !d.slug_locked ? null : '' });
   slugBox.className = 'wiz-url-input srv-url-input';
+  // the icon: what's saved, or what was picked and isn't saved yet
+  const iconNow = f.icon !== undefined ? f.icon || null : d.icon ? `${BASE}${d.icon}` : null;
+  const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: '', 'aria-hidden': 'true' });
+  const takeIcon = async (picked) => {
+    try {
+      f.icon = await makeIcon(picked);
+      delete srv.errors.icon;
+    } catch (err) {
+      srv.errors.icon = err.message;
+    }
+    redraw('srv:icon');
+  };
+  file.addEventListener('change', () => { if (file.files[0]) takeIcon(file.files[0]); });
+  const slot = el('div', { class: `srv-icon-slot${iconNow ? '' : ' empty'}` },
+    iconNow ? el('img', { src: iconNow, alt: 'The server’s icon', width: '64', height: '64' }) : el('span', { class: 'srv-icon-none', 'aria-hidden': 'true' }));
+  slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drop'); });
+  slot.addEventListener('dragleave', () => slot.classList.remove('drop'));
+  slot.addEventListener('drop', (e) => { e.preventDefault(); slot.classList.remove('drop'); const got = e.dataTransfer?.files?.[0]; if (got) takeIcon(got); });
+  const upload = el('button', { type: 'button', class: 'btn', text: iconNow ? 'Upload another…' : 'Upload an image…', 'data-fk': 'srv:icon' });
+  upload.addEventListener('click', () => file.click());
+  const unicon = iconNow ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Remove', 'data-fk': 'srv:icon-remove' }) : null;
+  unicon?.addEventListener('click', () => { f.icon = d.icon ? '' : undefined; redraw('srv:icon'); });
+  const iconField = field('Icon', el('div', { class: 'srv-icon' }, slot, el('div', { class: 'srv-icon-actions' }, upload, unicon, file)),
+    'Square works best; anything else is cropped to the middle. The game’s 64×64 server-icon.png stays sharp. Also the icon in the browser tab.', 'icon');
+  const aboutBox = el('textarea', { class: 'adm-input srv-input srv-about', rows: '3', maxlength: '280', placeholder: 'What the server is, who plays, when it’s on…', 'aria-label': 'Description', 'data-fk': 'srv:about' });
+  aboutBox.value = f.about;
+  const aboutCount = el('span', { class: 'srv-count', text: `${f.about.length} / 280` });
+  aboutBox.addEventListener('input', () => { f.about = aboutBox.value; aboutCount.textContent = `${f.about.length} / 280`; renderAdminBar(); });
   const details = card('Server', null,
     field('Name', text('name', { type: 'text', maxlength: '60', autocomplete: 'off', 'aria-label': 'Name' }), 'Shown at the top of its pages and in emails.', 'name'),
+    iconField,
+    field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
     field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 
@@ -6737,7 +7063,7 @@ function renderServerAdmin(focusKey) {
     applyLook(f.accent, f.tab_style);
     if (from !== picker) picker.value = v;
     if (from !== hex) hex.value = v;
-    drawBar();
+    renderAdminBar();
   };
   picker.addEventListener('input', () => setCustom(picker.value.toLowerCase(), picker));
   hex.addEventListener('input', () => {
@@ -6782,31 +7108,322 @@ function renderServerAdmin(focusKey) {
       return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: a.name }), el('span', { class: 'site-hint', text: a.about })));
     })) : null;
 
-  /* ---- the Save bar ---- */
-  const bar = el('div', {});
-  function drawBar() {
-    const all = srvChanges();
-    const button = (label, cls, fk, onClick) => {
-      const b = el('button', { type: 'button', class: `btn ${cls}`, text: label, 'data-fk': fk });
-      b.disabled = !all.length || srv.busy;
-      b.addEventListener('click', onClick);
-      return b;
-    };
-    bar.replaceChildren(el('div', { class: `adm-savebar${all.length ? ' dirty' : ''}`, role: 'region', 'aria-label': 'Save changes' },
-      el('div', { class: 'adm-save-text' },
-        el('strong', { text: all.length ? `${all.length} unsaved ${all.length === 1 ? 'change' : 'changes'}` : 'No unsaved changes' }),
-        srv.errors.form ? el('span', { class: 'site-err', role: 'alert', text: srv.errors.form }) : null,
-        all.length ? el('ul', { class: 'adm-change-list' }, ...all.map((c) => el('li', { text: c })))
-          : el('span', { class: 'muted', text: 'Edits above are only kept and applied once you press Save.' })),
-      el('div', { class: 'adm-save-actions' },
-        button('Reset changes', 'adm-reset', 'srv:reset', () => { srv.draft = srvDraftFrom(d); srv.errors = {}; redraw('srv:reset'); }),
-        button('Save', 'btn-primary adm-save', 'srv:save', srvSave))));
-  }
-  drawBar();
-
   const seasonsCard = srv.seasons ? renderSeasons(card, redraw) : null;
-  root.replaceChildren(details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(mod ? [mod] : []), ...(extras ? [extras] : []), bar);
+  const formErr = srv.errors.form ? el('div', { class: 'notice notice-error', role: 'alert', text: srv.errors.form }) : null;
+  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(mod ? [mod] : []), ...(extras ? [extras] : []));
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+  renderAdminBar();
+}
+
+// A picked image as the server's icon: a 128-pixel square PNG (data: URL), cropped to its middle. Pixel art
+// that fits 128 a whole number of times (the game's 64×64 server-icon.png) is scaled up without blurring.
+async function makeIcon(file) {
+  if (!file || !/^image\//.test(file.type)) throw new Error('Pick an image: a PNG, JPG, WebP or GIF.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('That image is too large to use (at most 10 MB).');
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch { throw new Error('That image couldn’t be read. Try a PNG or JPG.'); }
+  const side = Math.min(bmp.width, bmp.height);
+  const draw = (size) => {
+    const c = el('canvas', { width: String(size), height: String(size) });
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = !(side <= size && size % side === 0);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+    return c.toDataURL('image/png');
+  };
+  let url = draw(128);
+  if (url.length > 87_000) url = draw(64); // past 64 KB as a PNG: a busy photo
+  if (url.length > 87_000) throw new Error('That image is too detailed to use as an icon. Try a simpler one.');
+  return url;
+}
+
+/* ---------- Admin → Layout: how each page is arranged (src/layout.js) ---------- */
+
+// The page as a plan: its sections as blocks in the page's own 6-column grid, in its order and widths, each with a
+// small drawing of what it shows. Blocks are dragged to move them (or moved with the arrow buttons), sized with ⅓ ½ ⅔
+// Full, switched off into the tray under the plan, and their headings renamed. It's kept in Server's draft (srv), so
+// it's saved with the Save bar, and it's tried on the real pages as it's changed: a strip on each page says so.
+
+const LAYOUT_W_NAMES = { narrow: 'a third', half: 'half', wide: 'two thirds', full: 'full width' };
+
+// What would change, one line per page: [] when nothing does.
+function layoutChanges(baseRaw, draftRaw) {
+  const base = fullLayout(baseRaw), draft = fullLayout(draftRaw);
+  const out = [];
+  for (const [page, info] of Object.entries(LAYOUT_PAGES)) {
+    const nameOf = (id) => info.sections.find(([x]) => x === id)?.[1] || id;
+    const a = base[page], b = draft[page];
+    const what = [];
+    const order = (list) => list.filter((s) => !s.hide).map((s) => s.id).join(' ');
+    if (order(a) !== order(b) && a.map((s) => s.id).join() !== b.map((s) => s.id).join()) what.push('new order');
+    for (const s of b) {
+      const was = a.find((x) => x.id === s.id);
+      if (!!was.hide !== !!s.hide) what.push(`${nameOf(s.id)} ${s.hide ? 'off' : 'on'}`);
+      if (!s.hide && was.w !== s.w) what.push(`${nameOf(s.id)} ${LAYOUT_W_NAMES[s.w]}`);
+      if ((was.title || '') !== (s.title || '')) what.push(s.title ? `${nameOf(s.id)} called “${s.title}”` : `${nameOf(s.id)} renamed back`);
+    }
+    if (info.tiles) {
+      const ta = base.tiles[page], tb = draft.tiles[page];
+      if (ta.map((t) => t.id).join() !== tb.map((t) => t.id).join()) what.push('tiles in a new order');
+      for (const t of tb) {
+        if (!!ta.find((x) => x.id === t.id).hide !== !!t.hide) what.push(`${info.tiles.find(([x]) => x === t.id)[1]} tile ${t.hide ? 'off' : 'on'}`);
+      }
+    }
+    if (what.length) out.push(`${info.name} page layout: ${[...new Set(what)].join(', ')}`);
+  }
+  return out;
+}
+
+// On the dashboard's own pages, while a layout is being tried and isn't saved.
+function renderLayoutNote(view) {
+  const note = $('#layout-note');
+  if (!note) return;
+  const trying = view !== 'admin' && srv.draft && layoutChanges(srv.data.layout, srv.draft.layout).length;
+  note.hidden = !trying;
+  if (!trying) return;
+  note.replaceChildren(el('strong', { text: 'You’re seeing a layout that isn’t saved. ' }),
+    'Everyone else still sees the saved one. ', el('a', { href: '#/admin/layout', text: 'Back to Layout' }));
+}
+
+// The little drawings on the blocks: pixels on a 4px grid, in the ink and the accent.
+function layoutGlyph(kind) {
+  const s = sv('svg', { class: 'lay-glyph', viewBox: '0 0 64 28', 'aria-hidden': 'true', 'shape-rendering': 'crispEdges', preserveAspectRatio: 'xMinYMid meet' });
+  const px = (x, y, w, h, cls = 'g1') => s.append(sv('rect', { x, y, width: w, height: h, class: cls }));
+  if (kind === 'line') {
+    const ys = [20, 16, 18, 12, 14, 8, 10, 4, 8, 12, 6, 10, 14, 10, 16, 12];
+    ys.forEach((y, i) => { px(i * 4, y, 4, 4, 'ga'); px(i * 4, y + 4, 4, 24 - y, 'g0'); });
+  } else if (kind === 'bars') {
+    [10, 14, 6, 18, 12, 20, 8, 16, 22, 12, 6, 14].forEach((h, i) => px(i * 5 + 2, 26 - h, 3, h, i % 4 === 3 ? 'ga' : 'g1'));
+  } else if (kind === 'rows') {
+    for (let i = 0; i < 4; i++) { px(0, i * 7 + 1, 4, 4, 'g1'); px(8, i * 7 + 2, 26 - i * 4, 2, 'g1'); px(8, i * 7 + 5, 44 - i * 9, 2, 'ga'); }
+  } else if (kind === 'grid') {
+    const lv = ['g0', 'g1', 'ga', 'g1', 'g0', 'g0', 'ga'];
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 9; x++) px(x * 7, y * 7, 6, 6, lv[(x * 3 + y * 5) % 7]);
+  } else if (kind === 'tiles') {
+    for (let i = 0; i < 4; i++) { px(i * 16, 0, 15, 18, 'g0'); px(i * 16 + 3, 4, 8, 6, 'g1'); }
+    for (let i = 0; i < 4; i++) { px(i * 14, 22, 4, 4, 'ga'); px(i * 14 + 5, 23, 7, 2, 'g1'); }
+  } else if (kind === 'about') {
+    px(0, 2, 22, 22, 'ga'); px(4, 6, 6, 6, 'g0'); px(12, 14, 6, 6, 'g0');
+    px(28, 4, 30, 5, 'g1'); px(28, 14, 34, 2, 'g0'); px(28, 19, 24, 2, 'g0');
+  } else if (kind === 'score') {
+    px(0, 2, 36, 6, 'ga'); px(36, 2, 28, 6, 'g1');
+    for (let i = 0; i < 3; i++) { px(0, 13 + i * 5, 20, 3, 'g1'); px(44, 13 + i * 5, 20, 3, 'g1'); }
+  } else if (kind === 'tree') {
+    [[0, 10], [14, 2], [14, 18], [28, 2], [28, 10], [42, 18], [56, 10]].forEach(([x, y], i) => px(x, y, 8, 8, i % 3 ? 'g1' : 'ga'));
+    px(8, 13, 6, 2, 'g0'); px(22, 5, 6, 2, 'g0'); px(36, 21, 6, 2, 'g0'); px(50, 13, 6, 2, 'g0');
+  } else {
+    px(0, 0, 64, 28, 'g0'); px(6, 6, 16, 16, 'ga'); px(28, 8, 28, 3, 'g1'); px(28, 15, 20, 3, 'g1');
+  }
+  return s;
+}
+
+const layoutUi = { page: 'home', rename: null, drag: null };
+
+async function showLayoutAdmin() {
+  showView('admin');
+  if (!site.perms) {
+    const r = DUMMY ? null : await api('/api/me').catch(() => null);
+    if (r) setMe(r);
+  }
+  adminTab('layout');
+  const root = $('#layout-admin');
+  if (!site.admin || DUMMY) {
+    root.replaceChildren(el('div', { class: 'card empty', text: DUMMY ? 'The sample data has no server to change.' : 'This page is only for admins.' }));
+    return;
+  }
+  if (!srv.data) {
+    root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
+    srv.data = await api('/api/admin/server');
+  }
+  srv.draft ??= srvDraftFrom(srv.data);
+  renderLayoutAdmin();
+}
+
+function renderLayoutAdmin(focusKey = document.activeElement?.dataset?.fk) {
+  const root = $('#layout-admin');
+  const f = srv.draft;
+  if (!f || !root) return;
+  f.layout = fullLayout(f.layout);
+  const page = layoutUi.page;
+  const info = LAYOUT_PAGES[page];
+  const list = f.layout[page];
+  const nameOf = (id) => info.sections.find(([x]) => x === id);
+  const changed = () => {
+    applyLayout(fullLayout(f.layout));
+    renderLayoutAdmin();
+  };
+  const btn = (text, cls, fk, run, attrs = {}) => {
+    const b = el('button', { type: 'button', class: `btn ${cls}`, 'data-fk': fk, ...attrs }, ...(Array.isArray(text) ? text : [text]));
+    b.addEventListener('click', run);
+    return b;
+  };
+  const move = (id, to) => {
+    const from = list.findIndex((s) => s.id === id);
+    const [s] = list.splice(from, 1);
+    list.splice(Math.max(0, Math.min(list.length, to > from ? to - 1 : to)), 0, s);
+  };
+  // the visible blocks, packed into rows as the page packs them
+  const shown = list.filter((s) => !s.hide);
+  const spans = new Map();
+  {
+    let row = [], used = 0;
+    const close = () => { if (row.length) { spans.set(row.at(-1), spans.get(row.at(-1)) + 6 - used); row = []; used = 0; } };
+    for (const s of shown) {
+      const span = LAYOUT_SPAN[s.w];
+      if (used + span > 6) close();
+      spans.set(s.id, span);
+      row.push(s.id);
+      used += span;
+    }
+    close();
+  }
+
+  /* ---- which page ---- */
+  const pages = el('div', { class: 'seg lay-pages', role: 'group', 'aria-label': 'Page' });
+  for (const [p, pi] of Object.entries(LAYOUT_PAGES)) {
+    const n = layoutChanges({ [p]: srv.data.layout[p], tiles: srv.data.layout.tiles }, { [p]: f.layout[p], tiles: f.layout.tiles }).filter((l) => l.startsWith(`${pi.name} `)).length;
+    const b = el('button', { type: 'button', 'aria-pressed': String(p === page), 'data-fk': `lay:page:${p}` }, pi.name, n ? el('i', { class: 'adm-seg-dot', title: 'Unsaved changes' }) : null);
+    b.addEventListener('click', () => { layoutUi.page = p; layoutUi.rename = null; renderLayoutAdmin(`lay:page:${p}`); });
+    pages.append(b);
+  }
+
+  /* ---- the plan ---- */
+  const plan = el('div', { class: 'lay-plan', role: 'list', 'aria-label': `${info.name} page, top to bottom` });
+  const clearDrop = () => plan.querySelectorAll('.drop-before, .drop-after').forEach((n) => n.classList.remove('drop-before', 'drop-after', 'drop-side'));
+  shown.forEach((s, i) => {
+    const [, name, glyph, renamable, note] = nameOf(s.id);
+    const block = el('div', { class: 'lay-block', role: 'listitem', draggable: 'true', 'data-id': s.id, style: `--span:${spans.get(s.id)}` });
+    // width
+    const widths = el('div', { class: 'seg lay-w', role: 'group', 'aria-label': `${name}: width` });
+    for (const [w, label, full] of [['narrow', '⅓', 'A third'], ['half', '½', 'Half'], ['wide', '⅔', 'Two thirds'], ['full', 'Full', 'Full width']]) {
+      const b = el('button', { type: 'button', 'aria-pressed': String(s.w === w), 'aria-label': full, title: full, text: label, 'data-fk': `lay:${s.id}:w:${w}` });
+      b.addEventListener('click', () => { s.w = w; changed(); });
+      widths.append(b);
+    }
+    const earlier = btn(icon(['M10 3.5 5.5 8l4.5 4.5'], 12), 'btn-quiet lay-mv', `lay:${s.id}:up`, () => { move(s.id, list.indexOf(shown[i - 1])); changed(); }, { 'aria-label': `Move ${name} earlier`, title: 'Earlier' });
+    const later = btn(icon(['M6 3.5 10.5 8 6 12.5'], 12), 'btn-quiet lay-mv', `lay:${s.id}:down`, () => { move(s.id, list.indexOf(shown[i + 1]) + 1); changed(); }, { 'aria-label': `Move ${name} later`, title: 'Later' });
+    earlier.disabled = i === 0;
+    later.disabled = i === shown.length - 1;
+    const off = btn('Hide', 'btn-quiet lay-off-btn', `lay:${s.id}:hide`, () => { s.hide = true; changed(); }, { 'aria-label': `Hide ${name}` });
+    // a heading of its own
+    let title = null;
+    if (renamable) {
+      if (layoutUi.rename === s.id) {
+        title = el('input', { class: 'adm-input lay-title-in', type: 'text', maxlength: '40', placeholder: name, 'aria-label': `${name}: heading`, 'data-fk': `lay:${s.id}:title` });
+        title.value = s.title || '';
+        let closed = false;
+        const done = () => {
+          if (closed) return;
+          closed = true;
+          const v = title.value.trim().slice(0, 40);
+          if (v) s.title = v; else delete s.title;
+          layoutUi.rename = null;
+          changed();
+        };
+        title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') { closed = true; layoutUi.rename = null; applyLayout(fullLayout(f.layout)); renderLayoutAdmin(); } });
+        title.addEventListener('blur', done);
+        title.addEventListener('input', () => { const h = document.querySelector(`.lay[data-page="${page}"] > [data-sec="${s.id}"] .card-head h2`); if (h) h.textContent = title.value.trim() || h.dataset.title0; });
+      } else {
+        title = btn(icon(['M3 13l1-3.5L11 2.5l2.5 2.5L6.5 12z', 'M9.5 4l2.5 2.5'], 12), 'btn-quiet lay-mv', `lay:${s.id}:rename`, () => { layoutUi.rename = s.id; renderLayoutAdmin(`lay:${s.id}:title`); },
+          { 'aria-label': `Rename ${name}`, title: 'Rename its heading' });
+      }
+    }
+    block.append(...[
+      el('div', { class: 'lay-block-head' },
+        el('span', { class: 'lay-grip', 'aria-hidden': 'true', title: 'Drag to move' }),
+        el('span', { class: 'lay-block-name' },
+          el('strong', { text: s.title || name }), s.title ? el('span', { class: 'lay-was', text: name }) : null),
+        layoutUi.rename === s.id ? null : title),
+      layoutUi.rename === s.id ? title : layoutGlyph(glyph),
+      note ? el('span', { class: 'lay-note', text: note }) : null,
+      el('div', { class: 'lay-block-foot' }, widths, el('span', { class: 'lay-spacer' }), earlier, later, off),
+    ].filter((n) => n != null));
+    // dragging: the block it's over says before or after itself, by which half the pointer is in
+    block.addEventListener('dragstart', (e) => {
+      if (e.target.closest('input, button')) { e.preventDefault(); return; }
+      layoutUi.drag = s.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', s.id);
+      requestAnimationFrame(() => block.classList.add('dragging'));
+    });
+    block.addEventListener('dragend', () => { layoutUi.drag = null; block.classList.remove('dragging'); clearDrop(); });
+    block.addEventListener('dragover', (e) => {
+      if (!layoutUi.drag || layoutUi.drag === s.id) return;
+      e.preventDefault();
+      const r = block.getBoundingClientRect();
+      // a block that fills the plan is stacked above the next one, so the drop is above or below it;
+      // one sharing its row is beside its neighbours, so the drop is to the left or right
+      const side = r.width < plan.getBoundingClientRect().width * 0.92 && spans.get(s.id) < 6;
+      const before = side ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
+      clearDrop();
+      block.classList.add(before ? 'drop-before' : 'drop-after');
+      if (side) block.classList.add('drop-side');
+    });
+    block.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const id = layoutUi.drag;
+      if (!id || id === s.id) return;
+      const before = block.classList.contains('drop-before');
+      move(id, list.indexOf(s) + (before ? 0 : 1));
+      layoutUi.drag = null;
+      changed();
+    });
+    plan.append(block);
+  });
+  if (!shown.length) plan.append(el('div', { class: 'lay-empty muted', text: 'Every section is hidden. Show one from the list below.' }));
+
+  /* ---- what's switched off ---- */
+  const hidden = list.filter((s) => s.hide);
+  const tray = el('div', { class: 'lay-tray' },
+    el('h3', { text: hidden.length ? 'Hidden from the page' : 'Nothing hidden' }),
+    hidden.length ? el('div', { class: 'lay-tray-list' }, ...hidden.map((s) => {
+      const [, name, glyph] = nameOf(s.id);
+      return el('div', { class: 'lay-chip' }, layoutGlyph(glyph), el('span', { text: s.title || name }),
+        btn('Show', 'btn-quiet', `lay:${s.id}:show`, () => { delete s.hide; changed(); }, { 'aria-label': `Show ${name}` }));
+    })) : el('span', { class: 'site-hint', text: 'Hide a section to leave it off the page for everyone. It can be shown again here.' }));
+
+  /* ---- the number tiles ---- */
+  let tilesCard = null;
+  if (info.tiles) {
+    const tiles = f.layout.tiles[page];
+    const left = tiles.filter((t) => !t.hide).length;
+    const row = el('div', { class: 'lay-tiles', role: 'list', 'aria-label': 'Number tiles, in order' });
+    tiles.forEach((t, i) => {
+      const label = info.tiles.find(([x]) => x === t.id)[1];
+      const box = el('input', { type: 'checkbox', 'data-fk': `lay:tile:${t.id}` });
+      box.checked = !t.hide;
+      box.disabled = !t.hide && left === 1; // one stays, or the row would be an empty frame
+      box.addEventListener('change', () => { if (box.checked) delete t.hide; else t.hide = true; changed(); });
+      const mv = (by, label2, d) => {
+        const b = btn(icon([d], 12), 'btn-quiet lay-mv', `lay:tile:${t.id}:${by}`, () => { const [x] = tiles.splice(i, 1); tiles.splice(i + by, 0, x); changed(); }, { 'aria-label': `Move ${label} ${label2}` });
+        b.disabled = i + by < 0 || i + by >= tiles.length;
+        return b;
+      };
+      row.append(el('div', { class: `lay-tile${t.hide ? ' off' : ''}`, role: 'listitem' },
+        el('label', { class: 'adm-check' }, box, el('span', { text: label })),
+        el('span', { class: 'lay-spacer' }),
+        mv(-1, 'earlier', 'M10 3.5 5.5 8l4.5 4.5'), mv(1, 'later', 'M6 3.5 10.5 8 6 12.5')));
+    });
+    tilesCard = el('div', { class: 'lay-tiles-box' }, el('h3', { text: page === 'home' ? 'Number tiles in Right now' : 'Number tiles beside their model' }), row);
+  }
+
+  const isDefault = JSON.stringify(f.layout[page]) === JSON.stringify(defaultLayout()[page])
+    && (!info.tiles || JSON.stringify(f.layout.tiles[page]) === JSON.stringify(defaultLayout().tiles[page]));
+  const reset = btn('Back to the default', 'btn-quiet', 'lay:default', () => {
+    f.layout[page] = defaultLayout()[page];
+    if (info.tiles) f.layout.tiles[page] = defaultLayout().tiles[page];
+    changed();
+  });
+  reset.disabled = isDefault;
+  const look = info.href ? el('a', { class: 'btn', href: info.href, text: `Open ${info.name}` }) : el('span', { class: 'site-hint', text: 'Open any player to see it.' });
+
+  root.replaceChildren(el('section', { class: 'card adm-card lay-card' },
+    el('div', { class: 'card-head' }, el('h2', { text: 'Layout' }), el('span', { class: 'card-sub', text: 'what each page shows, in what order, and how wide; for everyone who looks' })),
+    el('div', { class: 'lay-bar' }, pages, el('span', { class: 'lay-spacer' }), reset, look),
+    el('p', { class: 'site-hint lay-how', text: 'Drag a block to move it, or use its arrows. Blocks fill each row left to right; the last one in a row stretches to the end. On phones every section is full width. Changes show on the pages as you make them, for you only, until they’re saved.' }),
+    plan, tray, tilesCard));
+  if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+  renderAdminBar();
 }
 
 /* ---------- website analytics ---------- */
@@ -6817,7 +7434,8 @@ const analyticsPage = () => {
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   if (m) return `player:${m[1].toLowerCase()}`;
   if (onLive()) return 'live';
-  return { '#/chat': 'chat', '#/combat': 'combat', '#/admin': 'admin', '#/admin/server': 'admin', '#/admin/analytics': 'admin', '#/admin/roles': 'admin' }[location.hash] || 'home';
+  if (location.hash.startsWith('#/admin')) return 'admin';
+  return { '#/chat': 'chat', '#/combat': 'combat' }[location.hash] || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
 function sendHit(beat) {
@@ -7077,6 +7695,7 @@ async function adminDo(body, done) {
     await adminPost(body);
     if (done) toast(done);
     admin.data = await api('/api/admin');
+    admin.loadedAt = Date.now();
   } catch (err) {
     if (err instanceof DbLimitError) showError(err.message);
     toast(err.message, { error: true });
@@ -7088,41 +7707,41 @@ async function adminDo(body, done) {
 }
 
 // Save: every part of the draft that differs from what's saved, in one request (all of it or none).
+// Whether it was saved.
 async function adminSave() {
-  if (admin.busy || !admin.draft) return;
+  if (admin.busy || !admin.draft) return false;
   const changes = adminChanges();
   const d = admin.draft;
   const body = { action: 'config.save' };
   if (changes.teams.length) body.teams = d.teams.map(({ id, name, short, color, bar, middle, chart, activity, activity_with }) => ({ id, name, short, color, bar, middle, chart, activity, activity_with }));
-  if (changes.roster.length) body.roster = d.roster.map(({ ign, team, egg }) => ({ ign, team, egg: egg || null }));
+  if (changes.roster.length) body.roster = d.roster.map(({ ign, team, egg, name }) => ({ ign, team, egg: egg || null, name: name || '' }));
   if (changes.history.length) body.history = d.history.map(({ ign, team, until }) => ({ ign, team, until }));
   if (changes.hidden.length) body.hidden = d.hidden.map(({ name, note }) => ({ name, note: note || null }));
   if (changes.aliases.length) body.aliases = d.aliases.map(({ alias, name }) => ({ alias, name }));
-  if (Object.keys(body).length === 1) return;
+  if (changes.emails.length) body.emails = d.emails.map(({ email, ign }) => ({ email, ign }));
+  if (Object.keys(body).length === 1) return true;
   admin.busy = true;
   $('#admin').classList.add('adm-busy');
+  renderAdminBar();
+  let ok = false;
   try {
     await adminPost(body);
     admin.data = await api('/api/admin');
+    admin.loadedAt = Date.now();
     admin.draft = adminDraftFrom(admin.data);
     await reloadRoster();
     toast('Saved');
+    ok = true;
   } catch (err) {
     if (err instanceof DbLimitError) showError(err.message);
     toast(`Not saved: ${err.message}`, { error: true, ms: 6000 });
   } finally {
     admin.busy = false;
     $('#admin').classList.remove('adm-busy');
-    renderAdmin();
+    if (ADMIN_SECTIONS[admin.tab][0] === 'admin') renderAdmin();
+    else renderAdminBar();
   }
-}
-
-function adminReset() {
-  if (!admin.data || admin.busy) return;
-  admin.draft = adminDraftFrom(admin.data);
-  admin.open.clear();
-  renderAdmin();
-  toast('Changes reset: back to what’s saved');
+  return ok;
 }
 
 async function reloadRoster() {
@@ -7149,12 +7768,17 @@ for (const type of ['pointerup', 'pointercancel']) {
   }, true);
 }
 function adminRedrawIfStale() {
-  if (admin.stale && !admin.busy && !$('#view-admin').hidden) renderAdmin();
+  if (admin.stale && !admin.busy && !$('#view-admin').hidden && !$('#admin').hidden) renderAdmin();
 }
 function adminEdited() {
   admin.stale = true;
+  renderAdminBar();
   if (!admPointerDown) setTimeout(adminRedrawIfStale, 0);
 }
+
+const IGN_OK = /^[A-Za-z0-9_]{1,32}$/;
+const EMAIL_OK = /^[^\s@"'<>,;]{1,64}@[^\s@"'<>,;]{1,180}\.[^\s@"'<>,;]{2,}$/;
+const playerHref = (name) => `#/admin/players/${encodeURIComponent(name)}`;
 
 function renderAdmin() {
   const d = admin.data;
@@ -7167,13 +7791,13 @@ function renderAdmin() {
   const focusKey = document.activeElement?.dataset?.fk;
   const lower = (v) => v.toLowerCase();
   const redraw = () => renderAdmin();
+  const section = ADMIN_SECTIONS[admin.tab]?.[0] === 'admin' ? admin.tab : 'players';
 
   const teamList = draft.teams;
   const teamIds = [...new Set([...teamList.map((t) => t.id), ...draft.roster.map((r) => r.team)])];
   const teamName = (id) => teamList.find((x) => x.id === id)?.name || (id ? id[0].toUpperCase() + id.slice(1) : 'No team');
   // columns the server's add-ons put on the roster (the Egg SMP add-on: Egg)
   const rosterCols = addons('rosterColumn');
-  const rosterWhat = ['teams', ...rosterCols.map((c) => c.plural)].join(' and ');
   const players = el('datalist', { id: 'adm-players' }, ...d.players.map((n) => el('option', { value: n })));
   const select = (options, value, label, fk) => {
     const s = el('select', { class: 'adm-input', 'aria-label': label, 'data-fk': fk });
@@ -7189,19 +7813,22 @@ function renderAdmin() {
     b.addEventListener('click', onClick);
     return b;
   };
-  const nameInput = (placeholder) => el('input', { class: 'adm-input', type: 'text', placeholder, list: 'adm-players', maxlength: '32', autocomplete: 'off', spellcheck: 'false' });
+  const nameInput = (placeholder, fk) => el('input', { class: 'adm-input', type: 'text', placeholder, 'aria-label': placeholder, list: 'adm-players', maxlength: '32', autocomplete: 'off', spellcheck: 'false', 'data-fk': fk });
   const card = (title, sub, ...kids) => el('section', { class: 'card adm-card' },
     el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null), ...kids);
   const empty = (text) => el('div', { class: 'muted adm-empty', text });
   const when = (ms) => fmt(ms / 1000, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const unsaved = (text = 'not saved yet') => el('span', { class: 'adm-unsaved', text });
   const onEnter = (input, run) => input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  const field = (label, control, hint) => el('div', { class: 'site-field adm-field' },
+    el('span', { class: 'site-label', text: label }), control, hint ? el('span', { class: 'site-hint', text: hint }) : null);
 
   /* ---- the teams themselves: name, color, order, and how much of the dashboard each is part of ---- */
   const onTeam = (id) => draft.roster.filter((r) => r.team === id).length;
   const ownSeries = (t) => t.activity && !t.activity_with;
   const arrow = (i, by, label) => {
-    const b = el('button', { type: 'button', class: 'btn btn-quiet adm-arrow', 'aria-label': label, title: label, text: by < 0 ? '↑' : '↓', 'data-fk': `team:${teamList[i].id}:${by}` });
+    const b = el('button', { type: 'button', class: 'btn btn-quiet adm-arrow', 'aria-label': label, title: label, 'data-fk': `team:${teamList[i].id}:${by}` },
+      icon([by < 0 ? 'M3.5 10 8 5.5 12.5 10' : 'M3.5 6 8 10.5 12.5 6'], 12));
     b.disabled = i + by < 0 || i + by >= teamList.length;
     b.addEventListener('click', () => {
       [teamList[i], teamList[i + by]] = [teamList[i + by], teamList[i]];
@@ -7237,7 +7864,6 @@ function renderAdmin() {
       redraw();
     });
     const n = onTeam(t.id);
-    const removable = !n;
     return el('tr', { class: !base ? 'adm-row-new' : changes.teams.some((c) => c.startsWith(`${t.name}:`)) ? 'adm-row-changed' : '' },
       el('td', { class: 'adm-order' }, arrow(i, -1, 'Move up'), arrow(i, 1, 'Move down')),
       el('td', {}, color), el('td', {}, name), el('td', {}, short),
@@ -7245,13 +7871,13 @@ function renderAdmin() {
       el('td', {}, el('label', { class: 'adm-check', title: 'Its kills as their own color in the Combat page’s chart (otherwise with the other deaths)' }, chart, 'Own color')),
       el('td', {}, activity),
       el('td', { class: 'muted adm-count', text: `${n} ${n === 1 ? 'player' : 'players'}` }),
-      el('td', { class: 'adm-act' }, removable ? button('Remove', () => {
+      el('td', { class: 'adm-act' }, !n ? button('Remove', () => {
         draft.teams = teamList.filter((x) => x !== t);
         for (const x of draft.teams) if (x.activity_with === t.id) { x.activity_with = null; x.activity = false; }
         redraw();
       }, 'btn-quiet', `team:${t.id}:remove`) : null));
   });
-  const newTeamName = el('input', { class: 'adm-input', type: 'text', placeholder: 'New team’s name', maxlength: '40', 'data-fk': 'team-new:name' });
+  const newTeamName = el('input', { class: 'adm-input', type: 'text', placeholder: 'New team’s name', 'aria-label': 'New team’s name', maxlength: '40', 'data-fk': 'team-new:name' });
   const newTeamColor = el('input', { class: 'adm-color', type: 'color', value: '#7a7f87', 'aria-label': 'Color' });
   const addTeam = () => {
     const name = newTeamName.value.trim();
@@ -7266,20 +7892,35 @@ function renderAdmin() {
     redraw();
   };
   onEnter(newTeamName, addTeam);
-  const teamsCard = card('Teams', `Season ${d.season} · the order here is the order they’re listed and stacked in`,
-    el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table adm-teams' },
+  const teamsCard = () => card('Teams', 'listed and stacked in this order',
+    teamList.length ? el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table adm-teams' },
       el('thead', {}, el('tr', {}, ...['', 'Color', 'Name', 'Short', 'Combat scoreboard', 'Kills chart', 'Activity charts', '', ''].map((h) => el('th', { text: h })))),
-      el('tbody', {}, ...teamRows))),
+      el('tbody', {}, ...teamRows))) : empty('No teams yet. Add one to put players on it.'),
     el('div', { class: 'adm-form adm-team-add' }, newTeamColor, newTeamName, button('Add team', addTeam, 'btn-primary')),
-    el('p', { class: 'muted adm-note', text: `Put players on a team in ${rosterWhat[0].toUpperCase()}${rosterWhat.slice(1)} below. Combat scoreboard: with two teams shown it’s the tug-of-war bar; with one, or three or more, each gets a block. A team “in the middle” sits between the two sides of the tug-of-war bar: its deaths, with its kills of each side to their left and right, and no headline of its own. Activity charts: “Group with” leaves the team out of the by-team charts and counts its players’ time as the other team’s. A team left out of a chart still has its players, in their color, everywhere else.` }));
+    el('p', { class: 'muted adm-note', text: 'Combat scoreboard: with two teams shown it’s the tug-of-war bar; with one, or three or more, each gets a block. A team “in the middle” sits between the two sides of the bar. Activity charts: “Group with” leaves the team out of the by-team charts and counts its players’ time as the other team’s. A team left out of a chart still has its players, in their color, everywhere else.' }));
 
-  /* ---- the roster (teams, and any add-on's column), and each player's teams over time ---- */
+  /* ---- a player's team, and their teams over time ---- */
   const now = nowSec();
   const seasonFrom = Math.min(now - 3600, Math.max(d.lo || 0, state.dataStart || 0) || now - 30 * 86400);
   const periodsOf = (ign) => draft.history.filter((h) => lower(h.ign) === lower(ign)).sort((a, b) => a.until - b.until);
   const minute = (ts) => fmt(ts, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const teamColor = (id) => teamList.find((x) => x.id === id)?.color || null;
   const dot = (id) => el('i', { class: 'adm-dot', style: teamColor(id) ? `background:${teamColor(id)}` : '' });
+
+  // A change of team counts from now on: before now, they were on the team they had. The time can be
+  // changed, and removing that earlier team makes the new one count for everything.
+  const changeTeam = (r, team) => {
+    const key = lower(r.ign);
+    const base = d.roster.find((x) => lower(x.ign) === key);
+    const was = r.team;
+    r.team = team;
+    const auto = draft.history.find((h) => h.auto && lower(h.ign) === key);
+    if (auto) {
+      if (auto.team === r.team) draft.history = draft.history.filter((h) => h !== auto); // changed back
+    } else if (base && was !== r.team) {
+      draft.history.push({ ign: r.ign, team: was, until: nowSec(), auto: true });
+    }
+  };
 
   // from the season's start to now, in the colors of the teams they were on
   const timeline = (r, periods) => {
@@ -7331,146 +7972,274 @@ function renderAdmin() {
       const after = first ? first.team : r.team;
       draft.history.push({ ign: r.ign, team: teamIds.find((t) => t !== after) ?? '', until: Math.floor(until / 60) * 60 });
       redraw();
-    }, '', `per:${key}:add`);
+    }, 'btn-quiet', `per:${key}:add`);
     return el('div', { class: 'adm-periods' },
       timeline(r, periods),
       ...rows,
       el('div', { class: 'adm-period adm-period-now' }, dot(r.team), el('strong', { text: teamName(r.team) }),
-        el('span', { class: 'muted', text: last ? `from ${minute(last.until)} on · their team now (the Team column)` : 'the whole season · their team now (the Team column)' })),
-      el('div', { class: 'adm-form adm-period-add' }, add,
-        el('span', { class: 'muted adm-period-help', text: 'What they did before each time counts for the team they were on then: playtime in the by-team charts, kills and deaths in Combat. Their name shows the team they’re on now.' })));
+        el('span', { class: 'muted', text: last ? `from ${minute(last.until)} on, and now` : 'the whole season, and now' })),
+      el('div', { class: 'adm-form adm-period-add' }, add));
   };
 
-  const rosterRows = draft.roster.flatMap((r) => {
-    const key = lower(r.ign);
-    const base = d.roster.find((x) => lower(x.ign) === key);
-    const periods = periodsOf(r.ign);
-    const team = teamSelect(r.team, `ros:${key}:team`);
-    const extras = rosterCols.map((c) => {
-      const sel = colSelect(c, r[c.key], `ros:${key}:${c.key}`);
-      sel.addEventListener('change', () => { r[c.key] = sel.value || null; redraw(); });
-      return el('td', {}, sel);
+  /* ---- the roster at a glance (Teams): everyone's team in one table ---- */
+  const rosterCard = () => {
+    const rows = draft.roster.map((r) => {
+      const key = lower(r.ign);
+      const base = d.roster.find((x) => lower(x.ign) === key);
+      const team = teamSelect(r.team, `ros:${key}:team`);
+      team.addEventListener('change', () => { changeTeam(r, team.value); redraw(); });
+      const extras = rosterCols.map((c) => {
+        const sel = colSelect(c, r[c.key], `ros:${key}:${c.key}`);
+        sel.addEventListener('change', () => { r[c.key] = sel.value || null; redraw(); });
+        return el('td', {}, sel);
+      });
+      const periods = periodsOf(r.ign);
+      const changed = !base ? 'adm-row-new' : playerState(d, key) !== playerState(draft, key) ? 'adm-row-changed' : '';
+      return el('tr', { class: changed },
+        el('td', { class: 'adm-ign' }, el('a', { href: playerHref(r.ign), class: 'adm-ign-link' }, headImg(r.ign, 16, { class: 'adm-head16' }), r.ign), !base ? unsaved('new') : null),
+        el('td', {}, team), ...extras,
+        el('td', { class: 'adm-tl-cell' }, periods.length ? timeline(r, periods) : el('span', { class: 'muted', text: '—' })),
+        el('td', { class: 'adm-act' }, el('a', { class: 'btn btn-quiet', href: playerHref(r.ign), text: 'Edit' })));
     });
-    team.addEventListener('change', () => {
-      const was = r.team;
-      r.team = team.value;
-      // A change of team counts from now on: before now, they were on the team they had. The time can
-      // be changed, and removing that earlier team makes the new one count for everything.
-      const auto = draft.history.find((h) => h.auto && lower(h.ign) === key);
-      if (auto) {
-        if (auto.team === r.team) draft.history = draft.history.filter((h) => h !== auto); // changed back
-      } else if (base && was !== r.team) {
-        draft.history.push({ ign: r.ign, team: was, until: nowSec(), auto: true });
-        admin.open.add(key);
-      }
+    const newIgn = nameInput('IGN', 'ros-new:ign'), newTeam = teamSelect(teamIds[0], 'ros-new:team'), newExtras = rosterCols.map((c) => colSelect(c, ''));
+    const addPlayer = () => {
+      const ign = newIgn.value.trim();
+      if (!ign) return;
+      if (!IGN_OK.test(ign)) return toast('An IGN is letters, digits and underscores', { error: true });
+      if (draft.roster.some((x) => lower(x.ign) === lower(ign))) return toast(`${ign} is already on the roster`, { error: true });
+      if (!newTeam.value) return toast('Add a team first', { error: true });
+      const was = d.roster.find((x) => lower(x.ign) === lower(ign)); // taken off and put back: as they were known
+      draft.roster.push({ ign: was?.ign || ign, team: newTeam.value, egg: null, name: was?.name || '', ...Object.fromEntries(rosterCols.map((c, i) => [c.key, newExtras[i].value || null])) });
       redraw();
+    };
+    onEnter(newIgn, addPlayer);
+    const addRow = el('tr', { class: 'adm-add' }, el('td', {}, newIgn), el('td', {}, newTeam), ...newExtras.map((x) => el('td', {}, x)), el('td', {}),
+      el('td', { class: 'adm-act' }, button('Add', addPlayer, 'btn-primary')));
+    return card('Roster', `who’s on which team in Season ${d.season}`,
+      el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table adm-roster' },
+        el('thead', {}, el('tr', {}, ...['Player', 'Team', ...rosterCols.map((c) => c.title), 'Teams over time', ''].map((h) => el('th', { text: h })))),
+        el('tbody', {}, ...rows, addRow))),
+      el('p', { class: 'adm-note adm-from-now' }, el('strong', { text: 'A team change counts from now on. ' }),
+        'What they did before stays with the team they were on then. Edit the player to move that moment, or to have everything count for the new team.'));
+  };
+
+  /* ---- Players: everyone the server has seen, and one player's editor ---- */
+  const playersView = () => {
+    const people = new Map();
+    const add = (n) => { if (n && !people.has(lower(n))) people.set(lower(n), n); };
+    for (const r of draft.roster) add(r.ign);
+    for (const r of d.roster) add(r.ign);
+    for (const n of d.players) add(n);
+    for (const h of draft.hidden) add(h.name);
+    for (const a of draft.aliases) { add(a.alias); add(a.name); }
+    for (const e of draft.emails) add(e.ign);
+    const pick = admin.pick && (people.has(admin.pick) || IGN_OK.test(admin.pick)) ? admin.pick : null;
+    if (pick && !people.has(pick)) add(decodeURIComponent(location.hash.split('/').pop() || pick));
+    const changed = changedPlayers();
+    const about = (key) => ({
+      name: people.get(key),
+      r: draft.roster.find((x) => lower(x.ign) === key),
+      hidden: draft.hidden.find((h) => lower(h.name) === key),
+      aliasOf: draft.aliases.find((a) => lower(a.alias) === key),
+      alts: draft.aliases.filter((a) => lower(a.name) === key),
+      emails: draft.emails.filter((e) => lower(e.ign) === key),
     });
-    const open = admin.open.has(key);
-    const toggle = el('button', { type: 'button', class: `btn btn-quiet adm-periods-toggle${open ? ' open' : ''}`, 'aria-expanded': String(open), 'data-fk': `ros:${key}:periods` },
-      periods.length ? timeline(r, periods) : null,
-      el('span', { text: periods.length ? `${periods.length} earlier ${periods.length === 1 ? 'team' : 'teams'}` : 'Earlier teams' }),
-      icon([open ? 'M3.5 10 8 5.5 12.5 10' : 'M3.5 6 8 10.5 12.5 6'], 12));
-    toggle.addEventListener('click', () => { if (open) admin.open.delete(key); else admin.open.add(key); redraw(); });
-    const changed = !base ? 'adm-row-new' : changes.roster.some((c) => c.startsWith(`${r.ign}:`)) || changes.history.some((c) => c.startsWith(`${r.ign}:`)) ? 'adm-row-changed' : '';
-    const main = el('tr', { class: changed },
-      el('td', { class: 'adm-ign' }, dot(r.team), r.ign, !base ? unsaved('new') : null), el('td', {}, team), ...extras,
-      el('td', {}, toggle),
-      el('td', { class: 'adm-act' }, button('Remove', () => {
-        draft.roster = draft.roster.filter((x) => x !== r);
-        draft.history = draft.history.filter((h) => lower(h.ign) !== key);
-        admin.open.delete(key);
-        redraw();
-      }, 'btn-quiet', `ros:${key}:remove`)));
-    return open ? [main, el('tr', { class: `adm-periods-row ${changed}` }, el('td', { colspan: String(4 + rosterCols.length) }, periodEditor(r)))] : [main];
-  });
-  const newIgn = nameInput('IGN'), newTeam = teamSelect(teamIds[0]), newExtras = rosterCols.map((c) => colSelect(c, ''));
-  const addPlayer = () => {
-    const ign = newIgn.value.trim();
-    if (!ign) return;
-    if (!/^[A-Za-z0-9_]{1,32}$/.test(ign)) return toast('An IGN is letters, digits and underscores', { error: true });
-    if (draft.roster.some((x) => lower(x.ign) === lower(ign))) return toast(`${ign} is already on the roster`, { error: true });
-    if (!newTeam.value) return toast('Add a team first', { error: true });
-    const was = d.roster.find((x) => lower(x.ign) === lower(ign)); // taken off and put back: as they were known
-    draft.roster.push({ ign: was?.ign || ign, team: newTeam.value, egg: null, ...Object.fromEntries(rosterCols.map((c, i) => [c.key, newExtras[i].value || null])) });
-    redraw();
-  };
-  onEnter(newIgn, addPlayer);
-  const addRow = el('tr', { class: 'adm-add' }, el('td', {}, newIgn), el('td', {}, newTeam), ...newExtras.map((x) => el('td', {}, x)), el('td', {}),
-    el('td', { class: 'adm-act' }, button('Add', addPlayer, 'btn-primary')));
-  const rosterCard = card(`${rosterWhat[0].toUpperCase()}${rosterWhat.slice(1)}`, `Season ${d.season}`,
-    el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table adm-roster' },
-      el('thead', {}, el('tr', {}, ...['Player', 'Team', ...rosterCols.map((c) => c.title), 'Teams over time', ''].map((h) => el('th', { text: h })))),
-      el('tbody', {}, ...rosterRows, addRow))),
-    el('p', { class: 'adm-note adm-from-now' }, el('strong', { text: 'A team change counts from now on. ' }),
-      'Changing a player’s team keeps what they did before with the team they were on then, as an earlier team ending now. Open Teams over time to move that moment, change which team they were on in any stretch, add or remove stretches, or remove the earlier team so everything they’ve done counts for the new one.'),
-    el('p', { class: 'muted adm-note', text: `Running npm run roster:remote again replaces the players, ${rosterWhat.replace(' and ', ', ')} with roster-s${d.season}.json, so copy lasting changes there too.` }));
 
-  /* ---- hidden players ---- */
-  const hidName = nameInput('Player'), hidNote = el('input', { class: 'adm-input', type: 'text', placeholder: 'Note (optional)', maxlength: '200' });
-  const hide = () => {
-    const name = hidName.value.trim();
-    if (!name) return;
-    if (!/^[A-Za-z0-9_]{1,32}$/.test(name)) return toast('A player’s name is letters, digits and underscores', { error: true });
-    const have = draft.hidden.find((h) => lower(h.name) === lower(name));
-    if (have) have.note = hidNote.value.trim() || have.note;
-    else draft.hidden.push({ name, note: hidNote.value.trim() || null });
-    redraw();
-  };
-  onEnter(hidName, hide);
-  onEnter(hidNote, hide);
-  const hiddenCard = card('Hidden players', 'left out of Activity and Combat; chat still shows them',
-    draft.hidden.length ? el('ul', { class: 'adm-list' }, ...draft.hidden.map((h) => el('li', {},
-      el('span', { class: 'adm-main', text: h.name }), h.note ? el('span', { class: 'muted', text: h.note }) : null,
-      d.hidden.some((x) => lower(x.name) === lower(h.name)) ? null : unsaved(),
-      button('Show again', () => { draft.hidden = draft.hidden.filter((x) => x !== h); redraw(); }, 'btn-quiet', `hid:${lower(h.name)}`))))
-      : empty('Nobody is hidden.'),
-    el('div', { class: 'adm-form' }, hidName, hidNote, button('Hide', hide, 'btn-primary')));
-
-  /* ---- merged accounts ---- */
-  const alAlias = nameInput('Other account'), alName = nameInput('Main account');
-  const merge = () => {
-    const alias = alAlias.value.trim(), name = alName.value.trim();
-    if (!alias || !name) return;
-    if (![alias, name].every((v) => /^[A-Za-z0-9_]{1,32}$/.test(v))) return toast('A player’s name is letters, digits and underscores', { error: true });
-    if (lower(alias) === lower(name)) return toast('An account can’t be its own alias', { error: true });
-    const rest = draft.aliases.filter((a) => lower(a.alias) !== lower(alias));
-    if (rest.some((a) => lower(a.alias) === lower(name)) || rest.some((a) => lower(a.name) === lower(alias))) {
-      return toast(`${name} is itself merged into another account, or ${alias} already has accounts merged into it; merge into the main account`, { error: true, ms: 6000 });
+    // the list
+    const pf = admin.pf;
+    const keys = [...people.keys()].sort((a, b) => a.localeCompare(b));
+    const tally = { all: keys.length, roster: 0, off: 0, hidden: 0 };
+    for (const k of keys) {
+      const p = about(k);
+      if (p.r) tally.roster++; else if (!p.aliasOf) tally.off++;
+      if (p.hidden) tally.hidden++;
     }
-    draft.aliases = [...rest, { alias, name }];
-    redraw();
-  };
-  onEnter(alAlias, merge);
-  onEnter(alName, merge);
-  const aliasCard = card('Merged accounts', 'another account counted as part of a player',
-    draft.aliases.length ? el('ul', { class: 'adm-list' }, ...draft.aliases.map((a) => el('li', {},
-      el('span', { class: 'adm-main', text: a.alias }), el('span', { class: 'muted', text: `→ ${a.name}` }),
-      d.aliases.some((x) => lower(x.alias) === lower(a.alias) && lower(x.name) === lower(a.name)) ? null : unsaved(),
-      button('Unmerge', () => { draft.aliases = draft.aliases.filter((x) => x !== a); redraw(); }, 'btn-quiet', `al:${lower(a.alias)}`))))
-      : empty('No merged accounts.'),
-    el('div', { class: 'adm-form' }, alAlias, el('span', { class: 'muted', text: '→' }), alName, button('Merge', merge, 'btn-primary')));
+    const listBox = el('div', { class: 'adm-plist', role: 'list' });
+    const drawList = () => {
+      const q = pf.q.trim().toLowerCase();
+      const shown = keys.filter((k) => {
+        const p = about(k);
+        if (pf.show === 'roster' && !p.r) return false;
+        if (pf.show === 'off' && (p.r || p.aliasOf)) return false;
+        if (pf.show === 'hidden' && !p.hidden) return false;
+        return !q || k.includes(q) || (p.r?.name || '').toLowerCase().includes(q);
+      });
+      const rows = shown.map((k) => {
+        const p = about(k);
+        const sub = p.aliasOf ? `counted as ${p.aliasOf.name}` : p.r ? [p.r.name, teamName(p.r.team)].filter(Boolean).join(' · ') : 'not on the roster';
+        const a = el('a', { class: 'adm-prow', href: playerHref(p.name), 'aria-current': k === pick ? 'true' : null },
+          headImg(p.name, 24, { class: 'adm-prow-head' }),
+          el('span', { class: 'adm-prow-text' }, el('strong', { text: p.name }), el('span', { class: 'adm-prow-sub', text: sub })),
+          el('span', { class: 'adm-prow-tags' },
+            p.hidden ? el('span', { class: 'adm-tag', text: 'Hidden', title: 'Left out of Activity and Combat' }) : null,
+            p.alts.length ? el('span', { class: 'adm-tag', text: `+${p.alts.length}`, title: `${p.alts.length} other ${p.alts.length === 1 ? 'account' : 'accounts'} counted as them` }) : null,
+            p.r ? el('i', { class: 'adm-dot adm-prow-team', style: teamColor(p.r.team) ? `background:${teamColor(p.r.team)}` : '', title: teamName(p.r.team) }) : null,
+            changed.has(k) ? el('i', { class: 'adm-prow-unsaved', title: 'Unsaved changes' }) : null));
+        return el('div', { role: 'listitem' }, a);
+      });
+      // a name nobody has, typed in the search: put them on the roster
+      const typed = pf.q.trim();
+      const offer = IGN_OK.test(typed) && !people.has(typed.toLowerCase()) && teamIds.length
+        ? el('div', { role: 'listitem' }, el('a', { class: 'adm-prow adm-prow-new', href: playerHref(typed) },
+          el('span', { class: 'adm-prow-plus', 'aria-hidden': 'true', text: '+' }),
+          el('span', { class: 'adm-prow-text' }, el('strong', { text: `Add ${typed}` }), el('span', { class: 'adm-prow-sub', text: 'a player the server hasn’t seen yet' }))))
+        : null;
+      listBox.replaceChildren(...rows, ...(offer ? [offer] : []), ...(!rows.length && !offer ? [empty(q ? 'Nobody matches that.' : 'Nobody here yet.')] : []));
+    };
+    drawList();
+    const search = el('input', { class: 'adm-input adm-psearch', type: 'search', placeholder: 'Find a player', 'aria-label': 'Find a player', autocomplete: 'off', spellcheck: 'false', 'data-fk': 'pl:search' });
+    search.value = pf.q;
+    search.addEventListener('input', () => { pf.q = search.value; drawList(); });
+    onEnter(search, () => { const first = listBox.querySelector('.adm-prow'); if (first) location.hash = first.getAttribute('href'); });
+    const filter = el('div', { class: 'seg adm-pfilter', role: 'group', 'aria-label': 'Show' });
+    for (const [v, text] of [['all', 'All'], ['roster', 'Roster'], ['off', 'Not on it'], ['hidden', 'Hidden']]) {
+      const b = el('button', { type: 'button', 'aria-pressed': String(pf.show === v), 'data-fk': `pl:show:${v}` }, text, el('span', { class: 'adm-seg-n', text: String(tally[v]) }));
+      b.addEventListener('click', () => { pf.show = v; redraw(); });
+      filter.append(b);
+    }
+    const listCard = el('section', { class: 'card adm-card adm-plist-card' },
+      el('div', { class: 'card-head' }, el('h2', { text: 'Players' }), el('span', { class: 'card-sub', text: `${tally.roster} on the Season ${d.season} roster` })),
+      search, filter, listBox);
 
-  /* ---- the Save bar: nothing above takes effect until it's pressed ---- */
-  const all = Object.values(changes).flat();
-  const save = button('Save', adminSave, 'btn-primary adm-save', 'adm:save');
-  const reset = button('Reset changes', adminReset, 'adm-reset', 'adm:reset');
-  save.disabled = reset.disabled = !all.length;
-  const saveBar = el('div', { class: `adm-savebar${all.length ? ' dirty' : ''}`, role: 'region', 'aria-label': 'Save changes' },
-    el('div', { class: 'adm-save-text' },
-      el('strong', { text: all.length ? `${all.length} unsaved ${all.length === 1 ? 'change' : 'changes'}` : 'No unsaved changes' }),
-      el('span', { class: 'muted', text: all.length ? 'Nothing has changed on the site yet. Save applies them all at once; Reset changes puts everything back to how it was last saved.'
-        : 'Edits above are only kept and applied once you press Save.' }),
-      all.length ? el('ul', { class: 'adm-change-list' }, ...all.slice(0, 40).map((c) => el('li', { text: c })),
-        all.length > 40 ? el('li', { class: 'muted', text: `and ${all.length - 40} more` }) : null) : null),
-    el('div', { class: 'adm-save-actions' }, reset, save));
+    // the editor
+    let editor;
+    if (!pick) {
+      editor = el('section', { class: 'card adm-card adm-pedit adm-pedit-empty' },
+        el('div', { class: 'adm-pick-hint' },
+          el('span', { class: 'adm-pick-art', 'aria-hidden': 'true' }),
+          el('strong', { text: 'Pick a player to edit them' }),
+          el('span', { class: 'muted', text: 'Their team and real name, the teams they were on before, the emails they chat from the website with, and whether they’re hidden or merged with another account.' })));
+    } else {
+      const p = about(pick);
+      const name = p.name;
+      const r = p.r;
+      const uuid = uuidForName(name);
+      const base = d.roster.find((x) => lower(x.ign) === pick);
+
+      // this season: the roster
+      const season = [];
+      if (r) {
+        const team = teamSelect(r.team, `pe:${pick}:team`);
+        team.addEventListener('change', () => { changeTeam(r, team.value); redraw(); });
+        const real = el('input', { class: 'adm-input srv-input', type: 'text', maxlength: '60', placeholder: 'Same as their IGN', autocomplete: 'off', 'aria-label': 'Real name', 'data-fk': `pe:${pick}:name` });
+        real.value = r.name || '';
+        real.addEventListener('change', () => { r.name = real.value.trim().slice(0, 60); adminEdited(); });
+        onEnter(real, () => real.blur());
+        season.push(
+          el('div', { class: 'adm-pgrid' },
+            field('Team', team),
+            ...rosterCols.map((c) => {
+              const sel = colSelect(c, r[c.key], `pe:${pick}:${c.key}`);
+              sel.addEventListener('change', () => { r[c.key] = sel.value || null; redraw(); });
+              return field(c.title, sel);
+            }),
+            field('Real name', real, 'Shown when someone picks Name at the top of the page.')),
+          field('Teams over time', periodEditor(r), 'What they did before each change counts for the team they were on then: playtime in the by-team charts, kills and deaths in Combat.'));
+      } else if (!p.aliasOf) {
+        const team = teamSelect(teamIds[0], `pe:${pick}:newteam`);
+        const put = button(`Add ${name} to the roster`, () => {
+          if (!IGN_OK.test(name)) return toast('An IGN is letters, digits and underscores', { error: true });
+          if (!team.value) return toast('Add a team first, under Teams', { error: true });
+          const was = d.roster.find((x) => lower(x.ign) === pick);
+          draft.roster.push({ ign: was?.ign || name, team: team.value, egg: null, name: was?.name || '', ...Object.fromEntries(rosterCols.map((c) => [c.key, null])) });
+          redraw();
+        }, 'btn-primary', `pe:${pick}:add`);
+        season.push(el('div', { class: 'adm-pjoin' },
+          el('p', { class: 'adm-note', text: teamIds.length ? `${name} isn’t on the Season ${d.season} roster, so they have no team and no real name here.` : 'There are no teams yet. Make one under Teams to put players on it.' }),
+          teamIds.length ? el('div', { class: 'adm-form' }, team, put) : el('a', { class: 'btn', href: '#/admin/teams', text: 'Go to Teams' })));
+      }
+
+      // the emails they chat from the website with
+      const emailBox = el('input', { class: 'adm-input', type: 'email', placeholder: 'name@example.com', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Add an email', 'data-fk': `pe:${pick}:email` });
+      const addEmail = () => {
+        const e = emailBox.value.trim().toLowerCase();
+        if (!e) return;
+        if (!EMAIL_OK.test(e)) return toast('That isn’t an email address', { error: true });
+        const other = draft.emails.find((x) => x.email === e);
+        if (other) return toast(lower(other.ign) === pick ? 'They have that one already' : `${e} already chats as ${other.ign}`, { error: true });
+        draft.emails.push({ email: e, ign: name });
+        redraw();
+      };
+      onEnter(emailBox, addEmail);
+      const savedEmails = (d.emails || []).filter((x) => lower(x.ign) === pick).map((x) => x.email);
+      season.push(field('Chats from the website as them',
+        el('div', { class: 'adm-stack' },
+          p.emails.length ? el('ul', { class: 'adm-list adm-emails' }, ...p.emails.map((e) => el('li', {},
+            el('span', { class: 'adm-main', text: e.email }), savedEmails.includes(e.email) ? null : unsaved('new'),
+            button('Remove', () => { draft.emails = draft.emails.filter((x) => x !== e); redraw(); }, 'btn-quiet', `pe:${pick}:email:${e.email}`)))) : null,
+          el('div', { class: 'adm-form' }, emailBox, button('Add email', addEmail, '', `pe:${pick}:email-add`))),
+        'Someone signed in to mcstats with one of these can send chat from the Chat log as this player.'));
+
+      // every season: hidden, merged
+      const hide = el('input', { type: 'checkbox', 'data-fk': `pe:${pick}:hide` });
+      hide.checked = !!p.hidden;
+      hide.addEventListener('change', () => {
+        if (hide.checked) draft.hidden.push({ name, note: null });
+        else draft.hidden = draft.hidden.filter((h) => h !== p.hidden);
+        redraw();
+      });
+      const note = p.hidden ? el('input', { class: 'adm-input srv-input', type: 'text', maxlength: '200', placeholder: 'Why (only admins see this)', 'aria-label': 'Note', 'data-fk': `pe:${pick}:note` }) : null;
+      if (note) {
+        note.value = p.hidden.note || '';
+        note.addEventListener('change', () => { p.hidden.note = note.value.trim() || null; adminEdited(); });
+      }
+      const merge = (alias, into) => {
+        if (![alias, into].every((v) => IGN_OK.test(v))) return toast('A player’s name is letters, digits and underscores', { error: true });
+        if (lower(alias) === lower(into)) return toast('An account can’t be merged into itself', { error: true });
+        const rest = draft.aliases.filter((a) => lower(a.alias) !== lower(alias));
+        if (rest.some((a) => lower(a.alias) === lower(into)) || rest.some((a) => lower(a.name) === lower(alias))) {
+          return toast(`${into} is itself merged into another account, or ${alias} already has accounts merged into it; merge into the main account`, { error: true, ms: 6000 });
+        }
+        draft.aliases = [...rest, { alias, name: into }];
+        redraw();
+      };
+      let merged;
+      if (p.aliasOf) {
+        merged = el('div', { class: 'adm-form' },
+          el('span', {}, 'Counted as part of ', el('a', { href: playerHref(p.aliasOf.name), text: p.aliasOf.name }), '.'),
+          button('Unmerge', () => { draft.aliases = draft.aliases.filter((a) => a !== p.aliasOf); redraw(); }, 'btn-quiet', `pe:${pick}:unmerge`));
+      } else {
+        const other = nameInput('Another account', `pe:${pick}:alt`);
+        const go = () => { if (other.value.trim()) merge(other.value.trim(), name); };
+        onEnter(other, go);
+        merged = el('div', { class: 'adm-stack' },
+          p.alts.length ? el('ul', { class: 'adm-list' }, ...p.alts.map((a) => el('li', {},
+            headImg(a.alias, 16, { class: 'adm-head16' }), el('a', { class: 'adm-main', href: playerHref(a.alias), text: a.alias }),
+            d.aliases.some((x) => lower(x.alias) === lower(a.alias) && lower(x.name) === pick) ? null : unsaved(),
+            button('Unmerge', () => { draft.aliases = draft.aliases.filter((x) => x !== a); redraw(); }, 'btn-quiet', `pe:${pick}:unmerge:${lower(a.alias)}`)))) : null,
+          el('div', { class: 'adm-form' }, other, button('Merge into them', go, '', `pe:${pick}:merge`)));
+      }
+
+      const status = [r ? `${teamName(r.team)}${r.name ? ` · ${r.name}` : ''}` : p.aliasOf ? `another account of ${p.aliasOf.name}` : 'not on the roster', p.hidden ? 'hidden' : null].filter(Boolean).join(' · ');
+      editor = el('section', { class: 'card adm-card adm-pedit' },
+        el('a', { class: 'adm-back', href: '#/admin/players', text: '← All players' }),
+        el('div', { class: 'adm-phead' },
+          headImg(name, 48, { class: 'adm-phead-img', width: '48', height: '48' }),
+          el('div', { class: 'adm-phead-text' },
+            el('h2', { class: 'adm-pname', text: name }),
+            el('span', { class: 'adm-pmeta' }, r ? dot(r.team) : null, status, changed.has(pick) ? unsaved('unsaved changes') : null)),
+          uuid ? el('a', { class: 'btn btn-quiet', href: `#/player/${uuid}`, text: 'Their page' }) : null),
+        el('div', { class: 'adm-pblock' }, el('h3', { text: `Season ${d.season}` }), ...season,
+          r ? el('div', { class: 'adm-pfoot' }, button('Take off the roster', () => {
+            draft.roster = draft.roster.filter((x) => x !== r);
+            draft.history = draft.history.filter((h) => lower(h.ign) !== pick);
+            redraw();
+          }, 'btn-quiet adm-danger', `pe:${pick}:remove`), base ? el('span', { class: 'site-hint', text: 'Their stats stay; they lose their team and real name here.' }) : null) : null),
+        el('div', { class: 'adm-pblock' }, el('h3', { text: 'Every season' }),
+          field('Hidden', el('div', { class: 'adm-stack' }, el('label', { class: 'adm-check adm-check-lg' }, hide, 'Leave them out of Activity and Combat'), note),
+            'The chat log still shows them.'),
+          field(p.aliasOf ? 'Merged' : 'Other accounts', merged, p.aliasOf ? null : 'Another account’s playtime, kills and chat count as this player’s, under this name.')));
+    }
+    return [el('div', { class: `adm-players${pick ? ' has-pick' : ''}` }, listCard, editor)];
+  };
 
   /* ---- what happens at once: deaths left out of Combat, deleted messages, gaps, the link ---- */
-  const uncountedCard = card('Left out of Combat', 'right-click a death to leave it out',
+  const uncountedCard = () => card('Left out of Combat', 'right-click a death to leave it out',
     d.uncounted.length ? el('ul', { class: 'adm-list adm-scroll' }, ...d.uncounted.map((u) => el('li', {},
       el('span', { class: 'adm-main', text: u.text }), el('span', { class: 'muted adm-when', text: when(u.ts) }),
       button('Count again', () => adminDo({ action: 'death.count', id: u.id }, 'Counted again'), 'btn-quiet'))))
       : empty('Every death counts.'));
-  const deletedCard = card('Deleted messages', 'right-click a message to delete it',
+  const deletedCard = () => card('Deleted messages', 'right-click a message to delete it',
     d.deleted.length ? el('ul', { class: 'adm-list adm-scroll' }, ...d.deleted.map((m) => el('li', {},
       el('span', { class: 'adm-main', text: m.kind === 'chat' || m.kind === 'say' ? `<${m.name}> ${m.text}` : m.text }),
       el('span', { class: 'muted adm-when', text: when(m.ts) }),
@@ -7478,125 +8247,137 @@ function renderAdmin() {
       : empty('Nothing deleted.'));
 
   /* ---- chat log rules: which lines are left out (src/chatrules.js) ---- */
-  const cr = d.chat_rules || { rules: [], hidden: 0 };
-  const rf = (admin.ruleForm ??= { action: 'hide', kind: 'system', match: 'starts', text: '', from: '', to: '' });
-  const count = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-  const rAction = select([['hide', 'Hide'], ['show', 'Always show']], rf.action, 'Hide or show', 'cr:action');
-  const rKind = select([['', 'every kind of message'], ...RULE_KINDS.map(([k, name]) => [k, `${name} messages`])], rf.kind, 'Kind of message', 'cr:kind');
-  const rMatch = select(RULE_MATCHES, rf.match, 'Which ones', 'cr:match');
-  const rText = el('input', { class: 'adm-input', type: 'text', placeholder: 'text to match (capitals don’t matter)', maxlength: '300',
-    autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Text to match', 'data-fk': 'cr:text' });
-  rText.value = rf.text;
-  rText.hidden = rf.match === 'any';
-  const rFrom = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages from this time on', 'data-fk': 'cr:from' });
-  const rTo = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages before this time', 'data-fk': 'cr:to' });
-  rFrom.value = rf.from;
-  rTo.value = rf.to;
-  rAction.addEventListener('change', () => { rf.action = rAction.value; });
-  rKind.addEventListener('change', () => { rf.kind = rKind.value; });
-  rMatch.addEventListener('change', () => { rf.match = rMatch.value; rText.hidden = rf.match === 'any'; if (!rText.hidden) rText.focus(); });
-  rText.addEventListener('input', () => { rf.text = rText.value; });
-  rFrom.addEventListener('change', () => { rf.from = rFrom.value; });
-  rTo.addEventListener('change', () => { rf.to = rTo.value; });
-  const ms = (v) => (v ? new Date(v).getTime() || null : null);
-  const addRule = async () => {
-    if (rf.match !== 'any' && !rf.text.trim()) { rText.focus(); return; }
-    const rule = { action: rf.action, kind: rf.kind || null, match: rf.match, text: rf.text, from_ms: ms(rf.from), to_ms: ms(rf.to) };
-    const before = cr.rules.length;
-    await adminDo({ action: 'rule.add', rule }, rf.action === 'hide' ? 'Rule added · the chat log is updated' : 'Rule added · those messages show again');
-    if ((admin.data.chat_rules?.rules.length ?? 0) > before) Object.assign(rf, { text: '', from: '', to: '' });
-    renderAdmin();
+  const rulesCard = () => {
+    const cr = d.chat_rules || { rules: [], hidden: 0 };
+    const rf = (admin.ruleForm ??= { action: 'hide', kind: 'system', match: 'starts', text: '', from: '', to: '' });
+    const count = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+    const rAction = select([['hide', 'Hide'], ['show', 'Always show']], rf.action, 'Hide or show', 'cr:action');
+    const rKind = select([['', 'every kind of message'], ...RULE_KINDS.map(([k, name]) => [k, `${name} messages`])], rf.kind, 'Kind of message', 'cr:kind');
+    const rMatch = select(RULE_MATCHES, rf.match, 'Which ones', 'cr:match');
+    const rText = el('input', { class: 'adm-input', type: 'text', placeholder: 'text to match (capitals don’t matter)', maxlength: '300',
+      autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Text to match', 'data-fk': 'cr:text' });
+    rText.value = rf.text;
+    rText.hidden = rf.match === 'any';
+    const rFrom = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages from this time on', 'data-fk': 'cr:from' });
+    const rTo = el('input', { class: 'adm-input', type: 'datetime-local', 'aria-label': 'Only messages before this time', 'data-fk': 'cr:to' });
+    rFrom.value = rf.from;
+    rTo.value = rf.to;
+    rAction.addEventListener('change', () => { rf.action = rAction.value; });
+    rKind.addEventListener('change', () => { rf.kind = rKind.value; });
+    rMatch.addEventListener('change', () => { rf.match = rMatch.value; rText.hidden = rf.match === 'any'; if (!rText.hidden) rText.focus(); });
+    rText.addEventListener('input', () => { rf.text = rText.value; });
+    rFrom.addEventListener('change', () => { rf.from = rFrom.value; });
+    rTo.addEventListener('change', () => { rf.to = rTo.value; });
+    const ms = (v) => (v ? new Date(v).getTime() || null : null);
+    const addRule = async () => {
+      if (rf.match !== 'any' && !rf.text.trim()) { rText.focus(); return; }
+      const rule = { action: rf.action, kind: rf.kind || null, match: rf.match, text: rf.text, from_ms: ms(rf.from), to_ms: ms(rf.to) };
+      const before = cr.rules.length;
+      await adminDo({ action: 'rule.add', rule }, rf.action === 'hide' ? 'Rule added · the chat log is updated' : 'Rule added · those messages show again');
+      if ((admin.data.chat_rules?.rules.length ?? 0) > before) Object.assign(rf, { text: '', from: '', to: '' });
+      renderAdmin();
+    };
+    onEnter(rText, addRule);
+    return card('Chat log rules', 'right-click a message in the chat log to hide ones like it',
+      el('p', { class: 'adm-note', text: `A message is left out of the chat log when a Hide rule matches it and no Always show rule does. Rules cover messages already in the log too, unless you give them a start time. ${cr.hidden ? `${count(cr.hidden, 'message')} ${cr.hidden === 1 ? 'is' : 'are'} hidden now.` : 'Nothing is hidden now.'}` }),
+      cr.rules.length ? el('ul', { class: 'adm-list adm-scroll' }, ...cr.rules.map((r) => el('li', { class: r.enabled ? '' : 'adm-rule-off' },
+        el('span', { class: `adm-rule-tag ${r.action}`, text: r.action === 'hide' ? 'Hide' : 'Show' }),
+        el('span', { class: 'adm-main', text: ruleText(r, when) }),
+        el('span', { class: 'muted adm-when', text: r.enabled ? `matches ${count(r.matches, 'message')}` : 'turned off' }),
+        button(r.enabled ? 'Turn off' : 'Turn on', () => adminDo({ action: 'rule.update', id: r.id, enabled: !r.enabled }, r.enabled ? 'Rule turned off' : 'Rule turned on'), 'btn-quiet', `cr:t${r.id}`),
+        button('Delete', () => adminDo({ action: 'rule.delete', id: r.id }, 'Rule deleted'), 'btn-quiet', `cr:d${r.id}`))))
+        : empty('No rules yet: every message shows.'),
+      el('div', { class: 'adm-form adm-rule-form' }, rAction, rKind, rMatch, rText),
+      el('div', { class: 'adm-form adm-rule-form' },
+        el('span', { class: 'muted', text: 'Only messages from' }), rFrom, el('span', { class: 'muted', text: 'until' }), rTo,
+        el('span', { class: 'muted', text: '(leave empty for all time)' }), button('Add rule', addRule, 'btn-primary', 'cr:add')));
   };
-  onEnter(rText, addRule);
-  const rulesCard = card('Chat log rules', 'right-click a message in the chat log to hide ones like it',
-    el('p', { class: 'adm-note', text: `A message is left out of the chat log when a Hide rule matches it and no Always show rule does. Rules cover messages already in the log too, unless you give them a start time. ${cr.hidden ? `${count(cr.hidden, 'message')} ${cr.hidden === 1 ? 'is' : 'are'} hidden now.` : 'Nothing is hidden now.'}` }),
-    cr.rules.length ? el('ul', { class: 'adm-list adm-scroll' }, ...cr.rules.map((r) => el('li', { class: r.enabled ? '' : 'adm-rule-off' },
-      el('span', { class: `adm-rule-tag ${r.action}`, text: r.action === 'hide' ? 'Hide' : 'Show' }),
-      el('span', { class: 'adm-main', text: ruleText(r, when) }),
-      el('span', { class: 'muted adm-when', text: r.enabled ? `matches ${count(r.matches, 'message')}` : 'turned off' }),
-      button(r.enabled ? 'Turn off' : 'Turn on', () => adminDo({ action: 'rule.update', id: r.id, enabled: !r.enabled }, r.enabled ? 'Rule turned off' : 'Rule turned on'), 'btn-quiet', `cr:t${r.id}`),
-      button('Delete', () => adminDo({ action: 'rule.delete', id: r.id }, 'Rule deleted'), 'btn-quiet', `cr:d${r.id}`))))
-      : empty('No rules yet: every message shows.'),
-    el('div', { class: 'adm-form adm-rule-form' }, rAction, rKind, rMatch, rText),
-    el('div', { class: 'adm-form adm-rule-form' },
-      el('span', { class: 'muted', text: 'Only messages from' }), rFrom, el('span', { class: 'muted', text: 'until' }), rTo,
-      el('span', { class: 'muted', text: '(leave empty for all time)' }), button('Add rule', addRule, 'btn-primary', 'cr:add')));
 
-  const gapNote = el('span', { class: 'muted adm-gap-note', text: admin.gapNote || '' });
-  const gapsCard = card('Missed checks', 'filled in every hour at :07 from joins and leaves, once the chat log catches up',
-    el('div', { class: 'adm-form' }, button('Fill gaps now', async () => {
-      gapNote.textContent = 'Working…';
-      try {
-        const { gaps } = await adminPost({ action: 'gaps.fill' });
-        const done = gaps.filter((g) => g.filled), waiting = gaps.filter((g) => !g.filled);
-        admin.gapNote = !gaps.length ? 'No gaps in the last 2 days.'
-          : [done.length ? `Filled ${done.length} gap${done.length === 1 ? '' : 's'} (${done.reduce((n, g) => n + g.minutes, 0)} minutes).` : '',
-            ...waiting.map((g) => `${when(g.from * 1000)} to ${when(g.to * 1000)}: waiting (${g.why}).`)].filter(Boolean).join(' ');
-      } catch (err) {
-        admin.gapNote = err.message;
-      }
-      gapNote.textContent = admin.gapNote;
-    }), gapNote));
+  const gapsCard = () => {
+    const gapNote = el('span', { class: 'muted adm-gap-note', text: admin.gapNote || '' });
+    return card('Missed checks', 'filled in every hour at :07 from joins and leaves, once the chat log catches up',
+      el('div', { class: 'adm-form' }, button('Fill gaps now', async () => {
+        gapNote.textContent = 'Working…';
+        try {
+          const { gaps } = await adminPost({ action: 'gaps.fill' });
+          const done = gaps.filter((g) => g.filled), waiting = gaps.filter((g) => !g.filled);
+          admin.gapNote = !gaps.length ? 'No gaps in the last 2 days.'
+            : [done.length ? `Filled ${done.length} gap${done.length === 1 ? '' : 's'} (${done.reduce((n, g) => n + g.minutes, 0)} minutes).` : '',
+              ...waiting.map((g) => `${when(g.from * 1000)} to ${when(g.to * 1000)}: waiting (${g.why}).`)].filter(Boolean).join(' ');
+        } catch (err) {
+          admin.gapNote = err.message;
+        }
+        gapNote.textContent = admin.gapNote;
+      }), gapNote));
+  };
 
   // the server mod's web chat connection: how it is now, and what it's done lately
-  const l = d.link;
-  const secs = (n) => (n == null ? '–' : n < 90 ? `${n}s` : n < 5400 ? `${Math.round(n / 60)} min` : `${(n / 3600).toFixed(1)} h`);
-  const linkNote = el('span', { class: 'muted adm-gap-note', text: admin.linkNote || '' });
-  const linkCard = card('Web chat connection', 'the server mod’s link for messages sent from here',
-    !l ? empty('Couldn’t be checked.') : el('div', {},
-      el('div', { class: 'adm-link-now' },
-        el('span', { class: `adm-link-dot${l.linked ? ' up' : ''}` }),
-        el('strong', { text: l.linked ? 'Connected' : 'Not connected' }),
-        el('span', { class: 'muted', text: l.linked
-          ? `mod ${l.version || '(version unknown)'}${l.version && !d.mod_update ? ' (the newest)' : ''}${l.connected_ago != null ? ` · connected ${secs(l.connected_ago)} ago` : ''} · last heard ${secs(l.heard_ago)} ago`
-          : 'messages can’t reach the game until the mod reconnects' })),
-      el('div', { class: 'adm-form' }, button('Test connection', async () => {
-        linkNote.textContent = 'Testing…';
-        try {
-          const { probe, link } = await adminPost({ action: 'link.test' });
-          admin.linkNote = probe.ok ? `The mod answered in ${probe.ms} ms. Nothing was shown in game.`
-            : `No answer from the mod (${probe.why}).`;
-          d.link = link;
-        } catch (err) {
-          admin.linkNote = err.message;
-        }
-        renderAdmin();
-      }), linkNote),
-      l.log?.length ? el('ul', { class: 'adm-list adm-scroll' }, ...l.log.slice().reverse().map((e) => el('li', {},
-        el('span', { class: 'adm-main', text: e.what }), el('span', { class: 'muted adm-when', text: `${secs(e.ago)} ago` }))))
-        : empty('Nothing has happened to it lately.')));
+  const linkCard = () => {
+    const l = d.link;
+    const secs = (n) => (n == null ? '–' : n < 90 ? `${n}s` : n < 5400 ? `${Math.round(n / 60)} min` : `${(n / 3600).toFixed(1)} h`);
+    const linkNote = el('span', { class: 'muted adm-gap-note', text: admin.linkNote || '' });
+    return card('Web chat connection', 'the server mod’s link for messages sent from here',
+      !l ? empty('Couldn’t be checked.') : el('div', {},
+        el('div', { class: 'adm-link-now' },
+          el('span', { class: `adm-link-dot${l.linked ? ' up' : ''}` }),
+          el('strong', { text: l.linked ? 'Connected' : 'Not connected' }),
+          el('span', { class: 'muted', text: l.linked
+            ? `mod ${l.version || '(version unknown)'}${l.version && !d.mod_update ? ' (the newest)' : ''}${l.connected_ago != null ? ` · connected ${secs(l.connected_ago)} ago` : ''} · last heard ${secs(l.heard_ago)} ago`
+            : 'messages can’t reach the game until the mod reconnects' })),
+        el('div', { class: 'adm-form' }, button('Test connection', async () => {
+          linkNote.textContent = 'Testing…';
+          try {
+            const { probe, link } = await adminPost({ action: 'link.test' });
+            admin.linkNote = probe.ok ? `The mod answered in ${probe.ms} ms. Nothing was shown in game.`
+              : `No answer from the mod (${probe.why}).`;
+            d.link = link;
+          } catch (err) {
+            admin.linkNote = err.message;
+          }
+          renderAdmin();
+        }), linkNote),
+        l.log?.length ? el('ul', { class: 'adm-list adm-scroll' }, ...l.log.slice().reverse().map((e) => el('li', {},
+          el('span', { class: 'adm-main', text: e.what }), el('span', { class: 'muted adm-when', text: `${secs(e.ago)} ago` }))))
+          : empty('Nothing has happened to it lately.')));
+  };
 
   // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update
-  const mu = d.mod_update;
-  const updateCard = !mu ? null : el('section', { class: `card adm-card adm-update${mu.urgent ? ' urgent' : ''}` },
-    el('div', { class: 'card-head' },
-      el('h2', { text: mu.urgent ? 'Urgent: update the server mod' : 'A newer server mod is out' }),
-      el('span', { class: 'card-sub', text: `mcstats ${mu.current} → ${mu.latest}` })),
-    ...(mu.urgent ? [el('ul', { class: 'adm-update-why' }, ...mu.urgent_why.map((w) => el('li', { text: w })))] : []),
-    el('p', { class: 'adm-note' },
-      'To update: ', el('a', { href: mu.jar_url, download: '', text: `download ${mu.jar}` }),
-      `, put it in the server’s mods folder in place of the old mcstats-chat jar, and restart the server. The config file stays as it is.`),
-    ...mu.releases.map((r) => el('div', { class: 'adm-release' },
-      el('h3', {},
-        el('span', { text: r.version }),
-        r.date ? el('span', { class: 'muted', text: ` · ${r.date}` }) : '',
-        r.urgent ? el('span', { class: 'adm-rule-tag hide', text: 'Urgent' }) : ''),
-      ...(r.urgent_why ? [el('p', { class: 'adm-release-urgent', text: r.urgent_why })] : []),
-      ...(r.summary ? [el('p', { class: 'adm-note', text: r.summary })] : []),
-      ...r.changes.map((c) => el('div', {},
-        el('h4', { text: c.section }),
-        el('ul', { class: 'adm-release-list' }, ...c.items.map((it) => el('li', {},
-          ...(it.title ? [el('strong', { text: `${it.title}. ` })] : []), it.text))))))));
+  const updateCard = () => {
+    const mu = d.mod_update;
+    if (!mu) return null;
+    return el('section', { class: `card adm-card adm-update${mu.urgent ? ' urgent' : ''}` },
+      el('div', { class: 'card-head' },
+        el('h2', { text: mu.urgent ? 'Urgent: update the server mod' : 'A newer server mod is out' }),
+        el('span', { class: 'card-sub', text: `mcstats ${mu.current} → ${mu.latest}` })),
+      ...(mu.urgent ? [el('ul', { class: 'adm-update-why' }, ...mu.urgent_why.map((w) => el('li', { text: w })))] : []),
+      el('p', { class: 'adm-note' },
+        'To update: ', el('a', { href: mu.jar_url, download: '', text: `download ${mu.jar}` }),
+        `, put it in the server’s mods folder in place of the old mcstats-chat jar, and restart the server. The config file stays as it is.`),
+      ...mu.releases.map((r) => el('div', { class: 'adm-release' },
+        el('h3', {},
+          el('span', { text: r.version }),
+          r.date ? el('span', { class: 'muted', text: ` · ${r.date}` }) : '',
+          r.urgent ? el('span', { class: 'adm-rule-tag hide', text: 'Urgent' }) : ''),
+        ...(r.urgent_why ? [el('p', { class: 'adm-release-urgent', text: r.urgent_why })] : []),
+        ...(r.summary ? [el('p', { class: 'adm-note', text: r.summary })] : []),
+        ...r.changes.map((c) => el('div', {},
+          el('h4', { text: c.section }),
+          el('ul', { class: 'adm-release-list' }, ...c.items.map((it) => el('li', {},
+            ...(it.title ? [el('strong', { text: `${it.title}. ` })] : []), it.text))))))));
+  };
 
-  $('#admin').replaceChildren(...(updateCard ? [updateCard] : []), players,
-    el('div', { class: 'adm-settings' },
-      el('p', { class: 'adm-intro' }, el('strong', { text: 'Settings. ' }),
-        'Nothing you change in this part takes effect until you press Save at the bottom of it. Reset changes puts it all back to how it was last saved.'),
-      teamsCard, rosterCard, el('div', { class: 'grid2' }, hiddenCard, aliasCard), saveBar),
-    el('p', { class: 'adm-intro adm-intro-now' }, el('strong', { text: 'Done right away. ' }),
-      'These aren’t part of Save: each button here acts as soon as it’s pressed.'),
-    rulesCard, uncountedCard, deletedCard, gapsCard, linkCard);
-  if (focusKey) $('#admin').querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+  const views = {
+    players: playersView,
+    teams: () => [teamsCard(), rosterCard()],
+    moderation: () => [rulesCard(), deletedCard(), uncountedCard()],
+    mod: () => [updateCard(), linkCard(), gapsCard()],
+  };
+  const root = $('#admin');
+  const listTop = root.querySelector('.adm-plist')?.scrollTop ?? null;
+  root.replaceChildren(players, ...views[section]().filter(Boolean));
+  if (listTop != null) { const l = root.querySelector('.adm-plist'); if (l) l.scrollTop = listTop; }
+  if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+  renderAdminBar();
 }
 
 // Chat log rules (src/chatrules.js): the kinds of line and ways to match, as the admin page names them.
@@ -7809,11 +8590,14 @@ async function route() {
   showError('');
   if (location.hash !== '#/admin/server') srvLeave(); // a look tried on Admin → Server but not saved
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
+  // Admin's sections: #/admin (Players), #/admin/players/<name>, #/admin/teams, …
+  const adm = location.hash.match(/^#\/admin(?:\/(players|teams|moderation|mod)(?:\/([^/]{1,40}))?)?$/);
   try {
     if (m) await showPlayer(m[1]);
     else if (location.hash === '#/chat') await showChat();
     else if (location.hash === '#/combat') await showCombat();
-    else if (location.hash === '#/admin') await showAdmin();
+    else if (adm) await showAdmin(adm[1] || 'players', adm[2] ? decodeURIComponent(adm[2]) : null);
+    else if (location.hash === '#/admin/layout') await showLayoutAdmin();
     else if (location.hash === '#/admin/server') await showServerAdmin();
     else if (location.hash === '#/admin/analytics') await showAnalytics();
     else if (location.hash === '#/admin/roles') await showRoles();
@@ -8158,9 +8942,8 @@ async function refresh() {
     if (m) await showPlayer(m[1], { refresh: true });
     else if (location.hash === '#/chat') await showChat({ refresh: true });
     else if (location.hash === '#/combat') await showCombat({ refresh: true });
-    else if (location.hash === '#/admin') { /* the admin page reloads only on a change */ }
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
-    else if (location.hash === '#/admin/roles' || location.hash === '#/admin/server') { /* these reload only on a change */ }
+    else if (location.hash.startsWith('#/admin')) { /* the admin page reloads only on a change */ }
     else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
     else await showHome();
     renderUnread();

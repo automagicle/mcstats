@@ -6,7 +6,7 @@
 //   - the egg in the model's off hand, with its particles
 //   - an egg card beside Combat on the player's page: passive, primary, secondary, level and energy,
 //     and the item's tooltip word for word as the game shows it
-//   - an Egg column on Admin → Settings, to say which egg each player has
+//   - an Egg column on Admin → Players and Teams, to say which egg each player has
 // Which egg a player has comes from the server mod (it reports the egg's number, level and energy with
 // their gear), else from the roster's "egg".
 //
@@ -238,7 +238,7 @@
       return { offhand: heldEgg(gear, id), aura: (id && (gear?.egg?.energy === 0 ? AURA_CRACKED : AURA[id])) || null };
     },
     playerCard,
-    // Admin → Settings: which egg each player has (the roster's "egg")
+    // Admin → Players and Teams: which egg each player has (the roster's "egg")
     rosterColumn() {
       const ids = Object.keys(EGGS).sort((a, b) => EGGS[a][0].localeCompare(EGGS[b][0]));
       return { key: 'egg', title: 'Egg', plural: 'eggs', none: 'No egg', options: ids.map((id) => [id, EGGS[id][0]]), label: (id) => eggInfo(id).name };

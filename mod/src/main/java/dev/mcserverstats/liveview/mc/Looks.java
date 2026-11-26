@@ -55,6 +55,7 @@ public final class Looks {
 		boolean baby = entity instanceof LivingEntity living && living.isBaby();
 		String texture = null;
 		String model = null;
+		//#if MC >= 26.1
 		var wolf = entity.get(DataComponents.WOLF_VARIANT);
 		var cat = entity.get(DataComponents.CAT_VARIANT);
 		var pig = entity.get(DataComponents.PIG_VARIANT);
@@ -79,6 +80,38 @@ public final class Looks {
 		} else if (frog != null) {
 			texture = frog.value().assetInfo().id().toString();
 		}
+		//#elseif MC >= 1.21.5
+		//$$ // before 26.1 there were no baby textures, and a chicken's variant may be only a name until it's looked up
+		//$$ var wolf = entity.get(DataComponents.WOLF_VARIANT);
+		//$$ var cat = entity.get(DataComponents.CAT_VARIANT);
+		//$$ var pig = entity.get(DataComponents.PIG_VARIANT);
+		//$$ var cow = entity.get(DataComponents.COW_VARIANT);
+		//$$ var chicken = entity.get(DataComponents.CHICKEN_VARIANT);
+		//$$ var frog = entity.get(DataComponents.FROG_VARIANT);
+		//$$ if (wolf != null) {
+		//$$ 	var info = wolf.value().assetInfo();
+		//$$ 	boolean tame = entity instanceof TamableAnimal tamable && tamable.isTame();
+		//$$ 	texture = (tame ? info.tame() : info.wild()).id().toString();
+		//$$ } else if (cat != null) {
+		//$$ 	texture = cat.value().assetInfo().id().toString();
+		//$$ } else if (pig != null) {
+		//$$ 	texture = pig.value().modelAndTexture().asset().id().toString();
+		//$$ 	model = pig.value().modelAndTexture().model().getSerializedName();
+		//$$ } else if (cow != null) {
+		//$$ 	texture = cow.value().modelAndTexture().asset().id().toString();
+		//$$ 	model = cow.value().modelAndTexture().model().getSerializedName();
+		//$$ } else if (chicken != null) {
+		//$$ 	var c = chicken.unwrap(entity.registryAccess()).orElse(null);
+		//$$ 	if (c != null) {
+		//$$ 		texture = c.value().modelAndTexture().asset().id().toString();
+		//$$ 		model = c.value().modelAndTexture().model().getSerializedName();
+		//$$ 	}
+		//$$ } else if (frog != null) {
+		//$$ 	texture = frog.value().assetInfo().id().toString();
+		//$$ }
+		//#else
+		//$$ // before 1.21.5 mobs had no variant components: Liveview draws their default look
+		//#endif
 		String variant = null;
 		for (DataComponentType<?> type : ENUM_VARIANTS) {
 			Object value = entity.get(type);
@@ -179,8 +212,15 @@ public final class Looks {
 		if (!(entity instanceof LivingEntity living)) {
 			return new Look.Motion(pose, false, -1, false, -1, false, 0, entity.isPassenger(), radius);
 		}
+		//#if MC >= 26.3
+		//$$ // 26.3 keeps the swing in a private state: how far through it is (0 to 1) times how long it lasts
+		//$$ LivingEntity.SwingDescription current = living.isSwinging() ? living.getCurrentSwing() : null;
+		//$$ int swing = current == null ? -1 : Math.round(living.getSwingAnimation(0f) * current.durationTicks());
+		//$$ boolean swingOff = current != null && current.hand() == net.minecraft.world.InteractionHand.OFF_HAND;
+		//#else
 		int swing = living.swinging ? Math.max(0, living.swingTime) : -1;
 		boolean swingOff = living.swingingArm == net.minecraft.world.InteractionHand.OFF_HAND;
+		//#endif
 		int using = living.isUsingItem() ? living.getTicksUsingItem() : -1;
 		boolean useOff = living.isUsingItem() && living.getUsedItemHand() == net.minecraft.world.InteractionHand.OFF_HAND;
 		return new Look.Motion(pose, entity.isSprinting(), swing, swingOff, using, useOff, Math.max(0, living.hurtTime),

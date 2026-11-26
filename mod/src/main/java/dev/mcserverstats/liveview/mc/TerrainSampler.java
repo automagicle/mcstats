@@ -323,11 +323,23 @@ public final class TerrainSampler {
 				name,
 				biome.getBaseTemperature(),
 				downfall(server, name, biome),
+				//#if MC >= 1.21.11
 				effects.grassColorOverride().orElse(null),
 				effects.foliageColorOverride().orElse(null),
 				effects.dryFoliageColorOverride().orElse(null),
 				effects.grassColorModifier().getSerializedName(),
 				effects.waterColor());
+				//#else
+				//$$ effects.getGrassColorOverride().orElse(null),
+				//$$ effects.getFoliageColorOverride().orElse(null),
+				//#if MC >= 1.21.5
+				//$$ effects.getDryFoliageColorOverride().orElse(null),
+				//#else
+				//$$ null, // dry foliage (leaf litter) arrived in 1.21.5
+				//#endif
+				//$$ effects.getGrassColorModifier().getSerializedName(),
+				//$$ effects.getWaterColor());
+				//#endif
 		BIOMES.put(name, info);
 		return info;
 	}

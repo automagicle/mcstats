@@ -65,7 +65,11 @@ public final class ParticleTap {
 			} else if (options instanceof net.minecraft.core.particles.ColorParticleOption tinted) {
 				color = rgb(tinted.getRed(), tinted.getGreen(), tinted.getBlue());
 			} else if (options instanceof net.minecraft.core.particles.ItemParticleOption itemOption) {
+				//#if MC >= 26.1
 				block = Ids.item(itemOption.getItem().create());
+				//#else
+				//$$ block = Ids.item(itemOption.getItem());
+				//#endif
 			}
 			thisTick++;
 			out.accept(new ParticleEvent(Ids.dimension(level), id.toString(), x, y, z, Math.max(0, Math.min(count, 256)),

@@ -142,7 +142,7 @@ ignores `roster-*.json`; see `roster.example.json` for the format:
 `"IGN": { "name": "Real name", "egg": "gravity", "email": "them@example.org" }`, egg ids as in the Egg SMP datapack;
 `email` can be a list) and run `npm run roster:remote` after each change; it replaces the season's roster, takes effect
 at once and needs no deploy. `npm run roster:local` does the same for local development.
-A player's emails are who may send chat from the dashboard as them; they're never shown on the page.
+A player's emails are who may send chat from the dashboard as them. They stay off the public pages; admins set them on Admin → Players.
 `"admins": ["someone@example.org"]` beside the teams lets people who aren't players send chat too; their messages show
 with a yellow **Admin** tag instead of a name (in game: `[Web] [Admin] message`).
 
@@ -152,17 +152,23 @@ log is left empty.
 
 ## Admin page
 
-`#/admin` (linked in the footer for admins only) has four tabs: **Settings** (below), **Server**, **Analytics** and,
-for owners, **Roles**.
+`#/admin` (linked in the footer for admins only) is one page with a menu down the left: **Players**, **Teams**,
+**Layout**, **Server**, **Chat and deaths**, **Mod and data**, **Analytics**, and, for owners, **Roles**. On a
+phone the menu is a strip that scrolls sideways. One Save bar at the bottom covers every section. It only
+appears when something is unsaved, lists each change, and puts a count on the section it belongs to. Reset
+puts that draft back. Nothing on the site changes until Save, and Save applies all of it or none of it.
+Unsaved changes stay while you look at other pages, and the browser warns before the tab is closed with some.
 
 ### Server (the server's own details)
 
-Admin → **Server** (`src/serveradmin.js`, `GET`/`POST /api/admin/server`) changes the server itself. Like Settings it
-is a draft with a Save bar; nothing changes until Save.
+Admin → **Server** (`src/serveradmin.js`, `GET`/`POST /api/admin/server`) changes the server itself. Like the rest of
+Admin it is a draft on the Save bar; nothing changes until Save.
 
 | What | Who | Notes |
 | --- | --- | --- |
 | **Name** | admins | Shown at the top of its pages and in emails. |
+| **Icon** | admins | A square picture, dropped on the box or picked with the button, cropped to a 128px PNG. The game's own 64×64 `server-icon.png` stays sharp. It sits beside the name in the About header on Activity, and it becomes the browser tab's icon. |
+| **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description. |
 | **Address** (`/s/<address>/`) | owners | Moves the server: the old address stops existing and everyone joins again at the new one (cookies are per address). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
 | **Private or public** | owners | A public server can only be made private once it has a join password. |
 | **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
@@ -190,19 +196,33 @@ hand with its particles, and an Egg column on the roster. The first server (the 
 version) has it switched on; servers made on `/new` don't. The roster's `egg` column and the gear report's `egg`
 field are still stored for every server (they're simply empty elsewhere), so switching the add-on off and on loses nothing.
 
-### Settings
+### Players
 
-**Settings** (the teams, the season's players with their teams and eggs, each player's teams over time, hidden
-players and merged accounts) are a draft: nothing changes on the site until **Save** is pressed, in the bar at the
-bottom of that part, which lists what's about to change. **Reset changes** puts everything back to how it was last
-saved. Save applies all of it at once, or none of it if something's wrong. Unsaved changes stay while you look at
-other pages, and the browser warns before the tab is closed with some.
+Admin → **Players** is a list beside an editor for one player. The list searches by in-game name or real name and
+filters to the roster, people not on it, or hidden players. The editor sets their team, real name, any add-on
+fields, the teams they were on earlier, which sign-in emails can send chat from the site as them, whether they
+are hidden (and the note that goes with that), and which accounts merge into them. Typing a name the server has
+not seen yet offers to add that player. On a phone, picking a player hides the list; **All players** brings it back.
+
+### Layout
+
+Admin → **Layout** arranges the Activity, Player and Combat pages. Each section is a block: drag it, or use its
+arrows, to reorder; set it to a third, a half, two thirds or full width; hide it; and, where the page allows,
+rename its heading. The number tiles (Online now, and the ones on a player page) reorder and hide the same way.
+Widths are a row of six columns, and the last block in a row stretches so a hidden section leaves no gap. On a
+phone every section is full width whatever width it was given. The real pages show the draft as you edit, with a
+note that it is not saved yet; everyone else still sees the saved layout. It is one server setting (`LAYOUT`,
+`src/layout.js`) and the Worker puts it on the page before the dashboard draws, so the pages are already arranged.
+
+### Chat and deaths
 
 **Done right away**: the deaths left out of Combat and the deleted chat messages (so either can be undone), filling
 gaps, and testing the web chat connection. Admins can also right-click a chat line or a death: **Delete message**
 takes it out of the chat log (and Combat), and **Don't count in combat** leaves a death out of Combat while the chat
 log keeps it. Shift + right-click opens the browser's own menu. Deleted lines are kept in `deleted_chat` and come
 back with Restore; a copy the mod resends stays out.
+
+### Teams
 
 **Teams** (table `teams`): the Teams card makes new teams, renames them, picks each one's color (a dark page
 uses a lighter shade of it), and orders them with the arrows; that order is the one they're listed and stacked in
@@ -230,7 +250,7 @@ The web chat connection card shows the server mod's link and tests it.
 
 ### Roles (who may do what)
 
-`#/admin/roles` (the **Roles** tab, super admins only) is a table of everyone the site knows about (whoever has
+`#/admin/roles` (**Roles**, super admins only) is a table of everyone the site knows about (whoever has
 opened it, is on the roster, or was added there by email) with five permissions each, ticked independently and
 saved at once (table `user_perms`, `src/roles.js`):
 
@@ -238,12 +258,12 @@ saved at once (table `user_perms`, `src/roles.js`):
 | --- | --- |
 | **View** | See the dashboard at all. Without it every page says the account has no access. |
 | **Chat** | Send chat and whispers from the Chat log (their email still has to be on the roster). |
-| **Admin page** | Settings and Analytics on the admin page. Not Roles. |
+| **Admin page** | The admin page, except Roles. |
 | **Liveview** | Watch through Liveview, once the Minecraft server lets the account in. |
 | **Liveview controls** | Run commands and move items from Liveview, once the server allows that too. |
 
 Everything here is per server. Each member has a **role**, which sets their ticks: **Owner** (all five, and this
-tab), **Admin** (all five) and **Member** (View and Chat). Anyone who can look at the server becomes a member by
+section), **Admin** (all five) and **Member** (View and Chat). Anyone who can look at the server becomes a member by
 signing in on it; owners add admins and members here (or on `/new`), switch single ticks, and remove members.
 "Changed" means someone's ticks differ from their role's; **Reset** puts them back. The last column shows the Minecraft server's own say for Liveview (see [Liveview](#liveview)): a tick here
 is only half of it, and that half can't be given from the dashboard.
@@ -258,13 +278,12 @@ npx wrangler secret put SUPER_ADMIN_EMAIL
 For local development, add `SUPER_ADMIN_EMAIL=` with your `DEV_EMAIL` to `.dev.vars`.
 
 The old `ADMIN_EMAIL` secret only matters once: `scripts/copy-tenant.mjs` makes those emails admins of the first
-server. Players, teams and eggs changed on the page are
-replaced the next time `npm run roster:remote` runs, so copy lasting ones into the roster file (it also holds the real
-names and chat emails, which the page doesn't show).
+server. Players, teams, real names, chat emails and eggs changed on the page are
+replaced the next time `npm run roster:remote` runs, so copy lasting ones into the roster file.
 
 ### Analytics
 
-`#/admin/analytics` (the **Analytics** tab beside **Settings**) is website analytics kept in our own database
+`#/admin/analytics` (**Analytics**) is website analytics kept in our own database
 (table `site_visits`, `src/analytics.js`), with no outside service. The page sends `POST /api/hit` with only its
 route (home, chat, combat, admin, or `player:<uuid>`) on each page view, and once a minute while a page is open and
 visible. Rows are per visitor (their Cloudflare Access login), page and UTC day, so storage stays small. The tab shows
@@ -443,6 +462,14 @@ Two things, separately:
   owner can see its members' emails. People an owner added by email get in by signing in to an account with that
   address, without the join password.
 
+**Your servers** (`/servers`, `src/myservers.js`): every account has its own list of servers, linked from the top of
+the site's pages and from the account menu on a server's page. A server goes on it by itself when you make it, join it
+with its password while signed in, or open it as a member; any server you can see can be added with **Add to my
+servers** at the top of its page. Each row shows your role there and who's on now (asked of the server's own object,
+which says nothing to an account that can no longer see it), and can be dragged to reorder or removed. Removing only
+takes it off the list, and it isn't put back by itself afterwards. The list is kept in the directory
+(`account_servers`); members from before it existed show up the next time they open their server.
+
 **Sending chat** also needs the email to be on the season's roster (see Teams above); anyone else sees the message box
 disabled with the reason. Making servers (`/new`) needs an account too.
 
@@ -506,7 +533,7 @@ connections; the page reconnects by itself.
   real name, with the other one on hover; the choice is remembered in the browser. On the leaderboard, names are in
   their team's color (red or blue), and player pages show the team.
 
-- **Home**: live status and online players, stat tiles, players online over time, daily activity bars,
+- **Home**: an About header (the server's icon, name and description, once an admin has set one), live status and online players, stat tiles, players online over time, daily activity bars,
   leaderboard (bars in each player's team color), and busiest hours as a week calendar (days across, hours down)
   that can show everyone, one team in its color, or both teams blended by their share. The players online chart adds a 1-hour moving-average trend line
   for ranges over 6 hours, switches to hourly average/peak for longer ranges, and its

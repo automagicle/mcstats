@@ -16,7 +16,11 @@ public final class ServerChecks {
 	public static WorldSky sky(MinecraftServer server) {
 		try {
 			var level = server.overworld();
+			//#if MC >= 26.1
 			return new WorldSky(level.getSkyDarken(), level.getOverworldClockTime(), level.getRainLevel(1f), level.getThunderLevel(1f));
+			//#else
+			//$$ return new WorldSky(level.getSkyDarken(), level.getDayTime(), level.getRainLevel(1f), level.getThunderLevel(1f));
+			//#endif
 		} catch (Throwable thrown) {
 			LogOnce.warn("sky-darken", "Liveview could not read the time of day", thrown);
 			return WorldSky.UNKNOWN;
@@ -28,9 +32,16 @@ public final class ServerChecks {
 	/** The world spawn as JSON ({"dimension","x","y","z"}), so a viewer with nobody to look at starts somewhere sensible. */
 	public static String spawn(MinecraftServer server) {
 		try {
+			//#if MC >= 1.21.9
 			var data = server.getRespawnData();
 			var pos = data.pos();
-			return "{\"dimension\":\"" + data.dimension().identifier() + "\",\"x\":" + pos.getX() + ",\"y\":" + pos.getY() + ",\"z\":" + pos.getZ() + "}";
+			String dimension = data.dimension().identifier().toString();
+			//#else
+			//$$ // before 1.21.9 the world spawn was always in the overworld
+			//$$ var pos = server.overworld().getSharedSpawnPos();
+			//$$ String dimension = "minecraft:overworld";
+			//#endif
+			return "{\"dimension\":\"" + dimension + "\",\"x\":" + pos.getX() + ",\"y\":" + pos.getY() + ",\"z\":" + pos.getZ() + "}";
 		} catch (Throwable thrown) {
 			LogOnce.warn("spawn", "Liveview could not read the world spawn", thrown);
 			return null;
@@ -55,7 +66,13 @@ public final class ServerChecks {
 			if (!(server instanceof DedicatedServer dedicated)) {
 				return;
 			}
+			//#if MC >= 1.21.9
 			int pause = dedicated.pauseWhenEmptySeconds();
+			//#elseif MC >= 1.21.2
+			//$$ int pause = dedicated.pauseWhileEmptySeconds();
+			//#else
+			//$$ int pause = 0; // servers only learned to pause when empty in 1.21.2
+			//#endif
 			if (pause > 0) {
 				LogOnce.info("pause-when-empty",
 						"Liveview: pause-when-empty-seconds is " + pause + ", so the server stops ticking " + pause

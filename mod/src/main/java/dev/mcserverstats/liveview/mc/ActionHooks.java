@@ -379,10 +379,9 @@ public final class ActionHooks {
 		}
 		Style style = component.getStyle();
 		if (style != null) {
-			if (style.getHoverEvent() instanceof HoverEvent.ShowEntity show
-					&& show.entity() != null
-					&& show.entity().uuid != null
-					&& hidden.contains(show.entity().uuid)) {
+			HoverEvent.EntityTooltipInfo shown = dev.mcserverstats.compat.Compat.hoverEntity(style);
+			if (shown != null && dev.mcserverstats.compat.Compat.uuid(shown) != null
+					&& hidden.contains(dev.mcserverstats.compat.Compat.uuid(shown))) {
 				return true;
 			}
 			String insertion = style.getInsertion();

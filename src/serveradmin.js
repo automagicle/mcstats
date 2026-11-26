@@ -1,7 +1,8 @@
 // Admin → Server: the server's own details, changed from its dashboard.
 //
 //   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, mod, can, … }
-//   POST /api/admin/server   any of { name, accent, tab_style }                 admins
+//   POST /api/admin/server   any of { name, accent, tab_style, about, layout }  admins
+//                            and { icon: 'data:image/png;base64,…' | '' }     admins (a square PNG; '' removes it)
 //                            and { slug, public, password + confirm }           owners
 //                            and { addons: [ids] }                              the site's operators
 //
@@ -22,6 +23,7 @@ import { limit, tooMany } from './limiter.js';
 import { ADDONS, addonList } from './addons.js';
 import { lookOf } from './look.js';
 import { MOD } from './modinfo.gen.js';
+import { iconFromDataUrl, layoutOf } from './layout.js';
 
 // Why the address can't be changed, or null. The old shared mod token finds the first server by its address
 // (LEGACY_SLUG), so that server stays put until it has a key of its own and the shared token is gone.
@@ -38,6 +40,10 @@ function state(t, row, perms) {
     has_password: row.has_password !== 0,
     accent: look.accent,
     tab_style: look.tabs,
+    // the description and icon on its Activity page, and how its pages are laid out (src/layout.js)
+    about: t.settings.ABOUT || '',
+    icon: t.settings.ICON_AT ? `/api/icon?v=${t.settings.ICON_AT}` : null,
+    layout: layoutOf(t.settings),
     addons: addonList(t.settings),
     // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
     can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
@@ -62,7 +68,7 @@ export async function handleServerAdmin(t, request, url, who) {
   let b;
   try {
     const raw = await request.text();
-    if (raw.length > 4096) return json({ error: 'too large' }, 413);
+    if (raw.length > 100_000) return json({ error: 'too large' }, 413); // an icon is up to 64 KB, as base64
     b = JSON.parse(raw);
   } catch {
     return json({ error: 'bad json' }, 400);
@@ -81,6 +87,20 @@ export async function handleServerAdmin(t, request, url, who) {
   }
   if (has('accent')) patch.ACCENT = String(b.accent);
   if (has('tab_style')) patch.TAB_STYLE = String(b.tab_style);
+  if (has('about')) patch.ABOUT = String(b.about);
+  if (has('layout')) {
+    if (typeof b.layout !== 'object' || Array.isArray(b.layout)) return bad('That isn’t a layout.', 'layout');
+    patch.LAYOUT = JSON.stringify(b.layout);
+  }
+  let icon;
+  if (has('icon')) {
+    if (b.icon === '') icon = null;
+    else {
+      const got = iconFromDataUrl(b.icon);
+      if (got.error) return bad(got.error, 'icon');
+      icon = got.bytes;
+    }
+  }
 
   const ownerOnly = ['slug', 'public', 'password'].filter((k) => has(k) && b[k] !== '');
   if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owner can change its address, password or who can see it.' }, 403);
@@ -113,8 +133,12 @@ export async function handleServerAdmin(t, request, url, who) {
   // ---- then change it ----
   if (Object.keys(patch).length) {
     const out = await t.updateSettings(patch);
-    if (out.error) return bad(out.error, patch.ACCENT !== undefined && /accent/i.test(out.error) ? 'accent' : undefined);
+    if (out.error) {
+      const field = patch.ACCENT !== undefined && /accent/i.test(out.error) ? 'accent' : /description/.test(out.error) ? 'about' : /layout/.test(out.error) ? 'layout' : undefined;
+      return bad(out.error, field);
+    }
   }
+  if (icon !== undefined) await t.setIcon(icon);
   if (has('addons')) await t.setAddons(b.addons);
   const sets = [];
   if (patch.NAME) sets.push(t.env.DIRECTORY.prepare('UPDATE servers SET name = ? WHERE id = ?').bind(patch.NAME, t.id));

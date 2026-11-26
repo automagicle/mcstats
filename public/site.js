@@ -1,5 +1,5 @@
 // The site's own pages: the landing page (/), joining a server (/join), making one (/new) and the mcstats
-// account (/account) and the mod's own page (/mod). Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js) and
+// account (/account), the account's own list of servers (/servers) and the mod's own page (/mod). Which one this is comes from <body data-page>. Talks to /api/site/* (src/site.js) and
 // /api/account/* (src/account.js).
 (() => {
   const page = document.body.dataset.page;
@@ -232,7 +232,7 @@
     if (next) { location.replace(next); return; }
 
     const site = await api('/api/site/me').catch(() => ({ servers: [] }));
-    const servers = (site.servers || []).map((s) => h('li', {},
+    const made = (site.servers || []).map((s) => h('li', {},
       h('a', { href: `/s/${s.slug}/`, text: s.name }), ' · ', h('a', { class: 'site-hint', href: `/new?server=${s.slug}`, text: s.step < 7 ? `finish setting up (step ${s.step} of 7)` : 'setup' })));
 
     const err = errorLine();
@@ -266,12 +266,215 @@
       h('h1', { class: 'site-title', text: 'Your account' }),
       h('p', { class: 'site-sub', text: `Signed in as ${me.email}` }),
       h('h2', { class: 'site-h2', text: 'Your servers' }),
-      servers.length ? h('ul', { class: 'wiz-mine' }, servers) : h('p', { class: 'site-sub', text: 'You haven’t made a server yet.' }),
-      h('div', { class: 'site-row' }, h('a', { class: 'btn', href: '/new?fresh=1', text: 'Create a server' }), h('a', { class: 'btn', href: '/join', text: 'Join a server' })),
+      h('p', { class: 'site-sub', text: 'Every server you’ve made, joined or added, with who’s on and your role in each.' }),
+      h('div', { class: 'site-row' }, h('a', { class: 'btn btn-primary', href: '/servers', text: 'Open your servers' }),
+        h('a', { class: 'btn', href: '/new?fresh=1', text: 'Create a server' }), h('a', { class: 'btn', href: '/join', text: 'Join a server' })),
+      made.length ? h('h2', { class: 'site-h2', text: 'Setting up the ones you made' }) : null,
+      made.length ? h('ul', { class: 'wiz-mine' }, made) : null,
       h('h2', { class: 'site-h2', text: 'Password' }), change,
       h('h2', { class: 'site-h2', text: 'Sign out' }),
       h('p', { class: 'site-sub', text: '“Everywhere” also signs out your other browsers and devices.' }),
       h('div', { class: 'site-row' }, out('/api/account/logout', 'Sign out'), out('/api/account/logout-all', 'Sign out everywhere'))));
+  }
+
+  // ---------------- /servers: the account's own list ----------------
+  // Each row: the server (a link to it), your role there, who's on now, and Remove. Dragged by its grip to
+  // reorder (or the grip's arrow keys). Who's on is asked for again every minute.
+  const ROLE = {
+    owner: ['Owner', 'You made this server.'],
+    admin: ['Admin', 'You can use its Admin page.'],
+    member: ['Member', 'Signed in here: you can chat from the website.'],
+    super: ['Site admin', 'You run mcstats, so you can do everything here.'],
+    viewer: ['Joined', 'You joined with the server’s password. Sign in on its page to chat.'],
+    visitor: ['Visitor', 'A public server you added. Sign in on its page to chat.'],
+    none: ['No access', 'You can’t see this server right now.'],
+  };
+  const roleOf = (s) => (s.role && ROLE[s.role] ? s.role : s.super ? 'super' : s.access === false ? 'none' : s.viewer ? 'viewer' : s.public ? 'visitor' : 'none');
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  // the same player heads the stats page uses (minotar, then mc-heads if that fails), drawn at a whole multiple
+  const playerHead = (name) => {
+    const img = h('img', { class: 'my-head', src: `https://minotar.net/helm/${encodeURIComponent(name)}/32`, alt: '', width: '16', height: '16', loading: 'lazy', title: name });
+    img.addEventListener('error', () => { if (!img.dataset.retry) { img.dataset.retry = '1'; img.src = `https://mc-heads.net/avatar/${encodeURIComponent(name)}/32`; } });
+    return img;
+  };
+
+  function onlineCell(s) {
+    if (s.access == null) return h('div', { class: 'my-online' }, h('span', { class: 'my-status' }, h('span', { class: 'my-dot' }), 'Couldn’t load it'));
+    if (!s.access) {
+      return h('div', { class: 'my-online' },
+        h('span', { class: 'my-status' }, h('span', { class: 'my-dot' }), 'Can’t see it now'),
+        h('a', { class: 'my-again', href: `/join?server=${encodeURIComponent(s.slug)}`, text: 'Join again' }));
+    }
+    const text = s.status === 'up' ? (s.online ? `${s.online}${s.max ? ` / ${s.max}` : ''} online` : 'Nobody on')
+      : s.status === 'down' ? 'Offline' : s.status === 'paused' ? 'Paused' : 'No status yet';
+    const title = s.status === 'unknown' ? 'The server hasn’t been checked lately: it has no address set, or the mod isn’t sending.' : null;
+    const heads = (s.players || []).map(playerHead);
+    return h('div', { class: 'my-online' },
+      h('span', { class: 'my-status', title, 'data-state': s.status }, h('span', { class: 'my-dot' }), text),
+      heads.length ? h('span', { class: 'my-heads', 'aria-label': `On now: ${s.players.join(', ')}${s.more ? ` and ${plural(s.more, 'other', 'others')}` : ''}` },
+        ...heads, s.more ? h('span', { class: 'my-more', text: `+${s.more}` }) : null) : null);
+  }
+
+  async function serversPage() {
+    const me = emailed ? { email: null } : await api('/api/account/me').catch(() => ({ email: null }));
+    if (!me.email) {
+      main.replaceChildren(h('section', { class: 'card site-card' },
+        h('h1', { class: 'site-title', text: 'Your servers' }),
+        h('p', { class: 'site-sub', text: 'Sign in to see the servers you’ve made, joined or added, all in one place.' }),
+        authForms({ next: '/servers', start: emailed, done: () => location.assign('/servers') })));
+      return;
+    }
+    const err = errorLine();
+    const list = h('ol', { class: 'my-list', 'aria-label': 'Your servers' });
+    const empty = h('div', { class: 'my-empty', hidden: true },
+      h('p', { class: 'site-sub', text: 'Nothing here yet. Servers you make or join show up by themselves, and every server’s page has an “Add to my servers” button at the top.' }));
+    const rows = new Map(); // slug -> { li, name, meta, online }
+    let dragging = null;
+
+    // ---- saving the order: a moment after the last move, so a few quick ones are one request ----
+    let orderTimer = 0;
+    const order = () => [...list.children].map((li) => li.dataset.slug);
+    const saveOrder = () => {
+      clearTimeout(orderTimer);
+      orderTimer = setTimeout(async () => {
+        try {
+          say(err, '');
+          await api('/api/site/mine/order', { servers: order() });
+        } catch (x) {
+          say(err, `The new order wasn’t saved: ${x.message}`);
+          load();
+        }
+      }, 400);
+    };
+
+    // ---- one row ----
+    function fill(r, s) {
+      const role = roleOf(s);
+      r.name.textContent = s.name;
+      r.name.href = `/s/${s.slug}/`;
+      // (replaceChildren writes a null out as text, so the parts that may be missing are filtered first)
+      r.meta.replaceChildren(...[
+        h('span', { class: `my-role my-role-${role}`, text: ROLE[role][0], title: ROLE[role][1] }),
+        h('span', { class: 'my-slug', text: `/s/${s.slug}` }),
+        s.owner && s.step != null && s.step < 7 ? h('a', { class: 'my-setup', href: `/new?server=${encodeURIComponent(s.slug)}`, text: `Finish setting up (step ${s.step} of 7)` }) : null,
+        s.owner && s.step === 7 ? h('a', { class: 'my-setup', href: `/new?server=${encodeURIComponent(s.slug)}&step=6`, text: 'Setup' }) : null,
+      ].filter(Boolean));
+      const cell = onlineCell(s);
+      r.online.replaceWith(cell);
+      r.online = cell;
+      r.grip.setAttribute('aria-label', `Move ${s.name}`);
+      r.remove.setAttribute('aria-label', `Remove ${s.name} from your servers`);
+    }
+
+    function makeRow(s) {
+      const li = h('li', { class: 'my-row', 'data-slug': s.slug });
+      const grip = h('button', { type: 'button', class: 'my-grip', title: 'Drag to move, or use the arrow keys' });
+      const name = h('a', { class: 'my-name' });
+      const meta = h('div', { class: 'my-meta' });
+      const online = h('div', { class: 'my-online' });
+      // two clicks: the first asks, in red, for a few seconds
+      const remove = h('button', { type: 'button', class: 'btn btn-quiet my-remove', text: 'Remove' });
+      let armed = 0;
+      remove.addEventListener('click', async () => {
+        if (!armed) {
+          remove.classList.add('armed');
+          remove.textContent = 'Remove?';
+          armed = setTimeout(() => { armed = 0; remove.classList.remove('armed'); remove.textContent = 'Remove'; }, 3000);
+          return;
+        }
+        clearTimeout(armed);
+        remove.disabled = true;
+        try {
+          await api('/api/site/mine/remove', { server: s.slug });
+          const next = li.nextElementSibling?.querySelector('.my-grip') || li.previousElementSibling?.querySelector('.my-grip');
+          li.remove();
+          rows.delete(s.slug);
+          empty.hidden = rows.size > 0;
+          next?.focus();
+        } catch (x) {
+          say(err, x.message);
+          remove.disabled = false;
+        }
+      });
+      li.append(grip, h('div', { class: 'my-main' }, name, meta), online, remove);
+      const r = { li, grip, name, meta, online, remove };
+      fill(r, s);
+      dragBy(grip, li);
+      return r;
+    }
+
+    // ---- moving rows: drag the grip (mouse, pen or finger), or its arrow keys ----
+    function move(li, by) {
+      const to = by < 0 ? li.previousElementSibling : li.nextElementSibling?.nextElementSibling ?? null;
+      if (by < 0 && !to) return false;
+      if (by > 0 && !li.nextElementSibling) return false;
+      list.insertBefore(li, to);
+      return true;
+    }
+    function dragBy(grip, li) {
+      grip.addEventListener('keydown', (e) => {
+        const by = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+        if (!by) return;
+        e.preventDefault();
+        if (move(li, by)) { grip.focus(); saveOrder(); }
+      });
+      grip.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        grip.setPointerCapture(e.pointerId);
+        const start = order().join();
+        dragging = li;
+        li.classList.add('dragging');
+        const onMove = (ev) => {
+          // Past the middle of the row above or below: swap with it. It's always the other row that's moved:
+          // taking the dragged row out of the page, even for a moment, would let go of the pointer.
+          const prev = li.previousElementSibling, next = li.nextElementSibling;
+          if (prev) { const b = prev.getBoundingClientRect(); if (ev.clientY < b.top + b.height / 2) { list.insertBefore(prev, next); return; } }
+          if (next) { const b = next.getBoundingClientRect(); if (ev.clientY > b.top + b.height / 2) list.insertBefore(next, li); }
+        };
+        const onUp = () => {
+          for (const [t, f] of ends) grip.removeEventListener(t, f);
+          li.classList.remove('dragging');
+          dragging = null;
+          if (order().join() !== start) saveOrder();
+        };
+        const ends = [['pointermove', onMove], ['pointerup', onUp], ['pointercancel', onUp], ['lostpointercapture', onUp]];
+        for (const [t, f] of ends) grip.addEventListener(t, f);
+      });
+    }
+
+    // ---- loading, and again every minute for who's on ----
+    async function load() {
+      let r;
+      try {
+        r = await api('/api/site/mine');
+      } catch (x) {
+        say(err, x.message);
+        return;
+      }
+      if (dragging) return; // not while a row is in someone's hand; the next minute will do
+      const seen = new Set();
+      for (const s of r.servers) {
+        seen.add(s.slug);
+        const row = rows.get(s.slug);
+        if (row) fill(row, s);
+        else rows.set(s.slug, makeRow(s));
+      }
+      for (const [slug, row] of rows) if (!seen.has(slug)) { row.li.remove(); rows.delete(slug); }
+      // in the order the server has (the same as on screen, unless it changed in another tab)
+      for (const s of r.servers) list.append(rows.get(s.slug).li);
+      empty.hidden = rows.size > 0;
+    }
+
+    main.replaceChildren(h('section', { class: 'card site-card my-page' },
+      h('h1', { class: 'site-title', text: 'Your servers' }),
+      h('p', { class: 'site-sub', text: 'The servers you’ve made, joined or added. Drag one by its handle to change the order.' }),
+      list, empty, err,
+      h('p', { class: 'site-hint my-note', text: 'Removing a server only takes it off this list: you keep whatever you are there, and can add it again from its page.' }),
+      h('div', { class: 'site-row' }, h('a', { class: 'btn', href: '/join', text: 'Join a server' }), h('a', { class: 'btn', href: '/new?fresh=1', text: 'Create a server' }))));
+    await load();
+    setInterval(() => { if (!document.hidden) load(); }, 60_000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   }
 
   // ---------------- /new ----------------
@@ -687,8 +890,11 @@
 
   // The top bar says who's signed in, on every one of these pages: a link to /account.
   const acct = h('a', { class: 'btn btn-quiet acct-btn top-acct', href: '/account', hidden: true });
-  toggle?.before(acct);
+  const mineLink = h('a', { class: 'btn btn-quiet top-acct top-mine', href: '/servers', hidden: true, 'aria-current': page === 'servers' ? 'page' : null });
+  toggle?.before(mineLink, acct);
   function markAccount(email) {
+    mineLink.hidden = !email;
+    mineLink.textContent = matchMedia('(max-width: 640px)').matches ? 'Servers' : 'Your servers';
     // on a phone the bar has no room for an address
     acct.textContent = email ? (matchMedia('(max-width: 640px)').matches ? 'Account' : email) : 'Sign in';
     acct.title = email ? `Signed in as ${email}` : '';
@@ -701,4 +907,5 @@
   else if (page === 'account') accountPage().catch(fail);
   else if (page === 'new') newPage().catch(fail);
   else if (page === 'mod') modPage().catch(fail);
+  else if (page === 'servers') serversPage().catch(fail);
 })();

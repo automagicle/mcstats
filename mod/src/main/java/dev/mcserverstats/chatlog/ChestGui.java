@@ -18,7 +18,11 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ChestMenu;
+//#if MC >= 26.1
 import net.minecraft.world.inventory.ContainerInput;
+//#else
+//$$ import net.minecraft.world.inventory.ClickType;
+//#endif
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
@@ -118,10 +122,16 @@ final class ChestGui extends ChestMenu {
 	}
 
 	@Override
+	//#if MC >= 26.1
 	public void clicked(int slotId, int button, ContainerInput input, Player player) {
+		boolean pickup = input == ContainerInput.PICKUP, shift = input == ContainerInput.QUICK_MOVE;
+	//#else
+	//$$ public void clicked(int slotId, int button, ClickType input, Player player) {
+	//$$ 	boolean pickup = input == ClickType.PICKUP, shift = input == ClickType.QUICK_MOVE;
+	//#endif
 		// nothing moves: no super.clicked. A plain or shift click on a slot is read as a button press.
-		if ((input == ContainerInput.PICKUP || input == ContainerInput.QUICK_MOVE) && slotId >= 0 && slotId < slots.size()) {
-			Click click = new Click(button == 1, input == ContainerInput.QUICK_MOVE);
+		if ((pickup || shift) && slotId >= 0 && slotId < slots.size()) {
+			Click click = new Click(button == 1, shift);
 			if (slotId < rows * 9) {
 				Button b = buttons.get(slotId);
 				if (b != null && b.action() != null) QUEUED.add(() -> b.action().accept(click));
@@ -151,7 +161,11 @@ final class ChestGui extends ChestMenu {
 	/* ---------- icons ---------- */
 
 	static ItemStack filler() {
+		//#if MC >= 26.2
 		ItemStack pane = new ItemStack(Items.STAINED_GLASS_PANE.black());
+		//#else
+		//$$ ItemStack pane = new ItemStack(Items.BLACK_STAINED_GLASS_PANE);
+		//#endif
 		pane.set(DataComponents.TOOLTIP_DISPLAY, new TooltipDisplay(true, new java.util.LinkedHashSet<>()));
 		return pane;
 	}

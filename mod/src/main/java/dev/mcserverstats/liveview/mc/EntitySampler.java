@@ -49,7 +49,7 @@ public final class EntitySampler {
 					if (hidden.contains(player.getUUID())) {
 						continue;
 					}
-					ServerLevel level = player.level();
+					ServerLevel level = dev.mcserverstats.compat.Compat.level(player);
 					double x = player.getX();
 					double y = player.getY();
 					double z = player.getZ();

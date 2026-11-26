@@ -7,6 +7,8 @@
 // 2. The top bar gets a sign-in: to an mcstats account (the site's /account page), which then becomes a
 //    member of this server (chat, and whatever the owner lets you do). Being a member here means nothing on
 //    any other server.
+// 3. And "Add to my servers": this server on the account's own list (/servers, src/myservers.js). M.saved says
+//    whether it's on it (null: nobody's signed in, so the button leads to signing in first).
 (() => {
   const M = window.MCS;
   if (!M || !M.base) return;
@@ -115,15 +117,81 @@
       h('div', { class: 'acct-row' }, go),
       h('p', { class: 'acct-note', text: 'The server’s owner will see your email.' }),
       err,
-      h('div', { class: 'acct-row' }, signOut()));
+      h('div', { class: 'acct-row' }, myServersLink(), signOut()));
     setTimeout(() => go.focus(), 0);
     return pop;
   }
 
+  const myServersLink = () => h('a', { class: 'btn', href: '/servers', text: 'Your servers' });
+
   function accountPanel() {
     return h('div', { class: 'acct-pop', role: 'dialog', 'aria-label': 'Account' },
       h('p', { class: 'acct-note', text: `Signed in as ${M.email}.` }),
-      h('div', { class: 'acct-row' }, h('a', { class: 'btn', href: '/account', text: 'Your account' }), signOut()));
+      h('div', { class: 'acct-row' }, myServersLink(), h('a', { class: 'btn', href: '/account', text: 'Your account' }), signOut()));
+  }
+
+  // ---- "Add to my servers" ----
+  const SAVE_KEY = `mcs-save:${M.slug}`;
+  // a bookmark, drawn in 2px squares like the rest of the site's icons; filled once it's saved
+  const SVG = 'http://www.w3.org/2000/svg';
+  const bookmark = () => {
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 10 12');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('class', 'save-icon');
+    const path = document.createElementNS(SVG, 'path');
+    // outline: the sides and top, and the notch at the bottom
+    path.setAttribute('class', 'save-line');
+    path.setAttribute('d', 'M0 0h10v12H8v-2H6V8H4v2H2v2H0zM2 2v6h2V6h2v2h2V2z');
+    const fill = document.createElementNS(SVG, 'path');
+    fill.setAttribute('class', 'save-fill');
+    fill.setAttribute('d', 'M2 2h6v6H6V6H4v2H2z');
+    svg.append(fill, path);
+    return svg;
+  };
+  function toast(text, link) {
+    document.querySelector('.save-toast')?.remove();
+    const t = h('div', { class: 'toast save-toast', role: 'status' }, text, link ? ' ' : null, link || null);
+    document.body.append(t);
+    setTimeout(() => t.classList.add('toast-out'), 3200);
+    setTimeout(() => t.remove(), 3600);
+  }
+  function saveButton() {
+    const label = h('span', { class: 'save-label' });
+    const btn = h('button', { type: 'button', class: 'btn save-btn' }, bookmark(), label);
+    const draw = () => {
+      const on = M.saved === true;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+      label.textContent = on ? 'Saved' : 'Add to my servers';
+      btn.title = on ? 'On your servers list. Click to take it off.' : `Add ${M.name} to your servers list`;
+      btn.setAttribute('aria-label', on ? `${M.name} is on your servers list` : `Add ${M.name} to your servers list`);
+    };
+    const set = async (saved) => {
+      btn.disabled = true;
+      try {
+        await post('/api/mine', { saved });
+        M.saved = saved;
+        draw();
+        toast(saved ? `Added ${M.name} to your servers.` : `Took ${M.name} off your servers.`, saved ? h('a', { href: '/servers', text: 'See the list' }) : null);
+      } catch (x) {
+        toast(x.message);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    btn.addEventListener('click', () => {
+      if (M.saved == null) {
+        // signed out: sign in first, and this click is finished on the way back (see mount)
+        try { sessionStorage.setItem(SAVE_KEY, '1'); } catch { /* they'll press it again */ }
+        location.assign(signInUrl);
+        return;
+      }
+      set(!M.saved);
+    });
+    draw();
+    return { btn, set };
   }
 
   function mount() {
@@ -135,6 +203,12 @@
       sessionStorage.removeItem(ENTER_KEY);
       if (asked && M.account && !M.email) enter().then(() => location.reload(), () => {});
     } catch { /* no storage: the Continue button does it */ }
+    const save = saveButton();
+    try {
+      const asked = sessionStorage.getItem(SAVE_KEY);
+      sessionStorage.removeItem(SAVE_KEY);
+      if (asked && M.saved === false) save.set(true);
+    } catch { /* no storage: the button does it */ }
     const wrap = h('div', { class: 'acct' });
     const btn = h('button', { type: 'button', class: M.email ? 'btn btn-quiet acct-btn' : 'btn acct-btn', 'aria-expanded': 'false', text: M.email ? M.email : 'Sign in' });
     if (M.email) btn.title = `Signed in as ${M.email}`;
@@ -153,6 +227,7 @@
     document.addEventListener('click', (e) => { if (pop && !wrap.contains(e.target)) close(); });
     wrap.append(btn);
     right.insertBefore(wrap, document.getElementById('theme-toggle'));
+    right.insertBefore(save.btn, wrap);
     const brand = document.querySelector('.brand span:last-child');
     if (brand && M.name) brand.textContent = M.name;
   }

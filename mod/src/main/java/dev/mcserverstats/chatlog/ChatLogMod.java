@@ -32,7 +32,11 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+//#if MC >= 26.2
 import net.minecraft.world.entity.EntityTypes;
+//#else
+//$$ import net.minecraft.world.entity.EntityType;
+//#endif
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
@@ -282,7 +286,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 	// Tells an operator (permission level 3, like /liveview key) about the newer mod, if there is one.
 	private void tellUpdate(ServerPlayer p) {
 		JsonObject m = update;
-		if (m == null || !Commands.hasPermission(Commands.LEVEL_ADMINS).test(p.createCommandSourceStack())) return;
+		if (m == null || !dev.mcserverstats.compat.Compat.admins().test(p.createCommandSourceStack())) return;
 		boolean urgent = m.has("urgent") && m.get("urgent").getAsBoolean();
 		ChatFormatting tone = urgent ? ChatFormatting.RED : ChatFormatting.YELLOW;
 		MutableComponent msg = Component.empty()
@@ -301,7 +305,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		String jar = jarUrl(m);
 		if (jar != null) {
 			msg.append(Component.literal("[Download " + WebChatLink.clean(str(m, "latest")) + "]")
-					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(new ClickEvent.OpenUrl(java.net.URI.create(jar)))));
+					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(dev.mcserverstats.compat.Compat.openUrl(java.net.URI.create(jar)))));
 			msg.append(Component.literal(" ").withStyle(ChatFormatting.GRAY));
 		}
 		msg.append(Component.literal("swap the jar in mods/ and restart. The whole changelog is on the dashboard's Admin page.").withStyle(ChatFormatting.GRAY));
@@ -514,9 +518,13 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		d.addProperty("cause", key);
 		if (args.length > 1 && args[1] instanceof Component by) {
 			HoverEvent.EntityTooltipInfo info = entityOf(by);
+			//#if MC >= 26.2
 			if (info != null && info.type == EntityTypes.PLAYER) {
+			//#else
+			//$$ if (info != null && info.type == EntityType.PLAYER) {
+			//#endif
 				d.addProperty("killer", plainName(by));
-				d.addProperty("killer_uuid", info.uuid.toString());
+				d.addProperty("killer_uuid", dev.mcserverstats.compat.Compat.uuid(info).toString());
 			} else if (info != null) {
 				String type = BuiltInRegistries.ENTITY_TYPE.getKey(info.type).toString();
 				d.addProperty("mob", type.startsWith("minecraft:") ? type.substring(10) : type);
@@ -531,15 +539,14 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 
 	// The entity a name in a message stands for (names carry it as their hover text).
 	private static HoverEvent.EntityTooltipInfo entityOf(Component c) {
-		return c.visit((style, text) -> style.getHoverEvent() instanceof HoverEvent.ShowEntity show
-				? Optional.of(show.entity()) : Optional.<HoverEvent.EntityTooltipInfo>empty(), Style.EMPTY).orElse(null);
+		return c.visit((style, text) -> Optional.ofNullable(dev.mcserverstats.compat.Compat.hoverEntity(style)), Style.EMPTY).orElse(null);
 	}
 
 	// Text as chat shows it (team prefixes, colors), as [{ t: text, c: "#rrggbb", p: player }] pieces.
 	// p marks pieces of a player's name (its click-to-insert text), so the dashboard can link it.
 	static JsonArray styled(Component c, int max) {
 		JsonArray out = new JsonArray();
-		HoverEvent.ShowItem[] seen = new HoverEvent.ShowItem[1];
+		HoverEvent[] seen = new HoverEvent[1];
 		c.visit((style, text) -> {
 			if (!text.isEmpty() && out.size() < max) {
 				JsonObject piece = new JsonObject();
@@ -550,11 +557,12 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				if (who != null && PLAYER_NAME.matcher(who).matches()) piece.addProperty("p", who);
 				// An item's name (the weapon in a death message): marked, and the first piece of it
 				// carries what hovering over it shows in game.
-				if (style.getHoverEvent() instanceof HoverEvent.ShowItem show) {
+				ItemStack shown = dev.mcserverstats.compat.Compat.hoverItem(style);
+				if (shown != null) {
 					piece.addProperty("w", true);
-					if (seen[0] != show) {
-						seen[0] = show;
-						JsonArray lines = tooltip(show);
+					if (seen[0] != style.getHoverEvent()) {
+						seen[0] = style.getHoverEvent();
+						JsonArray lines = hoverTooltip(shown);
 						if (lines != null) piece.add("i", lines);
 					}
 				}
@@ -567,9 +575,9 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 
 	// An item's tooltip as the game shows it (name, enchantments, attributes, lore): a list of
 	// lines, each a list of { t, c?, i? (italic) } pieces. An empty list is a blank line.
-	private static JsonArray tooltip(HoverEvent.ShowItem show) {
+	private static JsonArray hoverTooltip(ItemStack shown) {
 		try {
-			return tooltip(show.item().create());
+			return tooltip(shown);
 		} catch (RuntimeException e) {
 			LOG.debug("Couldn't read an item's tooltip", e);
 			return null;

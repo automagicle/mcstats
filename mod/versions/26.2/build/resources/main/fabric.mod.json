@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "mcstats_chat",
+	"version": "2.3.0",
+	"name": "mcstats",
+	"description": "Sends chat, joins, leaves, deaths (with who did it) and advancements, what players wear and carry, and their advancement progress, to an mcstats dashboard, shows chat sent from the dashboard in game, passes whispers between the game and the dashboard, and lets the dashboard's admins watch the world live (Liveview), with a second key to run commands, and gives players /mcstats menus for stats and how they look on the dashboard.",
+	"license": "MIT",
+	"environment": "server",
+	"mixins": ["mcstats_chat.mixins.json", "mcstats_liveview.mixins.json"],
+	"entrypoints": {
+		"server": ["dev.mcserverstats.chatlog.ChatLogMod"]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~26.2",
+		"java": ">=25"
+	}
+}

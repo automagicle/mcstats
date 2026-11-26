@@ -1,0 +1,210 @@
+// The build for one Minecraft version group, applied to each project in versions/ (build.gradle).
+// Its gradle.properties says:
+//   minecraft_version   the version compiled against (the newest of the group)
+//   minecraft_range     the versions it runs on, as fabric.mod.json's "minecraft" (e.g. ">=1.21 <=1.21.1")
+//   fabric_api_version  Fabric API for that version (only a few of its modules, bundled into the jar)
+//   java_version        21 for 1.21.x, 25 for 26.x
+//   loader_min          the oldest Fabric Loader it asks for
+//
+// The source is src/main/java, as written for the newest version. Lines that differ by version sit in
+//   //#if MC >= 26.1
+//   ...lines for 26.1 and newer...
+//   //#elseif MC >= 1.21.5
+//   //$$ ...lines for 1.21.5 up to 26.1, commented out with //$$ ...
+//   //#else
+//   //$$ ...older...
+//   //#endif
+// Before compiling, each line in a branch that applies is un-commented and each line in a branch that
+// doesn't is commented out (preprocess below), into build/preprocessed. src/ itself is never changed.
+// Conditions: MC compared with a version by >=, >, <=, <, == or !=, joined with && or ||.
+// Names Mojang only renamed (a class, a method) go in versions/renames.txt instead: outside the
+// //#if blocks, every whole-word match is replaced for the versions its condition holds.
+
+def mc = project.property('minecraft_version') as String
+def remap = !(mc ==~ /^\d{2,}\..*/) // 26.x and later are unobfuscated
+def javaVersion = (project.property('java_version') as String).toInteger()
+
+apply plugin: remap ? 'net.fabricmc.fabric-loom-remap' : 'net.fabricmc.fabric-loom'
+
+base {
+	archivesName = 'mcstats-chat'
+}
+version = "${rootProject.property('version')}+mc${project.name}"
+group = rootProject.property('group')
+
+repositories {
+	mavenCentral()
+}
+
+// The bits of Fabric API the mod uses, built into its jar so the server needn't install Fabric API.
+// Chat needs the message and lifecycle events; Liveview adds its /liveview command and the events its
+// action feed is built from (blocks broken and used, attacks, deaths, joins). Read by scripts/mod-info.mjs.
+def fabricApiModules = ['fabric-api-base', 'fabric-message-api-v1', 'fabric-lifecycle-events-v1',
+		'fabric-command-api-v2', 'fabric-entity-events-v1', 'fabric-events-interaction-v0', 'fabric-networking-api-v1']
+
+dependencies {
+	minecraft "com.mojang:minecraft:${mc}"
+	if (remap) mappings loom.officialMojangMappings()
+	def impl = remap ? 'modImplementation' : 'implementation'
+	add(impl, "net.fabricmc:fabric-loader:${rootProject.property('loader_version')}")
+	for (name in fabricApiModules) {
+		def dep = fabricApi.module(name, project.property('fabric_api_version') as String)
+		add(impl, dep)
+		add('include', dep)
+	}
+}
+
+/* ---------- the preprocessor ---------- */
+
+// "1.21.11" -> [1, 21, 11]; compared part by part, so 26.1 > 1.21.11.
+def parts = { String v -> v.tokenize('.').collect { it.replaceAll(/\D.*/, '') ?: '0' }.collect { it.toInteger() } }
+def compare = { String a, String b ->
+	def x = parts(a), y = parts(b)
+	for (int i = 0; i < Math.max(x.size(), y.size()); i++) {
+		int d = (i < x.size() ? x[i] : 0) <=> (i < y.size() ? y[i] : 0)
+		if (d != 0) return d
+	}
+	return 0
+}
+def holds = { String cond, String file, int line ->
+	cond.split(/\|\|/).any { alt ->
+		alt.split(/&&/).every { term ->
+			def m = term.trim() =~ /^MC\s*(>=|<=|==|!=|>|<)\s*([0-9][0-9.]*)$/
+			if (!m.matches()) throw new GradleException("$file:$line: can't read the condition '${term.trim()}'")
+			int c = compare(mc, m.group(2))
+			switch (m.group(1)) {
+				case '>=': return c >= 0
+				case '<=': return c <= 0
+				case '>': return c > 0
+				case '<': return c < 0
+				case '==': return c == 0
+				default: return c != 0
+			}
+		}
+	}
+}
+// One file's lines for this version. Every line keeps its place, so errors point at the right line in src/.
+def preprocess = { List<String> lines, String file ->
+	def out = []
+	// one entry per open #if: [active now, some branch already taken, enclosing active]
+	def stack = []
+	boolean active = true
+	lines.eachWithIndex { String raw, int i ->
+		def t = raw.trim()
+		if (t.startsWith('//#if ')) {
+			boolean on = active && holds(t.substring(6), file, i + 1)
+			stack.push([on, on, active])
+			active = on
+			out << raw
+		} else if (t.startsWith('//#elseif ')) {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#elseif without //#if")
+			def top = stack.pop()
+			boolean on = top[2] && !top[1] && holds(t.substring(10), file, i + 1)
+			stack.push([on, top[1] || on, top[2]])
+			active = on
+			out << raw
+		} else if (t == '//#else') {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#else without //#if")
+			def top = stack.pop()
+			boolean on = top[2] && !top[1]
+			stack.push([on, true, top[2]])
+			active = on
+			out << raw
+		} else if (t == '//#endif') {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#endif without //#if")
+			active = stack.pop()[2]
+			out << raw
+		} else if (stack) {
+			def indent = raw.replaceAll(/^(\s*).*$/, '$1')
+			def body = raw.substring(indent.length())
+			boolean commented = body.startsWith('//$$')
+			if (active && commented) out << indent + body.substring(4).replaceFirst(/^ /, '')
+			else if (!active && !commented && body) out << indent + '//$$ ' + body
+			else out << raw
+		} else {
+			out << raw
+		}
+	}
+	if (stack) throw new GradleException("$file: an //#if is never closed with //#endif")
+	return out
+}
+
+// versions/renames.txt: "<condition> | <name> -> <replacement>", one per line, # for comments
+def renames = []
+def renameFile = rootProject.file('versions/renames.txt')
+if (renameFile.exists()) {
+	renameFile.readLines('UTF-8').eachWithIndex { String line, int i ->
+		def t = line.replaceFirst(/#.*$/, '').trim()
+		if (!t) return
+		def m = t =~ /^(.+?)\|\s*(\S+)\s*->\s*(\S+)$/
+		if (!m.matches()) throw new GradleException("versions/renames.txt:${i + 1}: expected '<condition> | <name> -> <replacement>'")
+		if (holds(m.group(1).trim(), 'versions/renames.txt', i + 1)) {
+			def from = m.group(2)
+			// a name is matched as a whole word; a leading "." matches a method call or field like .identifier(
+			renames << [java.util.regex.Pattern.compile((from.startsWith('.') ? '' : '(?<![\\w$])') + java.util.regex.Pattern.quote(from) + '(?![\\w$])'), java.util.regex.Matcher.quoteReplacement(m.group(3))]
+		}
+	}
+}
+def rename = { String line ->
+	for (r in renames) line = r[0].matcher(line).replaceAll(r[1])
+	return line
+}
+
+def preprocessed = layout.buildDirectory.dir('preprocessed/java')
+def preprocessJava = tasks.register('preprocessJava') {
+	def src = rootProject.file('src/main/java')
+	inputs.dir(src)
+	inputs.property('mc', mc)
+	if (renameFile.exists()) inputs.file(renameFile)
+	outputs.dir(preprocessed)
+	def outDir = preprocessed.get().asFile
+	doLast {
+		outDir.deleteDir()
+		src.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+			def rel = src.toPath().relativize(f.toPath()).toString()
+			def target = new File(outDir, rel)
+			target.parentFile.mkdirs()
+			if (f.name.endsWith('.java')) {
+				def text = f.getText('UTF-8')
+				def lines = preprocess(text.split('\n', -1) as List, rel).collect { rename(it) }
+				target.setText(lines.join('\n'), 'UTF-8')
+			} else {
+				target.bytes = f.bytes
+			}
+		}
+	}
+}
+
+sourceSets {
+	main {
+		java.srcDirs = [preprocessed]
+		resources.srcDirs = [rootProject.file('src/main/resources')]
+	}
+}
+tasks.named('compileJava') { dependsOn preprocessJava }
+// Loom's sources jar and anything else reading the source get the preprocessed copy too
+tasks.matching { it.name == 'sourcesJar' }.configureEach { dependsOn preprocessJava }
+
+processResources {
+	def props = [
+			version  : rootProject.property('version'),
+			minecraft: project.property('minecraft_range'),
+			java     : ">=${javaVersion}",
+			loader   : ">=${project.property('loader_min')}",
+			mixinJava: "JAVA_${javaVersion}",
+	]
+	inputs.properties(props)
+	filesMatching(['fabric.mod.json', '*.mixins.json']) {
+		expand props
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = javaVersion
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.toVersion(javaVersion)
+	targetCompatibility = JavaVersion.toVersion(javaVersion)
+}

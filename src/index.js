@@ -6,13 +6,15 @@
 //   /api/ingest/*        the mod's uploads; the server is the one its key names (mcs_<server id>_…), and that
 //                        server's object checks the key itself. The old shared CHAT_INGEST_TOKEN still works,
 //                        for the first server (LEGACY_SLUG) only.
-//   /api/site/*          joining and making servers (src/site.js);  /api/ops/*  the operator's (src/ops.js)
+//   /api/site/*          joining and making servers, and each account's list of them (src/site.js, src/myservers.js)
+//                        /api/ops/*  the operator's (src/ops.js)
 //   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear
 //   everything else      the static pages in public/ (/, /join, /new, /account)
 import { handleApi } from './api.js';
-import { handleSite } from './site.js';
+import { body, handleSite } from './site.js';
+import { noteServer, saveServer, unsaveServer } from './myservers.js';
 import { accountOf, handleAccount } from './account.js';
 import { handleOps } from './ops.js';
 import { serverById, serverBySlug, SLUG_RE } from './directory.js';
@@ -24,6 +26,7 @@ import { json } from './util.js';
 import { serveHomeAsset } from './mcassets.js';
 import { ADDONS, addonList } from './addons.js';
 import { lookAttrs, lookOf } from './look.js';
+import { layoutOf } from './layout.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
@@ -36,17 +39,38 @@ const INGEST = /^\/api\/ingest\/(chat|gear|online|advancements|link|liveview)$/;
 // LiveRelay or ServerLink object) and game textures (kept in Cloudflare's cache).
 const HERE = (p) => p === '/api/live' || p === '/api/liveview/ws' || p.startsWith('/api/liveview/assets/') || p.startsWith('/api/mc/') || p.startsWith('/api/skin/');
 
-// What the cookies on a request to server `row` prove: { viewer, email }. viewer: they joined with this
-// server's password. email: the mcstats account that's signed in (src/account.js); what it may do here, if
-// anything, is the server's to say (src/tenant.js, access()).
+// What the cookies on a request to server `row` prove. who: { viewer, email }, what goes to the server's
+// object. viewer: they joined with this server's password. email: the mcstats account that's signed in
+// (src/account.js); what it may do here, if anything, is the server's to say (src/tenant.js, access()).
+// account: that account ({ id, email }), and view: the viewer cookie's { stamp, until }, for the account's
+// list of servers (src/myservers.js).
 async function proof(request, env, row, url) {
+  const account = await accountOf(request, env);
   if (env.DEV_NO_AUTH === '1' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
-    return { viewer: true, email: env.DEV_EMAIL ? env.DEV_EMAIL.toLowerCase() : null };
+    return { who: { viewer: true, email: env.DEV_EMAIL ? env.DEV_EMAIL.toLowerCase() : account?.email ?? null }, account, view: null };
   }
   const c = parseCookies(request);
-  const view = await verifyToken(env, c.mcs_view, 'view', row.id);
-  const account = await accountOf(request, env);
-  return { viewer: !!view && view.p === passwordStamp(row), email: account?.email ?? null };
+  const token = await verifyToken(env, c.mcs_view, 'view', row.id);
+  const view = token && token.p === passwordStamp(row) ? { stamp: token.p, until: token.x } : null;
+  return { who: { viewer: !!view, email: account?.email ?? null }, account, view };
+}
+
+// POST /s/<server>/api/mine { saved }: this server on or off the signed-in account's list. Answered here rather
+// than by the server's object, since the list is the directory's; adding needs the account to be able to see the
+// server (someone who can't learns nothing, as everywhere).
+async function mine(request, env, url, row, stub, { who, account, view }) {
+  const r = await body(request, url, 256);
+  if (r instanceof Response) return r;
+  if (!account) return json({ error: 'Sign in to mcstats first.', reason: 'signed_out' }, 401);
+  if (typeof r.b.saved !== 'boolean') return json({ error: 'expected { saved: true | false }' }, 400);
+  if (!r.b.saved) {
+    await unsaveServer(env, account.id, row.id);
+    return json({ ok: true, saved: false });
+  }
+  const g = await stub.gate(who);
+  if (!g.who) return json({ error: 'unauthorized' }, 401);
+  const out = await saveServer(env, account.id, row.id, view);
+  return out.error ? json({ error: out.error }, 409) : json({ ok: true, saved: true });
 }
 
 // The request as the server's own code expects it: its path without /s/<slug>, and none of our own
@@ -105,8 +129,10 @@ async function server(request, env, url, ctx, slug, rest) {
     return json({ error: 'unauthorized' }, 401);
   }
   const stub = tenantStub(env, row.id);
-  const who = await proof(request, env, row, url);
+  const proved = await proof(request, env, row, url);
+  const { who, account } = proved;
 
+  if (rest === '/api/mine') return mine(request, env, url, row, stub, proved);
   if (isApi && !HERE(rest)) {
     return stub.fetch(forServer(request, url, rest, { 'X-MCS-Who': JSON.stringify(who) }));
   }
@@ -128,6 +154,11 @@ async function server(request, env, url, ctx, slug, rest) {
   if (!g.who) return joinPage(slug);
   const current = currentSeason(g.settings);
   if (season[1] && (Number(season[1]) < 1 || Number(season[1]) >= current)) return new Response('Not found', { status: 404 });
+  // Opened by a member, or by someone who joined with the password: it goes on their list of servers by itself
+  // (unless they took it off). saved: whether it's on the list; null when nobody's signed in.
+  const saved = account
+    ? await noteServer(env, account.id, row.id, { auto: g.member || !!proved.view, view: proved.view }).catch((err) => { console.error('my servers:', err.message); return null; })
+    : null;
   const html = await env.ASSETS.fetch(new Request(new URL('/stats', url)));
   // What the page needs to know about its server, before app.js runs (public/tenant.js reads it).
   const look = lookOf(g.settings);
@@ -136,6 +167,11 @@ async function server(request, env, url, ctx, slug, rest) {
     base: `/s/${row.slug}`, slug: row.slug, name: row.name, season: current,
     // email: who they are on this server (a member). account: the mcstats account that's signed in, member or not.
     email: g.who.email, account: who.email, public: g.settings.PUBLIC === '1', accent: look.accent, tabs: look.tabs, addons,
+    // whether this server is on the signed-in account's list (/servers); null when nobody's signed in
+    saved,
+    // how its pages are arranged, its description and its icon (Admin → Layout and Server; src/layout.js)
+    layout: layoutOf(g.settings), about: g.settings.ABOUT || '',
+    icon: g.settings.ICON_AT ? `/s/${row.slug}/api/icon?v=${g.settings.ICON_AT}` : null,
   };
   // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
   const extras = addons.flatMap((id) => [
@@ -147,6 +183,8 @@ async function server(request, env, url, ctx, slug, rest) {
     // the server's accent color and tab style, on <html> before anything is drawn (src/look.js)
     .on('html', { element(e) { for (const [k, v] of Object.entries(lookAttrs(look))) e.setAttribute(k, v); } })
     .on('head', { element(e) { e.prepend(script, { html: true }); } })
+    // the server's own icon in the browser tab, when it has one
+    .on('link[rel="icon"]', { element(e) { if (config.icon) e.setAttribute('href', config.icon); } })
     // after the site's stylesheet, so an add-on's rules can build on it
     .on('script[src="/app.js"]', { element(e) { if (extras) e.before(extras, { html: true }); } })
     .transform(html);

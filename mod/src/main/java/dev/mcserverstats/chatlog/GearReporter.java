@@ -165,9 +165,14 @@ final class GearReporter {
 		if (trim != null) {
 			JsonObject t = new JsonObject();
 			t.addProperty("pattern", short_(trim.pattern().value().assetId().toString()));
+			//#if MC >= 26.3
+			//$$ // 26.3: a material has one palette, no longer a darker one for armor of the same material
+			//$$ String palette = trim.material().value().paletteId().getPath();
+			//#else
 			String palette = asset.isPresent()
 					? trim.material().value().assets().assetId(asset.get()).suffix()
 					: keyName(trim.material());
+			//#endif
 			t.addProperty("palette", palette);
 			o.add("trim", t);
 		}

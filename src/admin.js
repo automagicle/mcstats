@@ -15,6 +15,7 @@ import { modUpdate } from './modupdate.js';
 import { teamRows } from './teams.js';
 import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
+import { EMAIL_RE } from './session.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -24,6 +25,8 @@ const MAX_TEAMS = 12;
 const MAX_ROSTER = 500;
 const MAX_PERIODS = 2000;
 const MAX_BODY = 4096, MAX_CONFIG_BODY = 512 * 1024;
+const MAX_EMAILS = 1000;
+const ADMIN_IGN = '@admin'; // roster_email's stand-in IGN for an admin chatting from the website (src/link.js)
 
 // Whether this sign-in may use this server's admin page: its "admin" permission here (src/roles.js, loaded
 // by every /api/ request first). Nobody without an email, and nobody whose permissions weren't loaded.
@@ -46,8 +49,8 @@ export async function me(env, who) {
 export async function adminState(env, season) {
   if (!season.n) return json({ error: 'pick a season' }, 400);
   const db = env.DB;
-  const [roster, hidden, aliases, players, uncounted, deleted, history] = await db.batch([
-    db.prepare('SELECT ign, team, egg FROM roster WHERE season = ? ORDER BY team, ign COLLATE NOCASE').bind(season.n),
+  const [roster, hidden, aliases, players, uncounted, deleted, history, emails] = await db.batch([
+    db.prepare('SELECT ign, name, team, egg FROM roster WHERE season = ? ORDER BY team, ign COLLATE NOCASE').bind(season.n),
     db.prepare('SELECT name, note FROM hidden_players ORDER BY name COLLATE NOCASE'),
     db.prepare('SELECT alias, name FROM player_aliases ORDER BY name COLLATE NOCASE, alias COLLATE NOCASE'),
     db.prepare('SELECT name FROM players GROUP BY lower(name) ORDER BY name COLLATE NOCASE'),
@@ -57,11 +60,15 @@ export async function adminState(env, season) {
                 json_extract(chat, '$.name') AS name, json_extract(chat, '$.text') AS text, death IS NOT NULL AS death
                 FROM deleted_chat ORDER BY deleted_at DESC LIMIT 500`),
     db.prepare('SELECT ign, until, team FROM team_history WHERE season = ? ORDER BY ign COLLATE NOCASE, until').bind(season.n),
+    // the sign-in emails that chat from the website as each player (an admin's own stand-in, @admin, isn't edited here)
+    db.prepare("SELECT email, ign FROM roster_email WHERE season = ? AND ign != ? ORDER BY ign COLLATE NOCASE, email").bind(season.n, ADMIN_IGN),
   ]);
   const link = await linkStatus(env); // the server mod's web chat connection (src/link.js)
   return json({
     season: season.n,
-    roster: roster.results,
+    // a name the same as the IGN is no real name (that's what a new player gets until one is given)
+    roster: roster.results.map((r) => ({ ...r, name: r.name && r.name.toLowerCase() !== r.ign.toLowerCase() ? r.name : '' })),
+    emails: emails.results,
     lo: season.lo, // when the season's data begins (unix seconds), for the teams-over-time bars
     teams: await teamRows(db, season.n),
     history: history.results,
@@ -85,7 +92,9 @@ const ACTIONS = {
   // Everything the admin page's Save button saves, at once (all of it or none of it). Each part is
   // the whole of what it should be from now on, and a part that's left out isn't touched:
   //   teams:   [{ id, name, short, color, bar, middle, chart, activity, activity_with }] in their order
-  //   roster:  [{ ign, team, egg }] this season's players; a new one gets their IGN for a name until the roster file gives one
+  //   roster:  [{ ign, team, egg, name? }] this season's players. name: their real name ('' for none: their IGN
+  //            stands in); left out, it stays as it is (a new player gets their IGN)
+  //   emails:  [{ email, ign }] the sign-in emails that chat from the website as each player (not @admin's)
   //   history: [{ ign, team, until }] players' earlier teams: on `team` (or '' for none) before `until` (unix seconds)
   //   hidden:  [{ name, note }]       aliases: [{ alias, name }]
   async 'config.save'(db, b, season) {
@@ -115,10 +124,13 @@ const ACTIONS = {
         const egg = r.egg == null || r.egg === '' ? null : r.egg;
         if (egg != null && (typeof egg !== 'string' || !EGG_RE.test(egg))) return bad(`bad egg for ${name}`);
         roster.push({ ign: name, team: r.team });
+        // undefined: leave the real name alone; '' or null: none (the IGN stands in)
+        const real = r.name === undefined ? null : text(r.name, 60) || name;
         stmts.push(db.prepare(
-          `INSERT INTO roster (season, ign, name, team, egg) VALUES (?1, ?2, ?2, ?3, ?4)
-           ON CONFLICT(season, ign) DO UPDATE SET team = excluded.team, egg = excluded.egg`
-        ).bind(season.n, name, r.team, egg));
+          `INSERT INTO roster (season, ign, name, team, egg) VALUES (?1, ?2, COALESCE(?5, ?2), ?3, ?4)
+           ON CONFLICT(season, ign) DO UPDATE SET team = excluded.team, egg = excluded.egg,
+             name = CASE WHEN ?5 IS NULL THEN roster.name ELSE excluded.name END`
+        ).bind(season.n, name, r.team, egg, real));
       }
       for (const r of haveRoster.results) {
         if (!seen.has(lower(r.ign))) stmts.push(db.prepare('DELETE FROM roster WHERE season = ? AND ign = ?').bind(season.n, r.ign));
@@ -210,6 +222,23 @@ const ACTIONS = {
       }
       for (const a of haveAliases.results) {
         if (!others.has(lower(a.alias))) stmts.push(db.prepare('DELETE FROM player_aliases WHERE alias = ?').bind(a.alias));
+      }
+    }
+
+    if (b.emails !== undefined) {
+      const rows = list(b.emails, MAX_EMAILS);
+      if (!rows) return bad('bad sign-in emails');
+      const seen = new Set();
+      stmts.push(db.prepare('DELETE FROM roster_email WHERE season = ? AND ign != ?').bind(season.n, ADMIN_IGN));
+      for (const r of rows) {
+        const email = typeof r.email === 'string' ? r.email.trim().toLowerCase() : '';
+        const name = ign(r.ign);
+        if (!EMAIL_RE.test(email) || email.length > 254) return bad(`bad email: ${String(r.email).slice(0, 60)}`);
+        if (!name) return bad(`bad IGN for ${email}`);
+        if (seen.has(email)) return bad(`${email} is given to two players`);
+        seen.add(email);
+        // an email an admin chats with as Admin stays theirs
+        stmts.push(db.prepare('INSERT OR IGNORE INTO roster_email (season, email, ign) VALUES (?, ?, ?)').bind(season.n, email, name));
       }
     }
 

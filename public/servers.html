@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your servers · mcstats</title>
+  <meta name="description" content="The Minecraft servers you’ve made, joined or added, with who’s on now.">
+  <!-- link previews (Discord, iMessage, Slack...): the worker makes og:image absolute, src/index.js -->
+  <meta property="og:site_name" content="mcstats">
+  <meta property="og:title" content="Your servers">
+  <meta property="og:description" content="The Minecraft servers you’ve made, joined or added, with who’s on now.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/og.png">
+  <meta property="og:image:width" content="256">
+  <meta property="og:image:height" content="256">
+  <meta name="theme-color" content="#5fae4c">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Crect width='8' height='3' fill='%235fae4c'/%3E%3Cpath fill='%235fae4c' d='M1 3h1v1H1zM4 3h2v1H4zM7 3h1v1H7z'/%3E%3Cpath fill='%2386cf6f' d='M0 0h2v1H0zM5 0h1v1H5zM3 1h1v1H3zM6 1h2v1H6z'/%3E%3Cpath fill='%236b4324' d='M2 5h1v1H2zM6 4h1v1H6zM4 6h2v1H4zM0 7h1v1H0z'/%3E%3Cpath fill='%23a47148' d='M0 4h1v1H0zM3 5h1v1H3zM6 6h1v1H6zM2 7h1v1H2z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..800;1,400..800&family=Jersey+10&family=Jersey+15&family=Jersey+20&family=Jersey+25&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Dark by default; a theme picked with the switch is saved and wins. Set before first paint, so there's no flash.
+    document.documentElement.dataset.theme = 'dark';
+    try { const t = localStorage.getItem('theme'); if (t === 'light') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <script src="/site.js" defer></script>
+</head>
+<body class="site" data-page="servers">
+  <header class="top">
+    <div class="top-left">
+      <a class="brand" href="/">
+        <span class="logo" aria-hidden="true"></span>
+        <span>mcstats</span>
+      </a>
+    </div>
+    <div class="top-right">
+      <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
+        <span class="theme-knob"></span>
+        <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>
+        <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="site-main" class="site-main">
+    <section class="card site-card"><p class="site-sub">Loading…</p></section>
+  </main>
+</body>
+</html>

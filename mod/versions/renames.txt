@@ -1,0 +1,13 @@
+# Names Mojang renamed and nothing else, for the preprocessor in target.gradle. The source uses the newest
+# name; for the versions a line's condition holds, every whole-word use is replaced with the older one.
+#   <condition> | <name> -> <replacement>
+# A name starting with "." only matches after a dot (a method or field). More specific names come first.
+
+# 1.21.11 renamed ResourceLocation to Identifier, and sorted projectiles into packages
+MC < 1.21.11 | net.minecraft.resources.Identifier -> net.minecraft.resources.ResourceLocation
+MC < 1.21.11 | Identifier -> ResourceLocation
+MC < 1.21.11 | .identifier -> .location
+MC < 1.21.11 | net.minecraft.world.entity.projectile.arrow -> net.minecraft.world.entity.projectile
+MC < 1.21.11 | net.minecraft.world.entity.projectile.hurtingprojectile -> net.minecraft.world.entity.projectile
+# 1.21.9 made the profile a record (authlib 7): names were got through the player before
+MC < 1.21.9 | .getPlainTextName -> .getScoreboardName

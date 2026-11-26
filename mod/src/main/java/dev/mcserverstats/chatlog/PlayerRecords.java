@@ -16,7 +16,11 @@ import java.util.function.ToLongFunction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+//#if MC >= 1.21.9
 import net.minecraft.server.players.NameAndId;
+//#else
+//$$ import com.mojang.authlib.GameProfile;
+//#endif
 import net.minecraft.stats.ServerStatsCounter;
 import net.minecraft.stats.Stats;
 import net.minecraft.stats.StatsCounter;
@@ -147,14 +151,32 @@ final class PlayerRecords {
 	}
 
 	private static Entry of(MinecraftServer server, ServerPlayer p) {
-		return entry(p.getUUID(), p.getScoreboardName(), true, server.getPlayerList().isOp(p.nameAndId()), System.currentTimeMillis(), p.getStats());
+		return entry(p.getUUID(), p.getScoreboardName(), true, isOp(server, p), System.currentTimeMillis(), p.getStats());
+	}
+
+	private static boolean isOp(MinecraftServer server, ServerPlayer p) {
+		//#if MC >= 1.21.9
+		return server.getPlayerList().isOp(p.nameAndId());
+		//#else
+		//$$ return server.getPlayerList().isOp(p.getGameProfile());
+		//#endif
 	}
 
 	private static Entry offline(MinecraftServer server, UUID id, Path file) {
+		//#if MC >= 1.21.9
 		Optional<NameAndId> known = server.services().nameToIdCache().get(id);
 		if (known.isEmpty()) return null; // never seen by name: nothing to show it as
 		String name = known.get().name();
+		//#else
+		//$$ Optional<GameProfile> known = server.getProfileCache() == null ? Optional.empty() : server.getProfileCache().get(id);
+		//$$ if (known.isEmpty()) return null; // never seen by name: nothing to show it as
+		//$$ String name = known.get().getName();
+		//#endif
+		//#if MC >= 1.21.11
 		ServerStatsCounter stats = new ServerStatsCounter(server, file);
+		//#else
+		//$$ ServerStatsCounter stats = new ServerStatsCounter(server, file.toFile());
+		//#endif
 		long lastSeen;
 		try {
 			lastSeen = Files.getLastModifiedTime(file).toMillis();

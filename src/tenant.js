@@ -22,9 +22,11 @@ import { limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { parseStart } from './seasons.js';
 import { cleanAccent, TAB_STYLES } from './look.js';
+import { cleanAbout, cleanLayout, layoutSetting, MAX_ABOUT } from './layout.js';
 import { ADDONS, addonList } from './addons.js';
 import { handleServerAdmin } from './serveradmin.js';
 import { handleSeasons } from './seasonadmin.js';
+import { modOnline } from './online.js';
 
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const MINUTE = 60_000;
@@ -189,6 +191,14 @@ export class Tenant extends DurableObject {
       } else if (k === 'TAB_STYLE') {
         if (v && !TAB_STYLES.includes(v)) return { error: `The tab style is ${TAB_STYLES.join(' or ')}.` };
         clean[k] = v;
+      } else if (k === 'LAYOUT') {
+        const layout = cleanLayout(v);
+        if (!layout) return { error: 'That isn’t a layout.' };
+        clean[k] = layoutSetting(layout);
+      } else if (k === 'ABOUT') {
+        const about = cleanAbout(raw);
+        if (about.length > MAX_ABOUT) return { error: `The description is at most ${MAX_ABOUT} characters.` };
+        clean[k] = about;
       } else if (k === 'TZ_NAME') {
         try {
           if (v) new Intl.DateTimeFormat('en', { timeZone: v });
@@ -225,6 +235,27 @@ export class Tenant extends DurableObject {
     return addonList(this.settings);
   }
 
+  // The server's icon (src/layout.js iconFromDataUrl made sure it's a square PNG), or null to remove it.
+  // ICON_AT is when it last changed: the page asks for /api/icon?v=<ICON_AT>, so a new one is fetched at once.
+  async setIcon(bytes) {
+    this.ctx.storage.transactionSync(() => {
+      if (bytes) {
+        this.ctx.storage.sql.exec('INSERT INTO server_icon (id, png, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET png = excluded.png, updated_at = excluded.updated_at',
+          bytes, Date.now());
+        this.put('ICON_AT', Date.now());
+      } else {
+        this.ctx.storage.sql.exec('DELETE FROM server_icon');
+        this.put('ICON_AT', '');
+      }
+    });
+    this.load();
+  }
+
+  icon() {
+    const row = this.ctx.storage.sql.exec('SELECT png FROM server_icon WHERE id = 1').toArray()[0];
+    return row ? new Uint8Array(row.png) : null;
+  }
+
   async addMember(email, role, by) {
     const e = cleanEmail(email);
     if (!EMAIL_RE.test(e) || !ROLES.includes(role) || role === 'owner') return { error: 'bad member' };
@@ -248,8 +279,60 @@ export class Tenant extends DurableObject {
   }
 
   // For the Worker's own handling of a request (WebSockets, textures): who it is, and what it needs.
+  // member: the signed-in account has a role here (not just a super admin looking in).
   async gate(proof) {
-    return { who: await this.access(proof), tenant: this.tenant, settings: { ...this.settings } };
+    const who = await this.access(proof);
+    const member = !!who?.email && !!(await loadPerms(this.serverEnv(), { email: who.email })).role;
+    return { who, member, tenant: this.tenant, settings: { ...this.settings } };
+  }
+
+  // One row of an account's "Your servers" list (src/myservers.js): what the account is here, and who's on now.
+  //   email   the signed-in account
+  //   viewer  it joined with the current password, and that hasn't run out (the directory remembers; the
+  //           cookie itself is only sent to this server's pages)
+  // Someone who can't see the server gets its name and nothing more: { access: false }.
+  async card({ email = null, viewer = false } = {}) {
+    const env = this.serverEnv();
+    const perms = email ? await loadPerms(env, { email }) : null;
+    const isPublic = this.settings.PUBLIC === '1';
+    const access = !!(perms?.role || perms?.super || viewer || isPublic);
+    const out = { name: this.settings.NAME ?? null, public: isPublic, role: perms?.role ?? null, super: !!perms?.super, viewer: !!viewer, access };
+    if (!access) return out;
+    return { ...out, ...(await this.onlineNow()) };
+  }
+
+  // Who's on right now: { status: 'up' | 'down' | 'paused' | 'unknown', online, players: [names], max }.
+  // From the mod's own list while it's fresh, otherwise the last minute's status check if it's recent.
+  // Hidden players are left out, and aliases shown as the player they belong to, as on the stats page.
+  async onlineNow() {
+    if (this.settings.PAUSED === '1') return { status: 'paused', online: 0, players: [], max: null };
+    const now = Math.floor(Date.now() / 1000);
+    const sql = this.ctx.storage.sql;
+    const hidden = new Set(sql.exec('SELECT name FROM hidden_players').toArray().map((r) => r.name.toLowerCase()));
+    const alias = new Map(sql.exec('SELECT alias, name FROM player_aliases').toArray().map((r) => [r.alias.toLowerCase(), r.name]));
+    const shown = (names) => {
+      const seen = new Map();
+      for (const n of names) {
+        if (typeof n !== 'string' || hidden.has(n.toLowerCase())) continue;
+        const c = alias.get(n.toLowerCase()) || n;
+        if (!seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c);
+      }
+      return [...seen.values()];
+    };
+    const snap = sql.exec('SELECT ts, up, online, max FROM snapshots ORDER BY ts DESC LIMIT 1').toArray()[0];
+    const recent = snap && now - snap.ts <= 3 * 60 ? snap : null;
+    const mod = await modOnline(this.db, now);
+    if (mod) {
+      const players = mod.stopping ? [] : shown(mod.players.map((p) => p.name));
+      return { status: mod.stopping ? 'down' : 'up', online: players.length, players, max: recent?.max ?? null };
+    }
+    if (!recent) return { status: 'unknown', online: 0, players: [], max: null };
+    const names = sql.exec('SELECT p.name FROM sessions s JOIN players p ON p.uuid = s.uuid WHERE s.end_ts = ? ORDER BY s.start_ts', recent.ts).toArray().map((r) => r.name);
+    const players = shown(names);
+    // the ping names at most a dozen players; the count it gives is the whole server's, less the hidden ones
+    const hiddenOn = names.filter((n) => hidden.has(n.toLowerCase())).length;
+    const online = recent.up ? Math.max(players.length, recent.online - hiddenOn) : 0;
+    return { status: recent.up ? 'up' : 'down', online, players: recent.up ? players : [], max: recent.max ?? null };
   }
 
   // ---------- RPC: copying the old database in (scripts/copy-tenant.mjs) ----------
@@ -319,6 +402,13 @@ export class Tenant extends DurableObject {
     if (who && url.pathname === '/api/admin/server') return handleServerAdmin(this, request, url, who);
     // its seasons too: they're this object's settings
     if (who && url.pathname === '/api/admin/seasons') return handleSeasons(this, request, url, who);
+    // its icon (Admin → Server), for anyone who may look at its pages
+    if (who && url.pathname === '/api/icon' && request.method === 'GET') {
+      const png = this.icon();
+      if (!png) return json({ error: 'not found' }, 404);
+      const fresh = url.searchParams.get('v') === String(this.settings.ICON_AT);
+      return new Response(png, { headers: { 'Content-Type': 'image/png', 'Cache-Control': fresh ? 'private, max-age=31536000, immutable' : 'private, no-cache' } });
+    }
     return handleApi(request, this.serverEnv(who ? { WHO: who } : {}), url, this.ctx);
   }
 

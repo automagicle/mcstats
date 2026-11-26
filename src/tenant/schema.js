@@ -245,6 +245,13 @@ export const MIGRATIONS = [
       sql.exec("INSERT OR IGNORE INTO settings (key, value) SELECT 'ADDONS', 'eggsmp' FROM settings WHERE key = 'LEGACY' AND value = '1'");
     },
   },
+  {
+    // The server's icon, uploaded on Admin → Server (src/layout.js): one square PNG, served at /api/icon.
+    v: 4,
+    up(sql) {
+      sql.exec('CREATE TABLE IF NOT EXISTS server_icon (id INTEGER PRIMARY KEY CHECK (id = 1), png BLOB NOT NULL, updated_at INTEGER NOT NULL)');
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;

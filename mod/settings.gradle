@@ -10,3 +10,9 @@ pluginManagement {
 }
 
 rootProject.name = 'mcstats-chat'
+
+// Each folder in versions/ is one jar, for the Minecraft versions its gradle.properties names.
+file('versions').listFiles().findAll { new File(it, 'gradle.properties').exists() }.sort { it.name }.each { dir ->
+	include ":${dir.name}"
+	project(":${dir.name}").projectDir = dir
+}

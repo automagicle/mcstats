@@ -2,7 +2,7 @@
 	"required": false,
 	"minVersion": "0.8",
 	"package": "dev.mcserverstats.liveview.mc.mixin",
-	"compatibilityLevel": "JAVA_25",
+	"compatibilityLevel": "${mixinJava}",
 	"server": ["ServerLevelMixin", "MobMixin"],
 	"injectors": { "defaultRequire": 0 }
 }

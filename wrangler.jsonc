@@ -17,7 +17,7 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/s/*", "/s1", "/s1/*", "/stats", "/stats.html",
       // the site's own pages, so their link-preview image gets a full address (src/index.js)
-      "/", "/index.html", "/new", "/new.html", "/join", "/join.html", "/account", "/account.html"]
+      "/", "/index.html", "/new", "/new.html", "/join", "/join.html", "/account", "/account.html", "/servers", "/servers.html"]
   },
 
   // The mod versions shown on /new, read from mod/ (scripts/mod-info.mjs writes src/modinfo.gen.js).

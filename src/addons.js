@@ -10,7 +10,7 @@
 export const ADDONS = {
   eggsmp: {
     name: 'Egg SMP eggs',
-    about: 'Each player’s egg on their page (abilities, level, energy), in their 3D model’s off hand with its particles, and an Egg column on Admin → Settings.',
+    about: 'Each player’s egg on their page (abilities, level, energy), in their 3D model’s off hand with its particles, and an Egg field on Admin → Players.',
     scripts: ['/addons/eggsmp/addon.js'],
     styles: ['/addons/eggsmp/addon.css'],
   },

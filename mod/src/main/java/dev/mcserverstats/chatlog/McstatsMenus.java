@@ -337,7 +337,7 @@ final class McstatsMenus {
 	// A puff of the particle around the player, seen only by them, so they know what they picked.
 	private static void preview(ServerPlayer player, Particle p) {
 		try {
-			player.level().sendParticles(player, p.preview(), false, false, player.getX(), player.getY() + 1, player.getZ(), 24, 0.5, 0.8, 0.5, 0.02);
+			dev.mcserverstats.compat.Compat.level(player).sendParticles(player, p.preview(), false, false, player.getX(), player.getY() + 1, player.getZ(), 24, 0.5, 0.8, 0.5, 0.02);
 		} catch (RuntimeException e) {
 			ChatLogMod.LOG.debug("Couldn't show a particle preview", e);
 		}
@@ -543,9 +543,15 @@ final class McstatsMenus {
 	// A player's head with their skin: from their profile when they're online, else looked up by the game.
 	static ItemStack head(UUID uuid, ServerPlayer online) {
 		ItemStack head = new ItemStack(Items.PLAYER_HEAD);
+		//#if MC >= 1.21.9
 		head.set(DataComponents.PROFILE, online != null
 				? ResolvableProfile.createResolved(online.getGameProfile())
 				: ResolvableProfile.createUnresolved(uuid));
+		//#else
+		//$$ head.set(DataComponents.PROFILE, online != null
+		//$$ 		? new ResolvableProfile(online.getGameProfile())
+		//$$ 		: new ResolvableProfile(java.util.Optional.empty(), java.util.Optional.of(uuid), new com.mojang.authlib.properties.PropertyMap()));
+		//#endif
 		return head;
 	}
 
@@ -595,8 +601,8 @@ final class McstatsMenus {
 			java.net.URI uri = java.net.URI.create(url);
 			say(to, Component.literal("Open " + what + " on mcstats: ").withStyle(ChatFormatting.GREEN)
 					.append(Component.literal(url).withStyle(s -> s.withColor(ChatFormatting.AQUA).withUnderlined(true)
-							.withClickEvent(new ClickEvent.OpenUrl(uri))
-							.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to open in your browser"))))));
+							.withClickEvent(dev.mcserverstats.compat.Compat.openUrl(uri))
+							.withHoverEvent(dev.mcserverstats.compat.Compat.showText(Component.literal("Click to open in your browser"))))));
 		} catch (IllegalArgumentException e) {
 			say(to, Component.literal(url).withStyle(ChatFormatting.AQUA));
 		}

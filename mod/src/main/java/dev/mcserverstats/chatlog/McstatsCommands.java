@@ -81,12 +81,12 @@ final class McstatsCommands {
 			String command = line[0];
 			String typed = command.contains("<") ? command.substring(0, command.indexOf('<')) : command;
 			Component c = Component.literal("  " + command).withStyle(s -> s.withColor(ChatFormatting.AQUA)
-							.withClickEvent(new ClickEvent.SuggestCommand(typed)))
+							.withClickEvent(dev.mcserverstats.compat.Compat.suggestCommand(typed)))
 					.append(Component.literal("  " + line[1]).withStyle(ChatFormatting.GRAY));
 			source.sendSuccess(() -> c, false);
 		}
 		source.sendSuccess(() -> Component.literal("  /liveview help").withStyle(s -> s.withColor(ChatFormatting.AQUA)
-						.withClickEvent(new ClickEvent.SuggestCommand("/liveview help")))
+						.withClickEvent(dev.mcserverstats.compat.Compat.suggestCommand("/liveview help")))
 				.append(Component.literal("  Liveview's commands").withStyle(ChatFormatting.GRAY)), false);
 		return 1;
 	}

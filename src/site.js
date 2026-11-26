@@ -13,6 +13,7 @@
 //   POST /api/site/servers/<slug>/settings  { NAME, MC_SERVER, PUBLIC, TZ_NAME, CURRENT_SEASON, …, password, confirm }
 //   POST /api/site/servers/<slug>/invite    { email, role }  add an admin or member, and email them
 //   POST /api/site/servers/<slug>/open      let in to the server's own pages (the viewer cookie)
+//   GET  /api/site/mine, POST /api/site/mine/order, /mine/remove   the account's own list of servers (src/myservers.js)
 // Everything but /join and /mod needs an mcstats account to be signed in (src/account.js); everything under
 // /servers/<slug> is for that server's owner (or a super admin) only.
 import { MOD } from './modinfo.gen.js';
@@ -26,6 +27,7 @@ import { tenantStub } from './tenantenv.js';
 import { ipKey, limit, tooMany } from './limiter.js';
 import { sendEmail } from './email.js';
 import { isSuper } from './roles.js';
+import { handleMine, noteServer, saveServer } from './myservers.js';
 import { json } from './util.js';
 
 export const JOIN_FAILED = 'That server name and password don’t match.';
@@ -38,7 +40,7 @@ const withCookies = (body, cookies, status = 200) => {
 };
 
 // A POST's JSON body, from this site only. A Response when it isn't one.
-async function body(request, url, max = 4096) {
+export async function body(request, url, max = 4096) {
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
   const origin = request.headers.get('Origin');
   if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
@@ -52,8 +54,6 @@ async function body(request, url, max = 4096) {
     return json({ error: 'bad json' }, 400);
   }
 }
-
-const siteEmail = async (request, env) => (await accountOf(request, env))?.email ?? null;
 
 // Where mods are told to upload: the site's own address (the SITE_ORIGIN var), whichever of its addresses
 // the owner happens to be browsing at. Without the var, or on a developer's own machine, the address in use.
@@ -97,11 +97,16 @@ export async function handleSite(request, env, url) {
     // a public server made without a password has none to join with
     const ok = (await checkPassword(password, row)) && row?.has_password !== 0;
     if (!ok) return json({ error: JOIN_FAILED }, 401);
-    const token = await signToken(env, { k: 'view', s: row.id, p: passwordStamp(row), x: Math.floor(Date.now() / 1000) + VIEW_DAYS * DAY });
+    const until = Math.floor(Date.now() / 1000) + VIEW_DAYS * DAY;
+    const token = await signToken(env, { k: 'view', s: row.id, p: passwordStamp(row), x: until });
+    // joined while signed in: it goes on the account's list of servers (unless they took it off before)
+    const account = await accountOf(request, env);
+    if (account) await noteServer(env, account.id, row.id, { auto: true, view: { stamp: passwordStamp(row), until } });
     return withCookies({ ok: true, url: serverPath(row.slug) }, [cookie('mcs_view', token, { path: serverPath(row.slug), maxAge: VIEW_DAYS * DAY })]);
   }
 
-  const email = await siteEmail(request, env);
+  const account = await accountOf(request, env);
+  const email = account?.email ?? null;
   const max = Number(env.MAX_SERVERS_PER_OWNER) || 3;
 
   if (path === '/me') {
@@ -112,6 +117,16 @@ export async function handleSite(request, env, url) {
   }
 
   if (!email) return json({ error: 'Sign in first.', reason: 'signed_out' }, 401);
+
+  if (path === '/mine' || path.startsWith('/mine/')) {
+    let b = {};
+    if (request.method === 'POST') {
+      const r = await body(request, url);
+      if (r instanceof Response) return r;
+      b = r.b;
+    }
+    return handleMine(request, env, path, account, b);
+  }
 
   // Whether an address can be had, for the form on /new as it's typed. Signed in only, and limited: making a
   // server says the same thing (that address is taken), so this tells nobody more than they could find out.
@@ -160,6 +175,7 @@ export async function handleSite(request, env, url) {
     }
     forgetSlug(slug);
     await tenantStub(env, id).setup({ slug, name, owner: email, settings: { PUBLIC: visibility === 'public' ? '1' : '' } });
+    await saveServer(env, account.id, id);
     return json({ ok: true, server: { slug, name, step: 3, public: visibility === 'public' } });
   }
 

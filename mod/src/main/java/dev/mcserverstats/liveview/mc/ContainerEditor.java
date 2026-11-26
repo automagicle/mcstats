@@ -170,9 +170,9 @@ public final class ContainerEditor {
 	private static Side side(char kind, Container chest, boolean shulker, ServerPlayer player) {
 		return switch (kind) {
 			case 'c' -> chest == null ? null : new Side('c', chest, Math.min(chest.getContainerSize(), 54), shulker, null, "the container");
-			case 'p' -> player == null ? null : new Side('p', player.getInventory(), PLAYER_SLOTS, false, player, player.getGameProfile().name());
+			case 'p' -> player == null ? null : new Side('p', player.getInventory(), PLAYER_SLOTS, false, player, player.getScoreboardName());
 			case 'e' -> player == null ? null : new Side('e', player.getEnderChestInventory(),
-					Math.min(player.getEnderChestInventory().getContainerSize(), 27), false, player, player.getGameProfile().name() + "'s ender chest");
+					Math.min(player.getEnderChestInventory().getContainerSize(), 27), false, player, player.getScoreboardName() + "'s ender chest");
 			default -> null;
 		};
 	}

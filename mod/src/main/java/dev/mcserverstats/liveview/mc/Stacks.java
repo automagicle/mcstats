@@ -91,7 +91,13 @@ public final class Stacks {
 		List<SlotSample> out = new ArrayList<>();
 		ItemContainerContents container = stack.get(DataComponents.CONTAINER);
 		if (container != null) {
+			//#if MC >= 26.3
+			//$$ List<ItemStack> items = container.itemCopies().toList();
+			//#elseif MC >= 26.1
 			List<ItemStack> items = container.allItemsCopyStream().toList();
+			//#else
+			//$$ List<ItemStack> items = container.stream().toList();
+			//#endif
 			for (int i = 0; i < Math.min(items.size(), 54); i++) {
 				out.add(nested(i, items.get(i), level, player));
 			}
@@ -99,7 +105,11 @@ public final class Stacks {
 		}
 		BundleContents bundle = stack.get(DataComponents.BUNDLE_CONTENTS);
 		if (bundle != null) {
+			//#if MC >= 26.3
+			//$$ List<ItemStack> items = bundle.itemCopies().toList();
+			//#else
 			List<ItemStack> items = bundle.itemCopyStream().toList();
+			//#endif
 			for (int i = 0; i < Math.min(items.size(), 64); i++) {
 				out.add(nested(i, items.get(i), level, player));
 			}

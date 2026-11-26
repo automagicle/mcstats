@@ -128,7 +128,8 @@ looks like depends on `--pc`:
 | Control (segmented, icon button, status pill, theme switch) | `--pc: var(--surface-2); background: var(--surface-2); box-shadow: var(--pixel);` | Cut corners, no outline, no shadow |
 | Pressed segment / current tab | `--pc: var(--raise)` or `box-shadow: var(--frame)` | A raised or framed block inside the control |
 | Floating layer (tooltip, popover, menu, toast) | `box-shadow: var(--frame), var(--lift);` | Frame plus a shadow two steps away |
-| Text input, dropdown | `border: 1px solid var(--edge); background: var(--surface-2);` | Plain square box with a hairline |
+| Text input, dropdown | `border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink);` | Plain square box with a hairline. Placeholder `--muted`. A dropdown's caret is the 10×6 pixel arrow in `--muted` |
+| Checkbox, radio, colour well | inventory slot | Set in (dark top-left, light bottom-right). A ticked box is `--good` with the white pixel check. A chosen radio holds a 6px `--series-1` square. A colour well is the same slot, 28×28, filled with the colour |
 | Tags, swatches, status dots | no shadow | Plain squares |
 
 Because the shape extends 2px past the box, anything with cut corners needs at least 6px between it
@@ -150,8 +151,10 @@ multiple of its size (24px heads in badges, 14px in tooltips).
   with `gap: 1px` on an `--edge` background, not by borders.
 - Common gaps: tabs 6px; range controls 6px; segments inside a segmented control 2px; badges 16px;
   form fields 8px; a note after a form or table 12px.
-- Breakpoints in use: 1100px (top bar tightens), 800px (tiles go 2-up, numbers drop a size),
-  600–640px (top bar wraps to two rows, grids go single column), 420px (smallest paddings).
+- Breakpoints in use: 1100px (top bar tightens), 800px (tiles go 2-up, numbers drop a size, page
+  sections stack full width, the admin menu becomes a scrolling strip and the player editor shows
+  either the list or the player), 600–640px (top bar wraps to two rows, grids go single column),
+  520px (layout-editor blocks stack), 420px (smallest paddings).
 
 ## Components
 
@@ -167,10 +170,18 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Button | `.btn` | 13px/600, `padding: 6px 14px`, `--raise` with frame; hover `--surface-2` |
 | Primary button | `.btn-primary` | `--series-1` background, `--accent-ink` text, cut corners + drop; hover `brightness(1.08)` |
 | Admin field | `.srv-fields` > `.site-field` | Admin → Server: fields stacked 14px apart in a 640px column; label 13px/600 `--ink-2`, hint 12.5px `--muted`, error 13.5px `--critical`; text boxes 14px, `padding: 6px 9px`, up to 340px wide |
+| Admin menu | `.adm-rail` | 196px column, sticky under the top bar; section links 14px/600, `padding: 6px 10px`; current one `--picked` with a 3px `--series-1` bar on the left (frame tab style: a frame, no bar). Unsaved count `.adm-rail-n` on `--warning`. Under 800px the links sit in one scrolling row and the current one uses the tab's underline |
+| Admin save bar | `#adm-bar` > `.adm-bar` | one bar for every section, sticky 12px off the bottom, only while something is unsaved; 10px `--warning` square, the count, a "What changes" list, Reset and Save (`.btn-primary`) |
+| Player row | `.adm-prow` | Admin → Players list: 24px head, name 13.5px/600, the other name 12px `--muted`; current row `--picked` with the 3px accent bar. A 7px `--warning` square marks a player with unsaved edits |
+| Layout block | `.lay-block` | Admin → Layout: the page drawn small on `--stage`. Each block is a panel (frame + drop) spanning 2, 3, 4 or 6 of 6 columns; grip is the same six 2px dots as a server-list row; a 44px pixel drawing of the section; width control is a `.seg`. A hidden section sits in the tray as a `.lay-chip`. Drop target is a 4px `--series-1` bar |
+| About header | `.about-card` | top of Activity once the server has an icon or a description: 64px pixel icon, name `400 40px/1.05 var(--px-40)` (30px under 600px), description 15px `--ink-2` |
 | Colour swatch | `.srv-swatch` | a raised button (`--raise`, frame), `padding: 6px 12px 6px 8px`, 16px colour square, 13px/600; chosen: `--picked` with `--picked-line` |
 | Quiet button | `.btn-quiet` | transparent, `--muted`, `padding: 4px 10px`; hover `--surface-2` |
-| Text input | `.adm-input` | 13px, `padding: 4px 8px`, 1px `--edge` border, `--surface-2` |
-| Dropdown | `select` | as input, native arrow removed; own 10×6px pixel arrow `#8a929c`, 9px from the right, `padding-right: 28px` |
+| Text input | `input`, `textarea`, `.adm-input` | every text, email, password, search, url, number and date field, and every textarea: 1px `--edge` border, `--surface-2`, `--ink`, no radius. `.adm-input` is 13px with `padding: 4px 8px`. Placeholder `--muted`. Autofill is painted `--surface-2` too. The search field in the search popover stays borderless |
+| Dropdown | `select:not(.tile-select)` | the same box as a text input; caret is a 10×6px pixel arrow in `--muted`, 9px from the right, `padding-right: 28px`. Options use `--surface` and `--ink`. `.tile-select` (a dropdown inside a sentence, including the season picker) stays transparent |
+| Checkbox | `input[type=checkbox]` | 16×16, set in like an inventory slot (cut corners, dark top-left and light bottom-right); ticked: `--good` with the white pixel check (`--pixel-check-white`) and a drop. The /new checklist is the same box at 20×20 |
+| Radio | `input[type=radio]` | 16×16 set-in square; chosen: a 6px `--series-1` square in the middle. `.wiz-vis-radio` is hidden; its card is the control |
+| Colour well | `input[type=color]` | 28×28 inventory slot, `--surface-2`, the chosen colour filling the inside with square corners |
 | Tooltip | `.tooltip` | `--surface`, frame + lift, `padding: 8px 10px`, 13px, max 260px wide |
 | Popover | `.range-pop` | 270px, `padding: 14px`, 10px gap, frame + lift |
 | Toast | `.toast` | `--ink` background (errors `--critical`), cut corners + lift, bottom centre |
@@ -179,8 +190,10 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Sign-in popover | `.acct-pop` | 300px, `padding: 14px`, 10px gap, `--surface`, frame + lift; under the top bar's Sign in button |
 | Site card | `.site-card` | a `.card`, max 640px, `padding: 20px 22px 22px`; title `400 30px/1.1 var(--px-30)`; fields 14px apart, labels 13px/600 `--ink-2`, hints 12.5px `--muted` |
 | Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 with cut corners, `--surface-2`; current `--picked` with the green line under it; done `--good` with the pixel check (`--pixel-check`, a 9×7 two-pixel-thick tick); current row `--surface-2` with frame. Under 800px a row of squares above the step |
-| Checklist box | `.wiz-check-head input` | 20×20, set in like an inventory slot (cut corners, dark top-left and light bottom-right edge); ticked: `--good` with the white pixel check and a drop, and its row takes a 10% `--good` wash |
+| Checklist box | `.wiz-check-head input` | the checkbox above, at 20×20; a ticked row takes a 10% `--good` wash |
 | Visibility choice | `.wiz-vis` | two raised options (Private, Public) side by side, one column under 520px; the picked one `--picked` with the green line under it |
+| Save button | `.save-btn` | a `.btn` in a server's top bar with a 10×12 pixel bookmark; saved: the bookmark filled in `--series-1`, "Saved". Icon only under 900px |
+| Server list row | `.my-row` | `/servers`: set into the panel (`--surface-2`, cut corners), 8px apart; grip (six 2px dots) · name 15px/700 with role tag and address · status square (`--good` up, `--critical` down) and 16px heads · quiet Remove that turns solid `--critical` for its second click. Under 560px who's on drops under the name |
 | Waiting strip | `.wiz-wait` | `--surface-2`, 14.5px/600, a 10px square that blinks in two steps (`--warning`); green (`--good` mixed 16% into `--surface`) once it's done |
 
 Focus is always `outline: 2px solid var(--series-1)` (offset 1–2px, or -1px on inputs).

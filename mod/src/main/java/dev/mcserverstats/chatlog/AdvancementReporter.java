@@ -21,7 +21,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.PlayerAdvancements;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+//#if MC >= 26.1
 import net.minecraft.world.item.ItemStackTemplate;
+//#endif
 
 // Advancements, for the tree on each player's dashboard page.
 //
@@ -59,6 +61,18 @@ final class AdvancementReporter {
 				JsonObject o = new JsonObject();
 				o.addProperty("id", short_(holder.id().toString()));
 				a.parent().ifPresent(p -> o.addProperty("parent", short_(p.toString())));
+				//#if MC >= 26.3
+				//$$ // 26.3: DisplayInfo is a record, and where it sits on the screen is kept on the tree's node
+				//$$ o.addProperty("title", clip(d.title().getString(), 80));
+				//$$ o.addProperty("desc", clip(d.description().getString(), 300));
+				//$$ o.add("icon", icon(d.icon()));
+				//$$ o.addProperty("frame", d.type().getSerializedName());
+				//$$ net.minecraft.advancements.AdvancementNode node = server.getAdvancements().tree().get(holder);
+				//$$ o.addProperty("x", node == null ? 0 : node.x());
+				//$$ o.addProperty("y", node == null ? 0 : node.y());
+				//$$ if (d.hidden()) o.addProperty("hidden", true);
+				//$$ d.background().ifPresent(bg -> o.addProperty("bg", short_(bg.id().toString())));
+				//#else
 				o.addProperty("title", clip(d.getTitle().getString(), 80));
 				o.addProperty("desc", clip(d.getDescription().getString(), 300));
 				o.add("icon", icon(d.getIcon()));
@@ -67,6 +81,7 @@ final class AdvancementReporter {
 				o.addProperty("y", d.getY());
 				if (d.isHidden()) o.addProperty("hidden", true);
 				d.getBackground().ifPresent(bg -> o.addProperty("bg", short_(bg.id().toString())));
+				//#endif
 				o.addProperty("of", a.requirements().size());
 				list.add(o);
 			}
@@ -148,9 +163,14 @@ final class AdvancementReporter {
 	}
 
 	// { id, model? (when it's drawn as another item), glint? }
+	//#if MC >= 26.1
 	private static JsonObject icon(ItemStackTemplate template) {
 		JsonObject o = new JsonObject();
 		ItemStack stack = template.create();
+	//#else
+	//$$ private static JsonObject icon(ItemStack stack) {
+	//$$ 	JsonObject o = new JsonObject();
+	//#endif
 		String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
 		o.addProperty("id", short_(id));
 		Identifier model = stack.get(DataComponents.ITEM_MODEL);
