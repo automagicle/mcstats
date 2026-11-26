@@ -3919,7 +3919,8 @@ function msgGroup(m) {
     el('div', { class: 'msg-meta' },
       chatName(m),
       m.kind === 'say' ? el('span', { class: 'msg-tag', text: '/say' }) : null,
-      m.via === 'web' ? el('span', { class: 'msg-tag', text: 'web', title: 'Sent from this dashboard' }) : null,
+      m.via === 'web' ? el('span', { class: 'msg-tag', text: 'web', title: 'Sent from this dashboard' })
+        : m.via === 'discord' ? el('span', { class: 'msg-tag', text: 'discord', title: 'Sent from Discord' }) : null,
       el('time', { class: 'msg-time', text: clock(m.ts / 1000) }))));
 }
 
@@ -6623,6 +6624,7 @@ window.addEventListener('beforeunload', (e) => {
 const ADMIN_SECTIONS = {
   players: ['admin', 'Players'], teams: ['admin', 'Teams'], layout: ['layout-admin', 'Layout'], server: ['server-admin', 'Server'],
   roles: ['roles', 'Roles'], moderation: ['admin', 'Chat and deaths'], mod: ['admin', 'Mod and data'], analytics: ['analytics', 'Analytics'],
+  discord: ['discord-admin', 'Discord'],
 };
 function adminTab(name) {
   admin.tab = name;
@@ -8887,6 +8889,251 @@ async function adminRemove(id, action) {
   else if (state.playerData && !$('#view-player').hidden) renderPlayerCombat(state.playerData.name).catch(() => {});
 }
 
+/* ---------- Admin → Discord (DISCORD.md; GET/POST /api/admin/discord, src/discord/admin.js) ---------- */
+
+// Unlike the rest of Admin, each change here is saved at once: linking happens partly on Discord's side, and
+// every change takes effect in Discord straight away.
+const dsc = { data: null, busy: false, code: null, notice: null };
+const DSC_FEEDS = {
+  status: ['Status message', 'One message kept up to date: who’s on, and today at a glance.'],
+  events: ['Events', 'Joins and leaves, deaths, advancements, the server going up or down, new seasons.'],
+  chat: ['Chat', 'The game’s chat, posted as each player. Needs “Chat” shared.'],
+  digest: ['Daily summary', 'Yesterday on the server, once a day.'],
+};
+const DSC_SHARE = [
+  ['online', 'Who’s online', 'Always on: the least a linked server shares.'],
+  ['stats', 'Stats', 'Playtime, the leaderboard, player cards, when someone was last on.'],
+  ['deaths', 'Deaths and kills', 'Needs the mod.'],
+  ['advancements', 'Advancements', 'Needs the mod.'],
+  ['chat', 'Chat', 'The game’s chat in a Discord channel. Needs the mod.'],
+  ['joinlink', 'Join link', 'A Join button on /dashboard, so Discord members get in without the password.'],
+];
+const DSC_NOTICES = {
+  linked: 'Linked. Now pick a setup below.', cancelled: 'Not added: nothing changed.', expired: 'That took too long. Try Add to Discord again.',
+  not_owner: 'Only the server’s owner can add the bot.', taken: 'That Discord server is already linked to another mcstats server. Unlink it there first.',
+  failed: 'Discord didn’t confirm the bot was added. Try again.', not_set_up: 'The Discord bot isn’t set up on this site yet.',
+};
+
+async function showDiscordAdmin() {
+  showView('admin');
+  adminTab('discord');
+  const root = $('#discord-admin');
+  if (!site.perms) {
+    const r = DUMMY ? null : await api('/api/me').catch(() => null);
+    if (r) setMe(r);
+  }
+  if (!site.admin || DUMMY) {
+    root.replaceChildren(el('div', { class: 'card empty', text: DUMMY ? 'The sample data has no Discord.' : 'This page is only for admins.' }));
+    return;
+  }
+  // back from Discord's "Add app" screen (src/discord/install.js): say how it went, once
+  const q = new URLSearchParams(location.search);
+  if (q.has('discord')) {
+    dsc.notice = DSC_NOTICES[q.get('discord')] || null;
+    q.delete('discord');
+    history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}${location.hash}`);
+  }
+  if (!dsc.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
+  dsc.data = await api('/api/admin/discord');
+  renderDiscordAdmin();
+}
+
+async function dscPost(body) {
+  if (dsc.busy) return null;
+  dsc.busy = true;
+  $('#discord-admin').classList.add('adm-busy');
+  try {
+    const res = await fetch('/api/admin/discord', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body),
+    });
+    const r = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(r?.error || `the server answered ${res.status}`);
+    if (r.link !== undefined) dsc.data = r;
+    if (r.notes?.length) toast(r.notes.join(' '), { error: true, ms: 8000 });
+    return r;
+  } catch (err) {
+    toast(err.message, { error: true, ms: 6000 });
+    return null;
+  } finally {
+    dsc.busy = false;
+    $('#discord-admin').classList.remove('adm-busy');
+    renderDiscordAdmin();
+  }
+}
+
+function renderDiscordAdmin() {
+  const d = dsc.data;
+  if (!d) return;
+  const root = $('#discord-admin');
+  const card = (title, sub, ...kids) => el('section', { class: 'card adm-card' },
+    el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null),
+    el('div', { class: 'srv-fields dsc-fields' }, ...kids));
+  const note = (text) => el('p', { class: 'adm-note', text });
+  const btn = (text, onclick, primary = false, attrs = {}) => {
+    const b = el('button', { class: primary ? 'btn btn-primary' : 'btn', type: 'button', text, ...attrs });
+    b.addEventListener('click', onclick);
+    return b;
+  };
+  const cards = [];
+  if (dsc.notice) cards.push(el('div', { class: 'card dsc-notice', role: 'status', text: dsc.notice }));
+
+  if (!d.ready) {
+    cards.push(card('Discord', null, note('The Discord bot isn’t set up on this site yet. Its operator follows “Operator setup” in DISCORD.md.')));
+    root.replaceChildren(...cards);
+    return;
+  }
+
+  /* ---- not linked: the two ways in ---- */
+  if (!d.link) {
+    const kids = [
+      note('Bring this server into your Discord: commands like /online, /player and /top, a live status message, joins, deaths and '
+        + 'advancements as they happen, and the game’s chat in a channel if you like. What Discord sees is up to the owner, below once linked.'),
+    ];
+    if (d.owner) {
+      const add = el('a', { class: 'btn btn-primary', href: d.install_url, text: 'Add to Discord' });
+      kids.push(el('div', { class: 'dsc-actions' }, add,
+        btn('Link with a code', async () => { const r = await dscPost({ action: 'code' }); if (r?.code) { dsc.code = r; renderDiscordAdmin(); } })));
+      kids.push(note('Add to Discord: pick your Discord server on Discord’s own screen and you’re back here, linked. '
+        + 'If someone else runs the Discord server, make a code and send them the command it shows.'));
+      if (dsc.code) {
+        const cmd = el('code', { class: 'dsc-code', text: dsc.code.command });
+        kids.push(el('div', { class: 'site-field' }, el('span', { class: 'site-label', text: `Code (works once, for ${dsc.code.minutes} minutes)` }), cmd,
+          el('div', { class: 'dsc-actions' }, btn('Copy', () => navigator.clipboard?.writeText(dsc.code.command).then(() => toast('Copied.'))))));
+      }
+    } else {
+      kids.push(note('Only the server’s owner can add the bot to a Discord server.'));
+    }
+    cards.push(card('Discord', 'Not linked', ...kids));
+    root.replaceChildren(...cards);
+    return;
+  }
+
+  /* ---- linked ---- */
+  const g = d.guild || {};
+  const chans = g.channels || [];
+  const chanName = (id) => chans.find((c) => c.id === id)?.name;
+  const health = [];
+  if (d.link.broken) health.push(el('p', { class: 'site-err', text: `Posting stopped: ${d.link.broken} Pick a setup again to start it.` }));
+  if (g.error) health.push(el('p', { class: 'site-err', text: g.error }));
+  health.push(note(d.mod.linked ? `The Minecraft server’s mod is connected (${d.mod.version || 'version unknown'}).`
+    : d.has_mod ? 'The Minecraft server’s mod isn’t connected right now: chat, deaths and /say wait for it.'
+      : 'The Minecraft server doesn’t run the mcstats mod: commands work, but there’s no chat, deaths or advancements.'));
+  const linkedBy = d.link.linked_by ? ` by ${d.link.linked_by}` : '';
+  cards.push(card(`Discord · ${d.link.guild_name || 'linked'}`, `Linked ${fmt(d.link.linked_at, { month: 'short', day: 'numeric', year: 'numeric' })}${linkedBy}`,
+    ...health,
+    el('div', { class: 'dsc-actions' },
+      el('a', { class: 'btn', href: d.install_url, text: 'Add again (fix permissions)' }),
+      btn('Send a test', async () => {
+        const r = await dscPost({ action: 'test' });
+        if (r?.results) toast(Object.entries(r.results).map(([f, v]) => `${DSC_FEEDS[f][0]}: ${v === 'ok' ? 'posted' : v}`).join(' · ') || 'No feeds to test.', { ms: 6000 });
+      }),
+      d.owner ? btn('Unlink', () => { if (confirm('Unlink this Discord server? Its feeds stop and the bot’s webhooks and status message are deleted.')) dscPost({ action: 'unlink' }); }) : null)));
+
+  /* ---- what may be shared (owners) ---- */
+  const shareRows = DSC_SHARE.filter(([k]) => k !== 'joinlink' || (!d.public && d.has_join_link)).map(([k, label, hint]) => {
+    const box = el('input', { type: 'checkbox', disabled: !d.owner || k === 'online' ? '' : null });
+    box.checked = !!d.config.share[k];
+    box.addEventListener('change', () => dscPost({ action: 'share', share: { [k]: box.checked } }));
+    return el('label', { class: 'dsc-check' }, box, el('span', {}, el('b', { text: label }), ' ', el('span', { class: 'site-hint', text: hint })));
+  });
+  cards.push(card('Shared with Discord', d.owner ? 'The most Discord ever gets' : 'Only the owner can change this', ...shareRows));
+
+  /* ---- setup: a preset and channels ---- */
+  const pick = (feed, value) => {
+    const s = el('select', { class: 'adm-input', 'aria-label': `Channel for ${DSC_FEEDS[feed][0]}` },
+      el('option', { value: '', text: 'Off' }),
+      ...chans.map((c) => el('option', { value: c.id, text: `#${c.name}${c.parent ? ` (${c.parent})` : ''}${(feed === 'chat' ? c.missing_webhook : c.missing).length ? ' ⚠' : ''}` })));
+    s.value = value || '';
+    return s;
+  };
+  const sug = g.suggested || {};
+  const presetBox = el('select', { class: 'adm-input', 'aria-label': 'Setup' },
+    ...Object.entries(d.presets).map(([id, p]) => el('option', { value: id, text: p.label, disabled: p.needs.some((k) => !d.config.share[k]) ? '' : null })));
+  presetBox.value = d.feeds.chat ? 'bridge' : d.feeds.events ? 'community' : d.feeds.status ? 'status' : 'community';
+  const statusPick = pick('status', d.feeds.status?.channel_id || sug.status);
+  const eventsPick = pick('events', d.feeds.events?.channel_id || sug.events);
+  const chatPick = pick('chat', d.feeds.chat?.channel_id || sug.chat);
+  const make = el('input', { type: 'checkbox', disabled: g.can_make_channels ? null : '' });
+  const shown = () => {
+    const feeds = d.presets[presetBox.value].feeds;
+    statusPick.parentElement.hidden = !feeds.includes('status');
+    eventsPick.parentElement.hidden = !feeds.includes('events');
+    chatPick.parentElement.hidden = !feeds.includes('chat');
+  };
+  const field = (label, control) => el('div', { class: 'site-field' }, el('span', { class: 'site-label', text: label }), control);
+  const fields = [
+    field('Setup', presetBox),
+    field('Status message and daily summary', statusPick),
+    field('Joins, deaths and advancements', eventsPick),
+    field('The game’s chat', chatPick),
+    el('label', { class: 'dsc-check' }, make, el('span', {}, el('b', { text: 'Make the channels for me' }), ' ',
+      el('span', { class: 'site-hint', text: g.can_make_channels ? 'A “Minecraft” category with the channels this setup uses.' : 'The bot needs Manage Channels: use “Add again” with it ticked on Discord’s screen.' }))),
+    el('div', { class: 'dsc-actions' }, btn('Save setup', () => dscPost({
+      action: 'preset', preset: presetBox.value, make: make.checked,
+      channels: { status: statusPick.value || null, events: eventsPick.value || null, chat: chatPick.value || null },
+    }), true)),
+  ];
+  presetBox.addEventListener('change', shown);
+  cards.push(card('Setup', 'What the bot posts, and where', ...fields));
+  queueMicrotask(shown);
+
+  /* ---- feeds as they are ---- */
+  const feedRows = Object.keys(DSC_FEEDS).map((f) => {
+    const x = d.feeds[f];
+    const q = d.relay?.queued?.[f]?.n;
+    const state = !x ? 'Off'
+      : x.last_error ? `⚠ ${x.last_error}` : x.last_ok ? `Last post ${fmt(x.last_ok, { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })}` : 'Nothing posted yet';
+    const extra = [];
+    if (x && f === 'events') {
+      for (const [k, label] of [['joins', 'joins'], ['deaths', 'deaths'], ['advancements', 'advancements'], ['server', 'up/down'], ['season', 'seasons']]) {
+        const box = el('input', { type: 'checkbox' });
+        box.checked = x.options[k] !== false;
+        box.addEventListener('change', () => dscPost({ action: 'feeds', feeds: { events: { channel_id: x.channel_id, options: { ...x.options, [k]: box.checked } } } }));
+        extra.push(el('label', { class: 'dsc-inline' }, box, ` ${label}`));
+      }
+    }
+    if (x && f === 'digest') {
+      const hour = el('select', { class: 'adm-input dsc-hour', 'aria-label': 'Hour of the daily summary' },
+        ...Array.from({ length: 24 }, (_, h) => el('option', { value: String(h), text: `${String(h).padStart(2, '0')}:00` })));
+      hour.value = String(x.options.hour ?? 9);
+      hour.addEventListener('change', () => dscPost({ action: 'feeds', feeds: { digest: { channel_id: x.channel_id, options: { hour: Number(hour.value) } } } }));
+      extra.push(el('span', { class: 'dsc-inline' }, 'at ', hour));
+    }
+    return el('div', { class: 'dsc-feed' },
+      el('div', {}, el('b', { text: DSC_FEEDS[f][0] }), x ? ` → #${chanName(x.channel_id) || 'unknown channel'}` : '', el('div', { class: 'site-hint', text: DSC_FEEDS[f][1] })),
+      el('div', { class: 'dsc-feed-state' }, `${state}${q ? ` · ${q} waiting` : ''}`), extra.length ? el('div', { class: 'dsc-feed-opts' }, ...extra) : null);
+  });
+  if (d.relay?.dropped) feedRows.push(note(`${d.relay.dropped} posts were dropped while Discord couldn’t be reached.`));
+  cards.push(card('Feeds', null, ...feedRows));
+
+  /* ---- commands and /say ---- */
+  const on = el('input', { type: 'checkbox' });
+  on.checked = d.config.commands.on;
+  on.addEventListener('change', () => dscPost({ action: 'commands', commands: { on: on.checked } }));
+  const quiet = el('input', { type: 'checkbox' });
+  quiet.checked = d.config.commands.ephemeral;
+  quiet.addEventListener('change', () => dscPost({ action: 'commands', commands: { ephemeral: quiet.checked } }));
+  const sayBox = el('select', { class: 'adm-input', disabled: d.owner ? null : '', 'aria-label': 'Who may /say' },
+    el('option', { value: 'off', text: 'Nobody' }), el('option', { value: 'linked', text: 'Discord members linked to a player' }),
+    el('option', { value: 'anyone', text: 'Anyone (shown with a * in game; needs mod 2.4.0)' }));
+  sayBox.value = d.config.bridge.say;
+  sayBox.addEventListener('change', () => dscPost({ action: 'bridge', bridge: { say: sayBox.value } }));
+  cards.push(card('Commands', null,
+    el('label', { class: 'dsc-check' }, on, el('span', {}, el('b', { text: 'Commands on' }), ' ', el('span', { class: 'site-hint', text: '/online, /server, /player, /top, /seen, /deaths, /dashboard, /me' }))),
+    el('label', { class: 'dsc-check' }, quiet, el('span', {}, el('b', { text: 'Answers only to whoever asked' }), ' ', el('span', { class: 'site-hint', text: 'Otherwise everyone in the channel sees them.' }))),
+    field('Who may send chat into the game with /say', sayBox)));
+
+  /* ---- linked players ---- */
+  const players = (d.players || []).map((p) => el('div', { class: 'dsc-feed' },
+    el('div', {}, el('b', { text: p.name }), el('span', { class: 'site-hint', text: ` Discord user ${p.discord_id} · linked ${fmt(p.at, { month: 'short', day: 'numeric' })}` })),
+    btn('Unlink', () => dscPost({ action: 'player.unlink', discord_id: p.discord_id }))));
+  cards.push(card('Linked players', 'Discord members link themselves with /mcstats connect',
+    ...(players.length ? players : [note('Nobody yet.')])));
+
+  root.replaceChildren(...cards);
+}
+
 /* ---------- routing & refresh ---------- */
 
 async function route() {
@@ -8906,6 +9153,7 @@ async function route() {
     else if (location.hash === '#/admin/server') await showServerAdmin();
     else if (location.hash === '#/admin/analytics') await showAnalytics();
     else if (location.hash === '#/admin/roles') await showRoles();
+    else if (location.hash === '#/admin/discord') await showDiscordAdmin();
     else if (onLive()) await showLive();
     else await showHome();
     renderUnread();

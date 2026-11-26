@@ -19,6 +19,18 @@ lost), put this line straight under the version's heading, and the notice says s
 
     **Urgent:** why, in one sentence.
 
+## Unreleased (to be 2.4.0)
+
+Not built yet: bump `version` in gradle.properties to 2.4.0, build, and change this heading to `## 2.4.0 (date)`.
+
+### Added
+
+- **Chat from Discord.** A message sent with the Discord bot's `/say` (see DISCORD.md in the repository)
+  shows in game with a blue `[Discord]` tag instead of `[Web]`, and is logged as sent from Discord, so the
+  dashboard's chat log tags it and the bot doesn't post it back. Someone on Discord who hasn't linked a player
+  shows in grey italics with a `*` after their name, and isn't logged as any player. Older versions show these
+  messages with the `[Web]` tag, and the bot won't send guests' messages to them.
+
 ## 2.3.0 (2026-11-26)
 
 ### Added

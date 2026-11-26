@@ -42,6 +42,13 @@ final class WebChatLink {
 		// wait ran out and the sender was already told no, so it must not be shown (and never answer).
 		CompletableFuture<String> say(String name, String text, BooleanSupplier claim);
 
+		// The same for a message from Discord (2.4.0): shown with a [Discord] tag instead of [Web]. guest: sent
+		// by someone on Discord who isn't linked to a player, so the name is theirs on Discord and must not pass
+		// for a player's.
+		default CompletableFuture<String> sayFromDiscord(String name, String text, boolean guest, BooleanSupplier claim) {
+			return say(name, text, claim);
+		}
+
 		// The same for a whisper to one player in game (`to`); from is null for an admin.
 		CompletableFuture<String> whisper(String from, String to, String text, BooleanSupplier claim);
 
@@ -422,7 +429,10 @@ final class WebChatLink {
 		// Either the server thread takes the message within 4 seconds and its answer is the truth, or the
 		// wait wins and the message is dropped: never "busy" for a message that then shows anyway.
 		AtomicBoolean taken = new AtomicBoolean();
-		handler.say(name, text, () -> taken.compareAndSet(false, true))
+		boolean discord = !admin && m.has("via") && "discord".equals(m.get("via").getAsString());
+		boolean guest = discord && m.has("guest") && m.get("guest").getAsBoolean();
+		(discord ? handler.sayFromDiscord(name, text, guest, () -> taken.compareAndSet(false, true))
+				: handler.say(name, text, () -> taken.compareAndSet(false, true)))
 				.whenComplete((error, err) -> ack(ws, id, err != null ? "the server couldn't show it" : error));
 		ScheduledExecutorService e = exec;
 		if (e != null) {

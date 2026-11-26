@@ -15,6 +15,11 @@ It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay o
 - **Liveview** (admins only, optional): a fourth tab that shows the world as it is right now, in 3D, straight from
   the server mod: fly a camera through the terrain, follow a player, open inventories and chests, read what's
   happening. It's behind two keys that are made on the Minecraft server (see [Liveview](#liveview)).
+- **Discord bot** (optional): one bot for the whole site. An owner adds it to their Discord server from
+  Admin → Discord in two clicks. It answers `/online`, `/player`, `/top`, `/seen`, `/deaths` and `/server` from that
+  server's stats, and posts a live status message, joins, deaths, advancements, a daily summary and (if the owner
+  shares it) the game's chat. Players can talk into the game with `/say`. A Discord server sees only the
+  mcstats server it's linked to, and only what that server's owner shares. See [DISCORD.md](DISCORD.md).
 - **Seasons**: a server's main page shows its current season; `/<server>/s1` is its season 1 archive. Seasons split
   the recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
 - **Privacy**: looking at a server needs its join password (or the owner can make it public); chatting from the
@@ -35,6 +40,12 @@ npx wrangler secret put SUPER_ADMIN_EMAIL     # you: can do everything on any se
 npm run build:mod                             # the mod jar that /new offers (needs Java 25)
 npm run deploy
 ```
+
+The Discord bot is optional: without its settings it's off and Admin → Discord says so. To switch it on, make a
+Discord app and follow "Operator setup" in [DISCORD.md](DISCORD.md). In short: `DISCORD_APP_ID` and
+`DISCORD_PUBLIC_KEY` in `wrangler.jsonc`, the secrets `DISCORD_BOT_TOKEN` and `DISCORD_CLIENT_SECRET`, the
+Interactions Endpoint URL `https://<site>/api/discord/interactions`, the OAuth2 redirect
+`https://<site>/api/discord/oauth`, and `npm run discord:commands` once.
 
 Then open the site, choose **Create a server**, and follow the steps: create your mcstats account (or sign in), name the server, pick
 its address (`/<address>`, checked as you type; names the site uses or may come to use, like `/settings`, can't be taken) and whether its stats are **private** (players need its join

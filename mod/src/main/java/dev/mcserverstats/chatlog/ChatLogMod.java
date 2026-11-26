@@ -82,6 +82,11 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			}
 
 			@Override
+			public CompletableFuture<String> sayFromDiscord(String name, String text, boolean guest, java.util.function.BooleanSupplier claim) {
+				return discordMessage(name, text, guest, claim);
+			}
+
+			@Override
 			public CompletableFuture<String> whisper(String from, String to, String text, java.util.function.BooleanSupplier claim) {
 				return webWhisper(from, to, text, claim);
 			}
@@ -235,6 +240,44 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				done.complete("");
 			} catch (RuntimeException e) {
 				LOG.error("Couldn't show a web chat message", e);
+				done.complete("the server couldn't show it");
+			}
+		});
+		return done;
+	}
+
+	// Discord's blurple, for the [Discord] tag.
+	private static final TextColor DISCORD = TextColor.fromRgb(0x5865F2);
+
+	// A message sent from Discord with /say (2.4.0): "[Discord] <name> text". A linked player's name is in their
+	// team's colors and logged as their chat, like one from the dashboard; a guest's (someone on Discord who isn't
+	// linked to a player) is grey, italic and ends in *, and is logged under no player, so it can't pass for one.
+	// Logged with via "discord", so the dashboard doesn't post it back to Discord.
+	private CompletableFuture<String> discordMessage(String name, String text, boolean guest, java.util.function.BooleanSupplier claim) {
+		MinecraftServer s = server;
+		if (s == null) return CompletableFuture.completedFuture("the server is starting or stopping");
+		CompletableFuture<String> done = new CompletableFuture<>();
+		s.execute(() -> {
+			if (!claim.getAsBoolean()) return;
+			try {
+				Component who = guest
+						? Component.literal(name + "*").withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC)
+						: PlayerTeam.formatNameForTeam(teamOf(s, name), Component.literal(name).withStyle(st -> st.withInsertion(name)));
+				MutableComponent line = Component.empty()
+						.append(Component.literal("[Discord] ").withStyle(st -> st.withColor(DISCORD)))
+						.append(Component.translatable("chat.type.text", who, Component.literal(text)));
+				postingWeb = true;
+				try {
+					s.getPlayerList().broadcastSystemMessage(line, false);
+				} finally {
+					postingWeb = false;
+				}
+				ServerPlayer online = guest ? null : s.getPlayerList().getPlayerByName(name);
+				uploader.add("chat", online == null ? null : online.getUUID(), guest ? null : name, styled(who, 8), null, text, "discord");
+				uploader.flushSoon();
+				done.complete("");
+			} catch (RuntimeException e) {
+				LOG.error("Couldn't show a message from Discord", e);
 				done.complete("the server couldn't show it");
 			}
 		});

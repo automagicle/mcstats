@@ -80,6 +80,17 @@ export async function linkUp(env) {
   }
 }
 
+// A message from Discord (/say, src/discord/commands.js), sent on into game chat the way the dashboard's are:
+// { name, guest, key (who to rate-limit), text } -> { status, body } as ServerLink answered.
+export async function sendFromDiscord(env, { name, guest = false, key, text }) {
+  const res = await link(env).fetch('https://link/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: guest ? name : await gameName(env, name), key, text: cleanWebText(text), via: 'discord', guest }),
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
 // One line of plain text: no control characters or § formatting codes.
 export const cleanWebText = (s) => String(s).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/§.?/gs, '').trim().slice(0, MAX_WEB_CHAT);
 
@@ -442,14 +453,17 @@ export class ServerLink extends DurableObject {
     }
 
     if (path === '/send' && request.method === 'POST') {
-      const { name = null, admin = false, key, text } = await request.json();
+      // via 'discord': sent from Discord (src/discord/commands.js /say); guest: by someone on Discord who isn't
+      // linked to a player (mod 2.4.0 shows those apart, so they can't pass for a player)
+      const { name = null, admin = false, key, text, via = null, guest = false } = await request.json();
       const ws = this.socket();
       if (!ws) return json({ error: "The server isn't connected right now, so messages can't reach the game.", reason: 'offline' }, 503);
 
       const slow = this.limited(key);
       if (slow) return slow;
       const began = Date.now();
-      const r = await this.ask(ws, admin ? { type: 'say', admin: true, text } : { type: 'say', name, text });
+      const extra = { ...(via === 'discord' ? { via } : {}), ...(guest ? { guest: true } : {}) };
+      const r = await this.ask(ws, admin ? { type: 'say', admin: true, text, ...extra } : { type: 'say', name, text, ...extra });
       if (!r) return json({ error: "The server isn't connected right now.", reason: 'offline' }, 503);
       const took = Date.now() - began;
       if (!r.ok && !r.unsure) this.note(`the mod refused a message after ${(took / 1000).toFixed(1)}s: "${String(r.error).slice(0, 60)}"`);

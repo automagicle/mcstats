@@ -18,6 +18,7 @@ import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
 import { EMAIL_RE } from './session.js';
 import { connectedList, disconnectPlayer } from './connect.js';
+import { tellDeleted } from './discord/relay.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -385,7 +386,11 @@ export async function adminAction(request, env, url, season) {
   const run = body && Object.hasOwn(ACTIONS, body.action) ? ACTIONS[body.action] : null;
   if (!run) return bad('unknown action');
   if (body.action === 'config.save' && !season.n) return bad('pick a season');
+  // a chat line deleted, or a death left out of Combat, comes off Discord too (src/discord/relay.js)
+  const gone = body.action === 'chat.delete' || body.action === 'death.uncount'
+    ? await env.DB.prepare('SELECT event_id FROM chat WHERE id = ?').bind(chatId(body.id) ?? -1).first('event_id').catch(() => null) : null;
   const out = (await run(env.DB, body, season, env)) || json({ ok: true });
+  if (out.ok && gone) await tellDeleted(env, [gone]);
   if (out.ok) await clearCache(env.DB); // season totals may have changed
   if (out.ok && body.action === 'config.save' && (body.hidden !== undefined || body.aliases !== undefined)) await tellPresence(env, '/invalidate'); // the live badges
   return out;

@@ -11,7 +11,16 @@ It's one app for the whole site, added to many Discord servers. This doc calls a
 a Minecraft server on mcstats a **server**. Each guild is linked to one server and can only ever see that one,
 the same way everything else on the site is kept apart.
 
-Status: proposal. Nothing here is built yet.
+Status: phases 1 and 2 are built (code in `src/discord/`, tests in `test/discord.test.js`), apart from the
+pieces listed here. Phase 3 (a whole bridged channel) isn't built.
+
+| Not built yet | Instead, for now |
+| --- | --- |
+| Linking a player from in game (`/mcstats discord` code, "Way A") | linking through the mcstats account ("Way B"), which needs no mod change |
+| The optional "Add to Discord" step on `/new` ("Way 3") | Admin → Discord, once the server is made |
+| Joins and leaves for servers without the mod (from polling) | joins and leaves come from the mod's chat lines |
+| The team next to a player's name in the chat feed | the player's name only |
+| Mod 2.4.0 itself | the mod change is in `mod/` and `mod/CHANGELOG.md` ("Unreleased"), not built or released. Until it is, chat from Discord shows in game with the `[Web]` tag, and `/say` from Discord users who haven't linked a player is refused |
 
 Contents: [What it builds on](#what-the-bot-builds-on) · [Who it's for](#who-its-for) ·
 [Adding it to Discord](#adding-it-to-a-discord-server) · [How it fits](#how-it-fits) ·
@@ -132,9 +141,9 @@ is greyed out, with a note saying why.
 | **Just commands** | ✓ | | | | | | none |
 | **Status board** | ✓ | ✓ | up/down only | | | ✓ | `#server-status` |
 | **Community** (default) | ✓ | ✓ | ✓ | | | ✓ | `#server-status`, `#mc-events` |
-| **Full bridge** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `#server-status`, `#mc-events`, `#mc-chat` |
+| **Full bridge** | ✓ | ✓ | ✓ | ✓ | owner's choice | ✓ | `#server-status`, `#mc-events`, `#mc-chat` |
 
-All three channels can be the same channel. **Make the channels for me** makes the ones the preset uses.
+All three channels can be the same channel. A preset never switches `/say` on: who may talk into the game is the owner's call, set on its own. **Make the channels for me** makes the ones the preset uses.
 
 ### Permissions
 
@@ -198,12 +207,13 @@ phase 3 only:  DiscordGateway (one for the app) ── Gateway WebSocket ── 
 | Routing | `src/index.js` | `/api/discord/*` goes to `src/discord/index.js` before the `/api/` 404. It's site level, like `/api/site/*`, so it isn't under a server's address. |
 | Interactions | `src/discord/interactions.js` | Checks the signature, answers PING, finds the server from `guild_id`, sends commands, autocomplete, buttons and menus to their handlers. |
 | Commands | `src/discord/commands.js` | One handler per command. Each reads the dashboard's own API from the server's Tenant (see [The bot is a viewer](#the-bot-is-a-viewer)), so the numbers always match the site. |
-| Messages | `src/discord/render.js` | Turns API answers into embeds, components and plain text. It escapes markdown and keeps to Discord's size limits. |
-| Install | `src/discord/install.js` | The OAuth callback, link codes, linking and unlinking. |
+| Messages | `src/discord/render.js`, `src/discord/text.js` | Turns API answers into embeds, components and plain text. It escapes markdown and keeps to Discord's size limits. |
+| Data | `src/discord/data.js`, `src/discord/store.js`, `src/discord/server.js` | Reads a server's stats as a viewer; the server's Discord tables; finding the server for a guild. |
+| Install | `src/discord/install.js`, `src/discord/setup.js` | The OAuth callback and the account-linking page; presets, webhooks, channel permissions, unlinking. |
 | Discord API | `src/discord/api.js` | A small REST client: bot-token requests, webhook requests, rate-limit buckets, error kinds. |
 | `DiscordRelay` | `src/discord/relay.js` | A new DO class, one per server, named by the server id like LINK and PRESENCE. It holds the outbox, the status message, the daily summary, and post ↔ event ids for deletes. |
 | `DiscordGateway` | `src/discord/gateway.js` | Phase 3 only: one DO for the app, holding the Gateway WebSocket. |
-| Admin → Discord | `src/discordadmin.js` and a section of the admin page | Link, presets, feeds and channels, what may be shared, health. |
+| Admin → Discord | `src/discord/admin.js` and a section of the admin page | Link, presets, feeds and channels, what may be shared, health. |
 | Command registration | `scripts/discord-commands.mjs` | Puts the command definitions to Discord. |
 | Mod | `McstatsCommands.java`, `WebChatLink.java` | Phase 2: `/mcstats discord` (link code), and showing `via: 'discord'` chat with its own tag. |
 
@@ -274,15 +284,16 @@ CREATE TABLE state  (key TEXT PRIMARY KEY, value TEXT);  -- status message id, l
 
 ### Settings
 
-There are three new server settings, added to `SETTING_RE` (`src/tenantenv.js`) and checked in `updateSettings`:
+There are three Discord settings for each server. They're kept in the server's `discord_config` table (`src/discord/store.js`), not with
+its other settings, because only the bot reads them:
 
 | Setting | Value | Set by |
 | --- | --- | --- |
-| `DISCORD_SHARE` | JSON: what may go to Discord at all: `{ stats, online, chat, deaths, advancements, names }` | owners only |
-| `DISCORD_COMMANDS` | `on` / `off`, and `public` / `ephemeral` | admins, or Discord Manage Server |
-| `DISCORD_BRIDGE` | `off` / `say`, `linked` / `anyone` (who may `/say`) | owners only |
+| `share` | what may go to Discord at all: `{ online, stats, deaths, advancements, chat, joinlink }` (`online` is always on) | owners only |
+| `commands` | `{ on, ephemeral }`: commands on or off, and whether answers are seen only by whoever asked | admins |
+| `bridge` | `{ say: 'off' \| 'linked' \| 'anyone' }`: who may `/say` | owners only |
 
-`DISCORD_SHARE` is the most a guild can ever get. Feeds and presets (on the dashboard or in Discord) can only
+`share` is the most a guild can ever get. Feeds and presets (on the dashboard or in Discord) can only
 choose within it. On a public server everything defaults to on except `chat`. On a private server everything
 defaults to off except `online`.
 
@@ -320,7 +331,7 @@ Then it routes on the interaction type: 2 command, 3 button or menu, 4 autocompl
    and finishes in `ctx.waitUntil` with `PATCH /webhooks/{app}/{token}/messages/@original`. The token lasts 15
    minutes.
 4. **Answers.** `flags: 64` (only the person who asked sees it) for anything personal, any error, and everything
-   when `DISCORD_COMMANDS` is `ephemeral`. `allowed_mentions: { parse: [] }` always.
+   when `commands.ephemeral` is on. `allowed_mentions: { parse: [] }` always.
 
 ### The bot is a viewer
 
@@ -338,7 +349,7 @@ the Worker can set, since it strips incoming `X-MCS-` headers:
 
 So hidden players, aliases, seasons, chat resets, deleted chat, "don't count in combat" and the per-server
 `cache` table all apply to Discord exactly as on the page, and a change to a dashboard query reaches Discord with
-no extra work. On top of that, `DISCORD_SHARE` is checked before each read. With `deaths` off, `/deaths` says
+no extra work. On top of that, `share` is checked before each read. With `deaths` off, `/deaths` says
 "This server doesn't share deaths on Discord" and the death lines in `/player` are left out.
 
 ### Stateless components
@@ -356,7 +367,7 @@ Each handler checks that the guild is still linked, and the setup ones check Man
 
 ## Commands
 
-The definitions live in `src/discord/commands.json` and `scripts/discord-commands.mjs` registers them (global
+The definitions live in `src/discord/definitions.js` and `scripts/discord-commands.mjs` registers them (global
 commands, `contexts: [0]`, `integration_types: [0]`). Every player option has autocomplete from the server's
 known players, without hidden ones: the 25 best matches, preferring people online now, then recent players.
 
@@ -425,7 +436,7 @@ server's `TZ_NAME`.
 **`/deaths name:?`**: the last 10 deaths, worded as on Combat ("Steve was slain by Alex using Netherite Sword ·
 2h ago").
 
-**`/dashboard`**: the server's address. If the owner allows it (`DISCORD_SHARE.joinlink`), it also has a
+**`/dashboard`**: the server's address. If the owner allows it (`share.joinlink`), it also has a
 **Join** button with the server's join link, so players get in with one click. It's always ephemeral, so a link
 in a big guild isn't left sitting in the channel.
 
@@ -499,7 +510,7 @@ posts a new one.
 **Chat** (`chat` feed). Every chat line, including `via = web` and `via = admin`, is posted through the channel's
 webhook as the player:
 
-- `username` is the player's name (with the team as `Steve · Red` if the option is on), and `avatar_url` is
+- `username` is the player's name, and `avatar_url` is
   `/api/discord/head/<uuid>.png`;
 - `[Web]` and `[Admin]` messages keep their tag;
 - server lines (`/say` from console, broadcasts) post as "Server".
@@ -520,7 +531,7 @@ New         ★ 12 advancements · 2 new players: jeb_, Dinnerbone
 
 ### Filters every feed follows
 
-- `DISCORD_SHARE` first: something not shared is never queued.
+- `share` first: something not shared is never queued.
 - Hidden players (`hidden_players`) never appear, not even in counts. Other accounts are shown as the player they
   belong to (`player_aliases`).
 - Lines hidden by chat rules (`chat.hidden = 1`) and lines before the latest chat reset aren't posted.
@@ -569,12 +580,11 @@ DiscordRelay.alarm()
 Webhook avatars and embed thumbnails must be public URLs that Discord fetches itself. A server's `/api/skin/` is
 behind the server's password, so there's a small public route:
 
-- `GET /api/discord/head/<uuid>.png?v=<skin hash>` returns the 64×64 face (with the hat layer) cut from the Mojang
-  skin. The cache that `src/mcassets.js` already uses for skins is shared and keyed by name/uuid, as the README
+- `GET /api/discord/head/<uuid>.png` (the uuid without dashes) returns the 64×64 face (with the hat layer) cut from the Mojang
+  skin (`src/discord/head.js`). The cache that `src/mcassets.js` already uses for skins is shared and keyed by name/uuid, as the README
   says.
 - It takes a UUID only, never a name, and says nothing about which servers that player plays on. Skins are public
-  at Mojang anyway. It's cached at the edge for a day, and the `v` changes when the skin does, so Discord refetches
-  it.
+  at Mojang anyway. It's cached at the edge for a day, so a new skin shows within a day.
 
 ## Bridge (Discord → game)
 
@@ -588,7 +598,7 @@ In game: [Discord] Steve: anyone at spawn?
 Chat log (dashboard): Steve (Discord) anyone at spawn?
 ```
 
-1. The Worker checks `DISCORD_BRIDGE`. The sender is the linked player, or, if `anyone` is allowed, the Discord
+1. The Worker checks `bridge.say`. The sender is the linked player, or, if `anyone` is allowed, the Discord
    display name (cleaned with the same `IGN_RE` and shown as `[Discord] name*` so it can't pass as a player).
 2. It cleans the text as `cleanWebText` (`src/link.js`) does, with the same 256-character limit. Admin → Chat
    rules apply.
@@ -635,7 +645,7 @@ There are two ways, and both prove both sides.
 **B. From the mcstats account** (no mod change, using the in-game account connect that already exists):
 
 1. In Discord: `/mcstats connect` with no code. The answer is an ephemeral **Link with mcstats** button that
-   opens `/<slug>/discord/connect/<token>`. The token is signed and lasts 10 minutes:
+   opens `/api/discord/connect?t=<token>`. The token is signed and lasts 10 minutes:
    `{ k: 'discordme', s: server id, d: discord user id }`.
 2. On the site, signed in: "Link Discord user @steve to Steve?" → **Link**. It uses the player the account is
    connected to (`connectedPlayer`, `src/connect.js`). An account with no player is told to run
@@ -647,8 +657,9 @@ one player per server, and one player can have more than one Discord user (alts)
 
 ## Admin → Discord
 
-A new section on the admin page. Most of it uses the Save bar like the rest. Link and unlink take effect at once,
-since they happen partly on Discord's side.
+A new section on the admin page (`#/admin/discord`, `renderDiscordAdmin` in `public/app.js`). Unlike the rest of
+Admin, each change saves at once, because linking happens partly on Discord's side and every change shows in
+Discord straight away.
 
 ```
 ┌ Discord ──────────────────────────────────────────────────────────────────────┐
@@ -684,11 +695,11 @@ since they happen partly on Discord's side.
 
 ## Privacy and security
 
-- **The owner sets the ceiling.** `DISCORD_SHARE` is the most a guild can get, and Discord-side admins only choose
+- **The owner sets the ceiling.** `share` is the most a guild can get, and Discord-side admins only choose
   within it. Turning something off stops it at once: queued posts are dropped, and commands refuse.
 - **A guild is a viewer, never a member.** It can read what the password lets you read, minus what isn't shared.
   It never reaches admin actions, Liveview, whispers, emails or real names. Real names stay off unless
-  `DISCORD_SHARE.names`. Gear isn't shared in v1.
+  `share.names` (not built: real names are never shared). Gear isn't shared in v1.
 - **Which server is never up to the request.** It comes from `guild_id` → DIRECTORY, the same rule as for page
   addresses and mod keys. `test/isolation.test.js` gets Discord cases.
 - **Linking needs both sides.** An mcstats owner (the signed state or the code) and a Discord user with Manage
@@ -745,7 +756,7 @@ since they happen partly on Discord's side.
 5. **Installation**: Guild Install only. Install link "Discord Provided Link" with scopes `bot` and
    `applications.commands` and permissions `536955904` (this is Way 2's "Add App").
 6. `npm run discord:commands` (`node scripts/discord-commands.mjs`) registers the commands. Run it again whenever
-   `src/discord/commands.json` changes. Global commands show up within a minute or so.
+   `src/discord/definitions.js` changes. `-- --guild <id>` registers them in one Discord server only, where they show up at once. Global commands show up within a minute or so.
 7. Deploy (`npm run deploy`, which runs the directory migration first, as always).
 
 For local development: `wrangler dev` with a tunnel (`cloudflared tunnel --url http://localhost:8787`), and a
@@ -763,7 +774,7 @@ test Ed25519 key pair stands in for Discord's.
   command options naming B, a `custom_id` naming B's players, and `/mcstats setup server:B` with A's code.
 - **Linking**: OAuth state for another server, an expired one, another account, a non-owner, and a guild already
   linked are all refused. Codes work once, expire, and are rate limited.
-- **Sharing**: with each `DISCORD_SHARE` key off, the matching commands refuse and nothing is queued.
+- **Sharing**: with each `share` key off, the matching commands refuse and nothing is queued.
 - **Filters**: hidden players aren't in `/online`, `/top`, feeds or autocomplete. Aliases are merged. Rule-hidden
   and pre-reset chat isn't posted. `via = 'discord'` isn't echoed. `@everyone` comes out harmless.
 - **Relay**: batching, 429 with `retry_after`, 5xx backoff, a 404 stopping the feed, stale drops, the outbox cap,
@@ -777,23 +788,26 @@ test Ed25519 key pair stands in for Discord's.
 
 ### Phase 1: commands and install (no mod change)
 
-- [ ] `directory-migrations/0005_discord.sql`, the Tenant schema version, settings in `SETTING_RE`
-- [ ] `/api/discord/interactions`: signature, PING, routing, the viewer bridge to the Tenant API
-- [ ] `/online`, `/server`, `/player`, `/me` (linked via Way B only), `/seen`, `/top`, `/deaths`, `/dashboard`,
+- [x] `directory-migrations/0005_discord.sql`, the Tenant schema version 7, the server's `discord_config`
+- [x] `/api/discord/interactions`: signature, PING, routing, the viewer bridge to the Tenant API
+- [x] `/online`, `/server`, `/player`, `/me` (linked via Way B), `/seen`, `/top`, `/deaths`, `/dashboard`,
       `/mcstats help | setup | status | unlink | connect | disconnect`, with autocomplete and component buttons
-- [ ] Way 1 (OAuth install), Way 2 (codes and the wizard), `/new`'s optional step
-- [ ] `/api/discord/head/<uuid>.png`
-- [ ] Admin → Discord: link, sharing, commands
-- [ ] `scripts/discord-commands.mjs`, operator steps in README.md, tests
+- [x] Way 1 (OAuth install), Way 2 (codes and the wizard)
+- [ ] `/new`'s optional step (Way 3)
+- [x] `/api/discord/head/<uuid>.png`
+- [x] Admin → Discord: link, sharing, commands
+- [x] `scripts/discord-commands.mjs` (`npm run discord:commands`), tests
 
 ### Phase 2: feeds, `/say`, linking from the game
 
-- [ ] `DiscordRelay` (outbox, buckets, retries, posts, deletes), and `tellRelay` from the ingests, polling and
-      seasons
-- [ ] status message, events, chat (webhooks), daily summary, presets, "Make the channels for me"
-- [ ] `/say` through ServerLink, with `via: 'discord'` through the chat ingest
-- [ ] Mod: `/mcstats discord`, `[Discord]` display, version check; Way A linking
-- [ ] Admin → Discord: feeds, channels, health, Send test
+- [x] `DiscordRelay` (outbox, buckets, retries, posts, deletes), and `tellRelay` from the chat ingest, admin
+      deletes and seasons
+- [x] status message, events, chat (webhooks), daily summary, presets, "Make the channels for me"
+- [x] `/say` through ServerLink, with `via: 'discord'` through the chat ingest
+- [x] Mod: `[Discord]` display and guests (in `mod/`, not built or released yet)
+- [ ] Mod: `/mcstats discord`, and Way A linking
+- [ ] Joins and leaves from polling, for servers without the mod
+- [x] Admin → Discord: feeds, channels, health, Send test
 
 ### Phase 3: bridged channel (if servers ask for it)
 
@@ -808,6 +822,6 @@ test Ed25519 key pair stands in for Discord's.
   Roles, which makes the bot partly a moderation tool. Discord's own **Linked Roles** would avoid that, but its data
   is kept per app and user, not per guild, so with one app for many servers "hours played" would be ambiguous.
   It's left out until there's a clear answer.
-- **Join link in Discord**: sharing it is the owner's call (`DISCORD_SHARE.joinlink`). Should `/dashboard` with it
+- **Join link in Discord**: sharing it is the owner's call (`share.joinlink`). Should `/dashboard` with it
   be limited to Discord users who've linked a player?
 - **Per-channel digest hour**, or one per server?

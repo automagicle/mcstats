@@ -17,6 +17,7 @@
 import { json } from './util.js';
 import { loadPerms } from './roles.js';
 import { currentSeason, parseStart } from './seasons.js';
+import { tellSeason } from './discord/relay.js';
 
 const MAX_SEASONS = 99;
 const YEAR = 366 * 86400;
@@ -102,6 +103,7 @@ export async function handleSeasons(t, request, url, who) {
       ]);
     }
     console.log(`seasons: ${who.email} made season ${n} of ${s.SLUG}, starting ${iso(start)}`);
+    if (start <= at) await tellSeason(t.serverEnv(), n); // a linked Discord hears about it (src/discord/relay.js)
     return json(seasonsState(t));
   }
 

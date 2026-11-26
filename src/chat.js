@@ -4,6 +4,7 @@ import { OPEN_ENDED } from './seasons.js';
 import { json, UUID_RE, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { hiddenByRules, loadRules } from './chatrules.js';
+import { tellRelay } from './discord/relay.js';
 
 const KINDS = new Set(['chat', 'emote', 'say', 'join', 'leave', 'death', 'advancement', 'server', 'system']);
 const ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
@@ -211,7 +212,7 @@ export async function ingestChat(request, env) {
     // a death the server had no wording for arrives as its bare key ("death.attack.generic.item")
     const worded = e.kind === 'death' && name && RAW_DEATH_RE.test(text) ? await wordDeath(env.DB, name, e.death) : null;
     if (worded) rich = JSON.stringify(worded.rich);
-    rows.push([e.id, e.ts, e.kind, e.uuid ? e.uuid.toLowerCase() : null, name, worded ? worded.text : text, cleanDisplay(e.display), rich, e.via === 'web' || e.via === 'admin' ? e.via : null]);
+    rows.push([e.id, e.ts, e.kind, e.uuid ? e.uuid.toLowerCase() : null, name, worded ? worded.text : text, cleanDisplay(e.display), rich, ['web', 'admin', 'discord'].includes(e.via) ? e.via : null]);
     if (e.kind === 'death' && name) deaths.push([e.id, { name, text: worded ? worded.text : text, rich: rich ? JSON.parse(rich) : null, death: e.death }]);
   }
 
@@ -232,6 +233,11 @@ export async function ingestChat(request, env) {
     const moves = rows.filter((r) => r[2] === 'join' || r[2] === 'leave' || r[2] === 'server')
       .map(([, ts, kind, uuid, name, text]) => ({ ts, kind, uuid, name, text }));
     await tellPresence(env, '/events', { events: moves });
+    // and to Discord, where the server is linked to one (src/discord/relay.js)
+    const deathOf = new Map(events.filter((e) => e?.kind === 'death' && e.death).map((e) => [e.id, e.death]));
+    await tellRelay(env, rows.map(([event_id, ts, kind, uuid, name, text, , rich, via, hidden]) => ({
+      event_id, ts, kind, uuid, name, text, rich, via, hidden, death: deathOf.get(event_id),
+    })));
   }
   return json({ accepted: rows.length, skipped: events.length - rows.length });
 }
