@@ -508,16 +508,19 @@
       h('div', { class: 'site-row' }, next(5)));
   }
 
-  function stepWait() {
+  async function stepWait() {
+    // where the mod is told to upload (the site's main address, whichever one this page is open at)
+    W.mod ||= await api('/api/site/mod').catch(() => null);
+    const upload = W.mod?.ingest_url || `${location.origin}/api/ingest/chat`;
     const status = h('div', { class: 'wiz-wait', 'aria-live': 'polite' });
     const tips = h('div', { class: 'wiz-tips', hidden: true },
       h('p', { class: 'site-label', text: 'Nothing yet? Check:' }),
       h('ul', {},
         h('li', {}, h('strong', { text: 'The key. ' }), 'The ', h('code', { text: 'token=' }), ' line must be the whole key, starting ', h('code', { text: 'mcs_' }), ', from the last time you made one. The server’s log says “the token isn’t this server’s key” if not.'),
-        h('li', {}, h('strong', { text: 'The url. ' }), 'It must be ', h('code', { text: `${location.origin}/api/ingest/chat` }), '.'),
+        h('li', {}, h('strong', { text: 'The url. ' }), 'It must be ', h('code', { text: upload }), '.'),
         h('li', {}, h('strong', { text: 'The mod loaded. ' }), 'Look in the server log, just after it starts, for “mcstats”. If it isn’t there, the jar isn’t in ', h('code', { text: 'mods/' }), ', the server isn’t on Fabric, or its Minecraft or Java version is wrong.'),
         h('li', {}, h('strong', { text: 'Something happens. ' }), 'The mod sends chat, joins and leaves as they happen. Join the server or say something in chat.'),
-        h('li', {}, h('strong', { text: 'Outgoing HTTPS. ' }), 'Some hosts block connections from the server to the internet. It needs to reach ', h('code', { text: location.host }), ' on port 443.')));
+        h('li', {}, h('strong', { text: 'Outgoing HTTPS. ' }), 'Some hosts block connections from the server to the internet. It needs to reach ', h('code', { text: new URL(upload).host }), ' on port 443.')));
     const go = next(6);
     go.hidden = true;
     W.waitingSince ||= Date.now();

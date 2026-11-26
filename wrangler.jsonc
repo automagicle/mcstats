@@ -80,6 +80,9 @@
     "MC_VERSION": "26.2",
     // The server the old shared CHAT_INGEST_TOKEN, the old /s1/ address and the old D1 data belong to.
     "LEGACY_SLUG": "eggsmp",
+    // The site's main address. The mod's config made on /new uploads here, even when the owner is browsing at
+    // the workers.dev address (which keeps working, for servers set up before the domain).
+    "SITE_ORIGIN": "https://mcstats.live",
     "EMAIL_FROM": "mcstats <noreply@emptyconsole.com>",
     "MAX_SERVERS_PER_OWNER": "3"
   },
