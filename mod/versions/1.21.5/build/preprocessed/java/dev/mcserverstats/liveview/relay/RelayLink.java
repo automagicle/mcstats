@@ -65,6 +65,13 @@ public final class RelayLink {
 	private static final int BATCH_MS = 50;
 	private static final int MAX_BATCH_BYTES = 512 * 1024;
 	private static final int ASSET_CHUNK_BYTES = 256 * 1024;
+	/**
+	 * Asset bytes sent between two batch frames. A page asks for a few dozen small files at once (the font, the GUI
+	 * textures): several of them go out per pass, so none waits out the relay's 30 s for its turn.
+	 */
+	private static final int ASSET_BYTES_PER_PASS = 1024 * 1024;
+	/** Asset requests waiting to be sent. A page opening asks for about 60; a few pages at once can ask for more. */
+	private static final int MAX_ASSET_JOBS = 512;
 	private static final int MAX_TEXT_BYTES = 8 * 1024;
 	private static final int MAX_COMMAND_CHARS = 1024;
 	private static final long PING_MS = 20_000;
@@ -273,7 +280,7 @@ public final class RelayLink {
 				case 'a' -> {
 					if (Json.parse(rest) instanceof Json.Obj obj && obj.integer("id") != null) {
 						synchronized (work) {
-							if (assetJobs.size() < 64) {
+							if (assetJobs.size() < MAX_ASSET_JOBS) {
 								assetJobs.addLast(new AssetJob(obj.integer("id"), obj.string("name")));
 							}
 							work.notifyAll();
@@ -611,7 +618,9 @@ public final class RelayLink {
 						viewer.queue.enqueue(runtime.status(viewer.control), true);
 					}
 				}
-				if (job != null) {
+				// assets, one chunk after another (finishing a file moves straight on to the next) up to the pass budget
+				int assetBytes = 0;
+				while (job != null && assetBytes < ASSET_BYTES_PER_PASS) {
 					AssetStore.Entry entry = assets.get(job.name());
 					byte[] bytes = entry == null ? new byte[0] : entry.bytes();
 					int length = Math.min(ASSET_CHUNK_BYTES, bytes.length - jobOffset);
@@ -622,8 +631,12 @@ public final class RelayLink {
 					chunk.putShort((short) type.length).put(type).put(bytes, jobOffset, length).flip();
 					ws.sendBinary(chunk, true).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 					jobOffset += length;
+					assetBytes += Math.max(length, 1);
 					if (last) {
-						job = null;
+						synchronized (work) {
+							job = assetJobs.pollFirst();
+						}
+						jobOffset = 0;
 					}
 				}
 				// one frame for every viewer, at most every BATCH_MS

@@ -29,6 +29,13 @@ lost), put this line straight under the version's heading, and the notice says s
   website as you, with your name in game. Admins see the connected email on the player's page under
   Admin → Players and can disconnect it; `/mcstats disconnect` does it in game. Needs this version.
 
+### Fixed
+
+- **Liveview inventory screens.** The mod now sends the page's textures and font several files at a time
+  instead of one per frame, and keeps up to 512 waiting requests instead of dropping those past 64. A page
+  opening while the world was loading could miss the inventory texture and the game's font, and show a plain
+  grey box with no slot grid.
+
 ### Removed
 
 - **`/liveview optout` and `/liveview optin`.** Every player online now shows in Liveview. Earlier opt-outs

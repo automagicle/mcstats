@@ -255,7 +255,7 @@ Needs JDK 25.
 
 ```bash
 cd mod
-./gradlew build      # → build/libs/mcstats-chat-2.2.0.jar
+./gradlew build      # → versions/<mc>/build/libs/mcstats-chat-2.3.0+mc<mc>.jar
 ```
 
 For another Minecraft version, update `minecraft_version` and `fabric_api_version` in `gradle.properties`

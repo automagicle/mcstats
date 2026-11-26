@@ -1,0 +1,8 @@
+{
+	"required": false,
+	"minVersion": "0.8",
+	"package": "dev.mcserverstats.chatlog.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"server": ["CommandsMixin", "ServerPlayerMixin"],
+	"injectors": { "defaultRequire": 0 }
+}
