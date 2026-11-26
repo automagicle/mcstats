@@ -1,8 +1,10 @@
 // The Worker: works out which server a request is for before anything else, then hands it to that server's
 // own objects. It never takes a server from a request's body or query string.
 //
-//   /s/<slug>/...        a server's pages and API; the server is the one the directory has for <slug>.
+//   /<slug>, /<slug>/... a server's pages and API; the server is the one the directory has for <slug>.
 //                        Cookies (src/session.js, src/account.js) are checked here and what they prove goes along as X-MCS-Who.
+//                        /<slug>/join/<token> is its join link (src/joinlink.js).
+//   /s/<slug>/...        where servers were before: sent on to /<slug>/..., taking the viewer cookie along
 //   /api/ingest/*        the mod's uploads; the server is the one its key names (mcs_<server id>_…), and that
 //                        server's object checks the key itself. The old shared CHAT_INGEST_TOKEN still works,
 //                        for the first server (LEGACY_SLUG) only.
@@ -11,16 +13,19 @@
 //   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear
-//   everything else      the static pages in public/ (/, /join, /new, /account)
+//   everything else      the static pages in public/ (/, /join, /new, /account, …: SITE_PATHS in src/directory.js)
+// The workers.dev address the site had before its domain sends everything on to the domain, except what the
+// mod itself asks for (it doesn't follow redirects).
 import { handleApi } from './api.js';
 import { body, handleSite } from './site.js';
 import { noteServer, saveServer, unsaveServer } from './myservers.js';
 import { accountOf, handleAccount } from './account.js';
 import { handleOps } from './ops.js';
-import { serverById, serverBySlug, SLUG_RE } from './directory.js';
+import { serverById, serverBySlug, SITE_PATHS, SLUG_RE } from './directory.js';
+import { joinByLink } from './joinlink.js';
 import { tenantEnv, tenantStub } from './tenantenv.js';
 import { remoteDb } from './sql.js';
-import { keyServer, parseCookies, passwordStamp, sameString, verifyToken } from './session.js';
+import { clearCookie, cookie, keyServer, oldServerPath, parseCookies, passwordStamp, sameString, serverPath, verifyToken } from './session.js';
 import { currentSeason } from './seasons.js';
 import { json } from './util.js';
 import { serveHomeAsset } from './mcassets.js';
@@ -55,7 +60,7 @@ async function proof(request, env, row, url) {
   return { who: { viewer: !!view, email: account?.email ?? null }, account, view };
 }
 
-// POST /s/<server>/api/mine { saved }: this server on or off the signed-in account's list. Answered here rather
+// POST /<server>/api/mine { saved }: this server on or off the signed-in account's list. Answered here rather
 // than by the server's object, since the list is the directory's; adding needs the account to be able to see the
 // server (someone who can't learns nothing, as everywhere).
 async function mine(request, env, url, row, stub, { who, account, view }) {
@@ -73,7 +78,7 @@ async function mine(request, env, url, row, stub, { who, account, view }) {
   return out.error ? json({ error: out.error }, 409) : json({ ok: true, saved: true });
 }
 
-// The request as the server's own code expects it: its path without /s/<slug>, and none of our own
+// The request as the server's own code expects it: its path without /<slug>, and none of our own
 // X-MCS- headers unless we put them there.
 function forServer(request, url, rest, headers = {}) {
   const u = new URL(url);
@@ -97,6 +102,39 @@ async function withPreviewTags(res, url) {
 
 const joinPage = (slug) => page(`/join?server=${encodeURIComponent(slug)}`);
 
+// Moved for good: 301 for pages, 308 for anything that carries a body (so it's sent again as it was).
+function moved(request, location, cookies = []) {
+  const headers = new Headers({ Location: location });
+  for (const c of cookies) headers.append('Set-Cookie', c);
+  if (cookies.length) headers.set('Cache-Control', 'no-store');
+  return new Response(null, { status: request.method === 'GET' || request.method === 'HEAD' ? 301 : 308, headers });
+}
+
+// The site's own domain, when this request came to its old workers.dev address instead (SITE_ORIGIN says
+// which domain). Null anywhere else: the domain itself, a developer's machine, a test.
+function mainOrigin(env, url) {
+  if (!url.hostname.endsWith('.workers.dev') || !/^https:\/\/[a-z0-9.-]+$/.test(env.SITE_ORIGIN || '')) return null;
+  return new URL(env.SITE_ORIGIN).hostname === url.hostname ? null : env.SITE_ORIGIN;
+}
+
+// /s/<slug>/... is where servers were before they moved to /<slug>/...: every old link, bookmark and open page
+// still leads to the same place. A browser that joined back then has its viewer cookie on the old address
+// (Path=/s/<slug>/), which it sends here and nowhere under the new one, so the cookie moves with it.
+async function oldAddress(request, env, url, raw, rest) {
+  let slug;
+  try { slug = decodeURIComponent(raw).toLowerCase(); } catch { return new Response('Not found', { status: 404 }); }
+  if (!SLUG_RE.test(slug)) return new Response('Not found', { status: 404 });
+  const cookies = [];
+  const had = parseCookies(request).mcs_view;
+  if (had) {
+    const row = await serverBySlug(env, slug);
+    const token = row && (await verifyToken(env, had, 'view', row.id));
+    const left = token ? Math.floor(token.x - Date.now() / 1000) : 0;
+    if (left > 0) cookies.push(cookie('mcs_view', had, { path: serverPath(slug), maxAge: left }), clearCookie('mcs_view', oldServerPath(slug)));
+  }
+  return moved(request, `/${slug}${rest === '/' ? '' : rest.replace(/^(\/s\d{1,2})\/$/, '$1')}${url.search}`, cookies);
+}
+
 async function ingest(request, env, url, ctx, kind) {
   const auth = request.headers.get('Authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
@@ -119,9 +157,19 @@ async function ingest(request, env, url, ctx, kind) {
   return stub.fetch(forServer(request, url, url.pathname, { 'X-MCS-Ingest': '1' }));
 }
 
+// rest: what follows /<slug> in the address. '' is the server's page (its current season), /sN an earlier
+// season's, /api/... its API, /join/<token> its join link.
 async function server(request, env, url, ctx, slug, rest) {
-  const row = await serverBySlug(env, slug);
   const isApi = rest.startsWith('/api/');
+  const link = /^\/join\/([^/]+)\/?$/.exec(rest);
+  if (link) return joinByLink(request, env, slug, link[1]);
+  const season = /^(?:\/s(\d{1,2}))?$/.exec(rest);
+  if (!isApi && !season) {
+    // one address per page: no slash on the end (the viewer cookie's Path is /<slug>, which covers both)
+    if (rest === '/' || /^\/s\d{1,2}\/$/.test(rest)) return page(`/${slug}${rest.slice(0, -1)}${url.search}`);
+    return new Response('Not found', { status: 404 });
+  }
+  const row = await serverBySlug(env, slug);
 
   if (!row) {
     // No such server looks the same as one you can't see.
@@ -145,12 +193,7 @@ async function server(request, env, url, ctx, slug, rest) {
     return handleApi(req, env2, new URL(req.url), ctx);
   }
 
-  // The stats page: /s/<slug>/ for the current season, /s/<slug>/sN/ for an earlier one.
-  const season = /^\/(?:s(\d{1,2})\/)?$/.exec(rest);
-  if (!season) {
-    if (/^\/s\d{1,2}$/.test(rest)) return page(`/s/${slug}${rest}/${url.search}`);
-    return new Response('Not found', { status: 404 });
-  }
+  // The stats page: /<slug> for the current season, /<slug>/sN for an earlier one.
   if (!g.who) return joinPage(slug);
   const current = currentSeason(g.settings);
   if (season[1] && (Number(season[1]) < 1 || Number(season[1]) >= current)) return new Response('Not found', { status: 404 });
@@ -164,14 +207,14 @@ async function server(request, env, url, ctx, slug, rest) {
   const look = lookOf(g.settings);
   const addons = addonList(g.settings);
   const config = {
-    base: `/s/${row.slug}`, slug: row.slug, name: row.name, season: current,
+    base: `/${row.slug}`, slug: row.slug, name: row.name, season: current,
     // email: who they are on this server (a member). account: the mcstats account that's signed in, member or not.
     email: g.who.email, account: who.email, public: g.settings.PUBLIC === '1', accent: look.accent, tabs: look.tabs, addons,
     // whether this server is on the signed-in account's list (/servers); null when nobody's signed in
     saved,
     // how its pages are arranged, its description and its icon (Admin → Layout and Server; src/layout.js)
     layout: layoutOf(g.settings), about: g.settings.ABOUT || '',
-    icon: g.settings.ICON_AT ? `/s/${row.slug}/api/icon?v=${g.settings.ICON_AT}` : null,
+    icon: g.settings.ICON_AT ? `/${row.slug}/api/icon?v=${g.settings.ICON_AT}` : null,
     banner: g.settings.BANNER || '',
   };
   // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
@@ -208,24 +251,38 @@ export default {
     const p = url.pathname;
 
     const ing = INGEST.exec(p);
+    // The old workers.dev address: everything goes to the same place on the site's domain. Not the mod's own
+    // requests, though: a server set up before the domain still uploads here (and fetches its updates from
+    // /downloads/), and the mod doesn't follow redirects.
+    const home = mainOrigin(env, url);
+    if (home && !ing && !p.startsWith('/downloads/')) return moved(request, `${home}${p}${url.search}`);
+
     if (ing) return ingest(request, env, url, ctx, ing[1]);
     if (p.startsWith('/api/site/')) return handleSite(request, env, url);
     if (p.startsWith('/api/account/')) return handleAccount(request, env, url);
     if (p.startsWith('/api/ops/')) return handleOps(request, env, url);
 
     const s = /^\/s\/([^/]+)(\/.*)?$/.exec(p);
-    if (s) {
-      const slug = decodeURIComponent(s[1]);
-      if (!s[2]) return page(`/s/${encodeURIComponent(slug)}/${url.search}`);
-      // one spelling per server, or its cookies (Path=/s/<slug>/) wouldn't be sent
-      if (slug !== slug.toLowerCase()) return page(`/s/${encodeURIComponent(slug.toLowerCase())}${s[2]}${url.search}`);
-      if (!SLUG_RE.test(slug)) return new Response('Not found', { status: 404 });
-      return server(request, env, url, ctx, slug, s[2]);
-    }
+    if (s) return oldAddress(request, env, url, s[1], s[2] || '');
 
     // The old addresses: the season 1 archive belonged to the first server.
     const old = /^\/s(\d{1,2})(\/.*)?$/.exec(p);
-    if (old && env.LEGACY_SLUG) return page(`/s/${env.LEGACY_SLUG}/s${old[1]}/${url.search}`);
+    if (old && env.LEGACY_SLUG) return page(`/${env.LEGACY_SLUG}/s${old[1]}${url.search}`);
+
+    // A server: /<slug> and everything under it. The site's own pages come first (SITE_PATHS), and nothing with
+    // a dot in it (a file) or shorter than three characters can be a server's address.
+    const m = /^\/([^/]+)(\/.*)?$/.exec(p);
+    if (m) {
+      let name = '';
+      try { name = decodeURIComponent(m[1]); } catch { /* not a server */ }
+      const slug = name.toLowerCase();
+      if (SLUG_RE.test(slug) && !SITE_PATHS.has(slug)) {
+        // one spelling per server, or its cookies (Path=/<slug>) wouldn't be sent
+        if (name !== slug) return page(`/${slug}${m[2] || ''}${url.search}`);
+        return server(request, env, url, ctx, slug, m[2] || '');
+      }
+    }
+
     // The stats page only makes sense inside a server.
     if (p === '/stats' || p === '/stats.html') return new Response('Not found', { status: 404 });
     // the landing page's example players, in the game's own textures (only the few it uses)

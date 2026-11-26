@@ -7,7 +7,7 @@ import { call, cookieOf, siteCookie } from './helpers.js';
 const make = (cookie, body) => call('/api/site/servers', { method: 'POST', cookie, body });
 const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(name)}`, { cookie });
 // what someone with no cookies at all gets at a server's stats page
-const anonymousPage = (slug) => call(`/s/${slug}/`);
+const anonymousPage = (slug) => call(`/${slug}`);
 const join = (slug, password) => call('/api/site/join', { method: 'POST', body: { server: slug, password } });
 
 describe('the mod’s config', () => {
@@ -76,13 +76,13 @@ describe('private or public', () => {
     const page = await anonymousPage('hidden-smp');
     expect(page.status).toBe(302);
     expect(page.headers.get('Location')).toBe('/join?server=hidden-smp');
-    expect((await call('/s/hidden-smp/api/status')).status).toBe(401);
+    expect((await call('/hidden-smp/api/status')).status).toBe(401);
 
     const joined = await join('hidden-smp', 'correct horse');
     expect(joined.status).toBe(200);
     const view = cookieOf(joined, 'mcs_view');
-    expect((await call('/s/hidden-smp/', { cookie: view })).status).toBe(200);
-    expect((await call('/s/hidden-smp/api/status', { cookie: view })).status).toBe(200);
+    expect((await call('/hidden-smp', { cookie: view })).status).toBe(200);
+    expect((await call('/hidden-smp/api/status', { cookie: view })).status).toBe(200);
   });
 
   it('a public server needs no password, and anyone can see its stats', async () => {
@@ -91,7 +91,7 @@ describe('private or public', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).server.public).toBe(true);
     expect((await anonymousPage('open-fields')).status).toBe(200);
-    expect((await call('/s/open-fields/api/status')).status).toBe(200);
+    expect((await call('/open-fields/api/status')).status).toBe(200);
     // there's no password to join with, so no guess works
     expect((await join('open-fields', '')).status).toBe(401);
     expect((await join('open-fields', 'anything at all')).status).toBe(401);

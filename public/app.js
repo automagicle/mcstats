@@ -46,17 +46,17 @@ function headImg(name, size, attrs = {}) {
 
 /* ---------- seasons ---------- */
 
-// Every server has its own pages under /s/<server>/ (BASE): the main page shows the server's current
-// season, and BASE/s1/ (and later /s2/, …) show past ones. The Worker tells the page which server it's on and
+// Every server has its own pages under /<server> (BASE): the main page shows the server's current
+// season, and BASE/s1 (and later /s2, …) show past ones. The Worker tells the page which server it's on and
 // its current season (window.MCS, from src/index.js). A season that's over is shown as of its end: the
 // page's clock stops there.
 const MCS = window.MCS || { base: '', name: 'mcstats', season: 1 };
 const BASE = MCS.base || '';
 const CURRENT_SEASON = Number(MCS.season) || 1;
-const SEASON = Number(location.pathname.slice(BASE.length).match(/^\/s(\d+)\//)?.[1]) || CURRENT_SEASON;
+const SEASON = Number(location.pathname.slice(BASE.length).match(/^\/s(\d+)\/?$/)?.[1]) || CURRENT_SEASON;
 const SITE = SEASON < CURRENT_SEASON ? `Season ${SEASON} · ${MCS.name || 'mcstats'}` : (MCS.name || 'mcstats');
-// A season's page: BASE/ for the current one, BASE/sN/ for an earlier one.
-const seasonHref = (n) => (n === CURRENT_SEASON ? `${BASE}/` : `${BASE}/s${n}/`);
+// A season's page: BASE for the current one, BASE/sN for an earlier one.
+const seasonHref = (n) => (n === CURRENT_SEASON ? BASE : `${BASE}/s${n}`);
 // ?dummydata on the main page fills it with made-up activity (public/dummy.js). The chat log stays empty.
 const DUMMY = SEASON === CURRENT_SEASON && new URLSearchParams(location.search).has('dummydata');
 let clockStop = Infinity; // the last moment of a finished season (unix seconds)
@@ -6770,7 +6770,7 @@ function srvChanges() {
   const out = [];
   const accentName = (a) => (HEX6.test(a) ? a : a[0].toUpperCase() + a.slice(1));
   if (f.name.trim() !== d.name) out.push(`Name: ${d.name} → ${f.name.trim() || '(empty)'}`);
-  if (f.slug.trim().toLowerCase() !== d.slug) out.push(`Address: /s/${d.slug}/ → /s/${f.slug.trim().toLowerCase()}/ (old links stop working, and everyone joins again)`);
+  if (f.slug.trim().toLowerCase() !== d.slug) out.push(`Address: /${d.slug} → /${f.slug.trim().toLowerCase()} (old links stop working, the join link included, and everyone joins again)`);
   if (f.public !== d.public) out.push(f.public ? 'Public: anyone with the address can look' : 'Private: looking needs the join password');
   if (f.password) out.push(d.has_password ? 'A new join password (everyone who joined with the old one joins again)' : 'A join password');
   if (f.accent !== d.accent) out.push(`Accent: ${accentName(d.accent)} → ${accentName(f.accent)}`);
@@ -6900,8 +6900,8 @@ async function seasonsPost(body) {
 
 // Seasons changed: every page of this server reads differently now. Start again from the main page.
 function seasonsReload() {
-  const to = `${BASE}/#/admin/server`;
-  if (location.pathname === `${BASE}/`) { location.hash = '#/admin/server'; location.reload(); } else location.assign(to);
+  const to = `${BASE}#/admin/server`;
+  if (location.pathname === BASE) { location.hash = '#/admin/server'; location.reload(); } else location.assign(to);
 }
 
 // A dialog that asks for the season's name to be typed before its button works. build(d) adds what's
@@ -7127,7 +7127,7 @@ function renderServerAdmin(focusKey) {
     iconField,
     field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
     bannerField,
-    field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slugBox),
+    field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 
   /* ---- who can see it, and the join password ---- */
@@ -7140,12 +7140,13 @@ function renderServerAdmin(focusKey) {
   const pass = (key, label) => text(key, { type: 'password', autocomplete: 'new-password', maxlength: '200', placeholder: label, 'aria-label': label, disabled: owner ? null : '' });
   const access = card('Who can see it', null,
     field('Stats', el('div', { class: 'wiz-vis srv-vis', role: 'radiogroup', 'aria-label': 'Who can see the stats' },
-      vis(false, 'Private', 'Players join with the server’s name and its join password.'),
+      vis(false, 'Private', 'Players get in with a join link, or with the server’s name and its join password.'),
       vis(true, 'Public', 'Anyone with the address can look. No password needed.')), ownerOnly, 'public'),
     field(d.has_password ? 'New join password' : 'Join password', el('div', { class: 'srv-row' }, pass('password', 'New password'), pass('confirm', 'The same again')),
       ownerOnly || (d.has_password
         ? 'Leave empty to keep the one it has. 8 characters or more. A new one makes everyone who joined with the old one join again.'
-        : 'This server has none yet. 8 characters or more; it needs one before it can be made private.'), srv.errors.confirm ? 'confirm' : 'password'));
+        : 'This server has none yet. 8 characters or more; it needs one before it can be made private.'), srv.errors.confirm ? 'confirm' : 'password'),
+    joinLinkField(d, field));
 
   /* ---- how its pages look ---- */
   const custom = HEX6.test(f.accent);
@@ -7216,6 +7217,92 @@ function renderServerAdmin(focusKey) {
   root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(mod ? [mod] : []), ...(extras ? [extras] : []));
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   renderAdminBar();
+}
+
+// Admin → Server → Who can see it: the join link, one address that lets players in without typing the server's
+// name and password (src/joinlink.js). Made, replaced and turned off at once, apart from the Save bar: none of
+// it waits on the other fields. Any admin can.
+async function joinLinkSet(action) {
+  try {
+    const res = await fetch('/api/admin/server', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ join_link: action }),
+    });
+    const r = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(r?.error || `The server answered ${res.status}.`);
+    // only the link: whatever else is being edited on this page stays as it is
+    srv.data.join_link = r.join_link;
+    return true;
+  } catch (err) {
+    toast(`The join link wasn’t changed: ${err.message}`, { error: true, ms: 5000 });
+    return false;
+  } finally {
+    if (admin.tab === 'server') renderServerAdmin('srv:link');
+  }
+}
+
+// Replacing or turning off the link stops it working for whoever still has it, so both ask first.
+function joinLinkDialog({ title, lines, go, action, done }) {
+  const dialog = el('dialog', { class: 'lv-dialog sea-dialog' });
+  const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
+  const submit = el('button', { class: 'btn btn-primary', type: 'submit', text: go });
+  const form = el('form', {}, el('h2', { text: title }), ...lines.map((text) => el('p', { text })), el('div', { class: 'range-actions' }, cancel, submit));
+  dialog.append(form);
+  cancel.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => dialog.remove());
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submit.disabled = cancel.disabled = true;
+    const ok = await joinLinkSet(action);
+    dialog.close();
+    if (ok) toast(done);
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function joinLinkField(d, field) {
+  if (d.public) {
+    return field('Join link', el('span', { class: 'site-hint', text: 'Not needed while the server is public: its address is all anyone needs.' }));
+  }
+  if (!d.join_link) {
+    const make = el('button', { type: 'button', class: 'btn', text: 'Create a join link', 'data-fk': 'srv:link' });
+    make.addEventListener('click', async () => {
+      make.disabled = true;
+      if (await joinLinkSet('new')) toast('Join link created');
+    });
+    return field('Join link', el('div', { class: 'srv-row' }, make),
+      'One link to send players: opening it lets them straight in, with no server name or password to type.');
+  }
+  const link = `${location.origin}${d.join_link}`;
+  const box = el('input', { class: 'adm-input srv-input srv-link', type: 'text', readonly: '', 'aria-label': 'Join link', 'data-fk': 'srv:link' });
+  box.value = link;
+  box.addEventListener('focus', () => box.select());
+  const copy = el('button', { type: 'button', class: 'btn', text: 'Copy' });
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Join link copied');
+    } catch {
+      box.focus();
+      toast('Couldn’t copy. Select the link and copy it.', { error: true });
+    }
+  });
+  const renew = el('button', { type: 'button', class: 'btn', text: 'New link…' });
+  renew.addEventListener('click', () => joinLinkDialog({
+    title: 'Make a new join link', go: 'Make a new link', action: 'new', done: 'New join link made. The old one no longer works.',
+    lines: ['The link you have now stops working at once, for everyone you sent it to. Send players the new one.',
+      'People who already got in stay in. To make everyone join again, the owner changes the join password.'],
+  }));
+  const off = el('button', { type: 'button', class: 'btn btn-quiet', text: 'Turn off…' });
+  off.addEventListener('click', () => joinLinkDialog({
+    title: 'Turn off the join link', go: 'Turn off', action: 'off', done: 'Join link turned off',
+    lines: ['The link stops working at once. Players then need the server’s name and join password, until you create a link again.',
+      'People who already got in stay in. To make everyone join again, the owner changes the join password.'],
+  }));
+  return field('Join link', el('div', { class: 'srv-row srv-link-row' }, box, copy, renew, off),
+    'Opening it lets anyone straight in to see the stats, with nothing to type, so send it only to players. If it gets out, make a new link.');
 }
 
 // A picked image as the server's icon: a 128-pixel square PNG (data: URL), cropped to its middle. Pixel art

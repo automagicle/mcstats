@@ -117,13 +117,26 @@
     const signIn = h('a', { href: '/account', text: 'Sign in to your mcstats account' });
     signIn.addEventListener('click', () => {
       const slug = slugOf(name.value);
-      if (slug) signIn.href = `/account?${new URLSearchParams({ next: `/s/${slug}/` })}`;
+      if (slug) signIn.href = `/account?${new URLSearchParams({ next: `/${slug}` })}`;
     });
     const members = h('p', { class: 'site-hint site-more' }, 'Did the owner add you by email? ', signIn, ' instead: no server password needed.');
 
+    // sent here by a join link that didn't let them in (src/joinlink.js): say so; the password still works
+    const linkNote = {
+      gone: 'That join link doesn’t work any more. Ask whoever sent it for a new one, or join with the server’s name and password.',
+      wait: 'That join link was opened too many times from here. Wait a few minutes and open it again, or join with the server’s name and password.',
+    }[params.get('link')];
+    if (linkNote) {
+      // said once: gone from the address, so a reload or a shared address doesn't repeat it
+      const clean = new URL(location.href);
+      clean.searchParams.delete('link');
+      history.replaceState(null, '', clean);
+    }
+
     main.replaceChildren(h('section', { class: 'card site-card' },
       h('h1', { class: 'site-title', text: 'Join a server' }),
-      h('p', { class: 'site-sub', text: 'See its players, chat and fights. You need the server’s name and password from its owner.' }),
+      linkNote ? h('p', { class: 'site-err', role: 'alert', text: linkNote }) : null,
+      h('p', { class: 'site-sub', text: 'See its players, chat and fights. You need the server’s name and password from its owner, or a join link.' }),
       form, members));
     (name.value ? pass : name).focus();
   }
@@ -233,7 +246,7 @@
 
     const site = await api('/api/site/me').catch(() => ({ servers: [] }));
     const made = (site.servers || []).map((s) => h('li', {},
-      h('a', { href: `/s/${s.slug}/`, text: s.name }), ' · ', h('a', { class: 'site-hint', href: `/new?server=${s.slug}`, text: s.step < 7 ? `finish setting up (step ${s.step} of 7)` : 'setup' })));
+      h('a', { href: `/${s.slug}`, text: s.name }), ' · ', h('a', { class: 'site-hint', href: `/new?server=${s.slug}`, text: s.step < 7 ? `finish setting up (step ${s.step} of 7)` : 'setup' })));
 
     const err = errorLine();
     const ok = h('p', { class: 'site-ok', role: 'status', hidden: true, text: 'Password changed. Your other devices were signed out.' });
@@ -351,11 +364,11 @@
     function fill(r, s) {
       const role = roleOf(s);
       r.name.textContent = s.name;
-      r.name.href = `/s/${s.slug}/`;
+      r.name.href = `/${s.slug}`;
       // (replaceChildren writes a null out as text, so the parts that may be missing are filtered first)
       r.meta.replaceChildren(...[
         h('span', { class: `my-role my-role-${role}`, text: ROLE[role][0], title: ROLE[role][1] }),
-        h('span', { class: 'my-slug', text: `/s/${s.slug}` }),
+        h('span', { class: 'my-slug', text: `/${s.slug}` }),
         s.owner && s.step != null && s.step < 7 ? h('a', { class: 'my-setup', href: `/new?server=${encodeURIComponent(s.slug)}`, text: `Finish setting up (step ${s.step} of 7)` }) : null,
         s.owner && s.step === 7 ? h('a', { class: 'my-setup', href: `/new?server=${encodeURIComponent(s.slug)}&step=6`, text: 'Setup' }) : null,
       ].filter(Boolean));
@@ -591,7 +604,7 @@
           free = r;
           if (r.slug !== v) slug.value = r.slug;
           status.className = `wiz-slug-status ${r.ok ? 'ok' : 'bad'}`;
-          status.textContent = r.ok ? `${location.host}/s/${r.slug}/ is free.` : r.error;
+          status.textContent = r.ok ? `${location.host}/${r.slug} is free.` : r.error;
         } catch (x) {
           if (n === asked) { status.className = 'wiz-slug-status bad'; status.textContent = x.message; }
         }
@@ -624,7 +637,7 @@
     const form = h('form', { class: 'site-form' },
       field('Display name', name, 'Shown on its pages, e.g. “Egg SMP”.'),
       h('label', { class: 'site-field' }, h('span', { class: 'site-label', text: 'Address' }),
-        h('span', { class: 'wiz-url' }, h('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slug), status),
+        h('span', { class: 'wiz-url' }, h('span', { class: 'wiz-url-host', text: `${location.host}/` }), slug), status),
       h('fieldset', { class: 'site-field wiz-fieldset' }, h('legend', { class: 'site-label', text: 'Who can see the stats' }), visibilityChoice(visibility, syncVis)),
       passBox, publicNote,
       go, err);
@@ -854,21 +867,57 @@
 
   function stepDone() {
     const s = W.server;
-    const share = s.info.public
-      ? `See our server’s stats on mcstats: ${s.url}`
-      : `See our server’s stats on mcstats: ${location.origin}/join?server=${s.slug}\nServer name: ${s.slug}\nPassword: (ask me)`;
     const open = h('button', { type: 'button', class: 'btn btn-primary site-go', text: 'Open my server' });
     open.addEventListener('click', () => busy(open, async () => {
       const r = await api(`/api/site/servers/${s.slug}/open`, {});
       location.assign(r.url);
     }));
+    const head = [h('p', {}, 'Its address: ', h('a', { href: s.url, text: s.url }))];
     const area = h('textarea', { class: 'adm-input wiz-config', readonly: true, rows: '3' });
-    area.value = share;
-    frame('Done', `${s.name} is set up.`,
-      h('p', {}, 'Its address: ', h('a', { href: s.url, text: s.url })),
-      h('p', { class: 'site-sub', text: s.info.public ? 'It’s public: anyone with the address can see the stats.' : 'It’s private: players need the join password to see the stats.' }),
-      h('p', { class: 'site-label', text: s.info.public ? 'Send this to your players:' : 'Send this to your players (with the password):' }),
-      area, h('div', { class: 'site-row' }, copyButton(() => share, 'Copy'), open));
+
+    // public: the address is all anyone needs
+    if (s.info.public) {
+      area.value = `See our server’s stats on mcstats: ${s.url}`;
+      return frame('Done', `${s.name} is set up.`, ...head,
+        h('p', { class: 'site-sub', text: 'It’s public: anyone with the address can see the stats.' }),
+        h('p', { class: 'site-label', text: 'Send this to your players:' }),
+        area, h('div', { class: 'site-row' }, copyButton(() => area.value, 'Copy'), open));
+    }
+
+    // private: a join link lets players straight in; without one they type the server's name and its password
+    const err = errorLine();
+    const setLink = (btn, on) => busy(btn, async () => {
+      say(err, '');
+      try {
+        W.server = await api(`/api/site/servers/${s.slug}/joinlink`, { on });
+        stepDone();
+      } catch (x) { say(err, x.message); }
+    });
+    const linkButton = (text, on, cls = 'btn') => {
+      const b = h('button', { type: 'button', class: cls, text });
+      b.addEventListener('click', () => setLink(b, on));
+      return b;
+    };
+    if (s.join_link) {
+      area.value = `See our server’s stats on mcstats: ${s.join_link}`;
+      area.rows = 2;
+      return frame('Done', `${s.name} is set up.`, ...head,
+        h('p', { class: 'site-sub', text: 'It’s private: players get in with the join link, or with the server’s name and join password.' }),
+        h('p', { class: 'site-label', text: 'Send this to your players:' }),
+        area,
+        h('p', { class: 'site-hint', text: 'The link lets in anyone who opens it, with nothing to type, so send it only to your players. If it gets out, make a new link: the old one stops working. You can do both later too, on the server’s Admin page, under Server.' }),
+        err,
+        h('div', { class: 'site-row' }, copyButton(() => area.value, 'Copy'), linkButton('New link', true), linkButton('Turn off the link', false, 'btn btn-quiet'), open));
+    }
+    area.value = `See our server’s stats on mcstats: ${location.origin}/join?server=${s.slug}\nServer name: ${s.slug}\nPassword: (ask me)`;
+    frame('Done', `${s.name} is set up.`, ...head,
+      h('p', { class: 'site-sub', text: 'It’s private: players need the join password to see the stats.' }),
+      h('p', { class: 'site-label', text: 'The easy way: a join link' }),
+      h('p', { class: 'site-hint', text: 'One link to send your players. Opening it lets them straight in: no server name or password to type.' }),
+      h('div', { class: 'site-row' }, linkButton('Create a join link', true, 'btn btn-primary')),
+      err,
+      h('p', { class: 'site-label wiz-or', text: 'Or send this, with the password:' }),
+      area, h('div', { class: 'site-row' }, copyButton(() => area.value, 'Copy'), open));
   }
 
   async function newPage() {

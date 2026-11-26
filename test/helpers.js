@@ -65,7 +65,7 @@ export function upload(token, events, { path = '/api/ingest/chat', query = '', b
 }
 
 export async function chatTexts(server, cookie) {
-  const res = await call(`/s/${server.slug}/api/chat`, { cookie });
+  const res = await call(`/${server.slug}/api/chat`, { cookie });
   if (res.status !== 200) return { status: res.status, texts: null };
   return { status: 200, texts: (await res.json()).messages?.map((m) => m.text) ?? [] };
 }

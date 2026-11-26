@@ -10,14 +10,17 @@
   "preview_urls": false,
 
   // Static pages from ./public: the landing page (/), joining (/join), making a server (/new), the account (/account) and the mod (/mod).
-  // The Worker runs first for the API, every server's pages (/s/<server>/...), the old season-1 archive
-  // address (/s1/, now under the first server), and the stats page's file, which is only served inside a server.
+  // The Worker runs first for everything but the files below: the API, every server's pages (/<server>/...,
+  // which can be any name the site doesn't use itself), the old addresses (/s/<server>/, /s1/), the stats page's
+  // file (only served inside a server), and the site's own pages, so their link-preview image gets a full
+  // address (src/index.js). What it doesn't handle it passes to the files in ./public itself, so a file missing
+  // from the list below still works; listing it only saves running the Worker for it.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/s/*", "/s1", "/s1/*", "/stats", "/stats.html",
-      // the site's own pages, so their link-preview image gets a full address (src/index.js)
-      "/", "/index.html", "/new", "/new.html", "/join", "/join.html", "/account", "/account.html", "/servers", "/servers.html"]
+    "run_worker_first": ["/*",
+      "!/downloads/*", "!/addons/*", "!/og.png", "!/style.css",
+      "!/app.js", "!/dummy.js", "!/home.js", "!/home3d.js", "!/liveview.js", "!/mcicons.js", "!/player3d.js", "!/site.js", "!/tenant.js", "!/ui.js"]
   },
 
   // The mod versions shown on /new, read from mod/ (scripts/mod-info.mjs writes src/modinfo.gen.js).
@@ -82,8 +85,8 @@
     "MC_VERSION": "26.2",
     // The server the old shared CHAT_INGEST_TOKEN, the old /s1/ address and the old D1 data belong to.
     "LEGACY_SLUG": "eggsmp",
-    // The site's main address. The mod's config made on /new uploads here, even when the owner is browsing at
-    // the workers.dev address (which keeps working, for servers set up before the domain).
+    // The site's main address. The mod's config made on /new uploads here, and the workers.dev address the site
+    // had before sends its pages here (src/index.js); that address still takes the uploads of mods set up before the domain.
     "SITE_ORIGIN": "https://mcstats.live",
     "EMAIL_FROM": "mcstats <noreply@emptyconsole.com>",
     "MAX_SERVERS_PER_OWNER": "3"

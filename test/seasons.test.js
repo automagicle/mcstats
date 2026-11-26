@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { call, idCookie, makeServer, viewerCookie } from './helpers.js';
 
 const tenant = (s) => env.TENANT.get(env.TENANT.idFromName(s.id));
-const seasons = (server, cookie, body) => call(`/s/${server.slug}/api/admin/seasons`, { method: body ? 'POST' : 'GET', cookie, body });
+const seasons = (server, cookie, body) => call(`/${server.slug}/api/admin/seasons`, { method: body ? 'POST' : 'GET', cookie, body });
 const get = async (server, cookie) => (await seasons(server, cookie)).json();
-const pageSeason = async (slug, cookie) => Number(/"season":(\d+)/.exec(await (await call(`/s/${slug}/`, { cookie })).text())?.[1]);
+const pageSeason = async (slug, cookie) => Number(/"season":(\d+)/.exec(await (await call(`/${slug}`, { cookie })).text())?.[1]);
 const now = () => Math.floor(Date.now() / 1000);
 const HOUR = 3600;
 
@@ -17,7 +17,7 @@ describe('a new server', () => {
     const owner = await idCookie(a, a.owner);
     expect(await get(a, owner)).toMatchObject({ current: 1, seasons: [{ n: 1, start: null, end: null, started: true, ended: false }] });
     expect(await pageSeason(a.slug, owner)).toBe(1);
-    expect((await call(`/s/${a.slug}/s1/`, { cookie: owner })).status).toBe(404);
+    expect((await call(`/${a.slug}/s1`, { cookie: owner })).status).toBe(404);
     for (const body of [{ action: 'update', n: 1, start: now() }, { action: 'remove', confirm: 'Season 1' }]) expect((await seasons(a, owner, body)).status).toBe(400);
   });
 });
@@ -51,8 +51,8 @@ describe('making a season', () => {
     expect(out.seasons[0]).toMatchObject({ n: 1, ended: true, end: out.seasons[1].start });
     expect(Math.abs(out.seasons[1].start - now())).toBeLessThan(5);
     expect(await pageSeason(a.slug, owner)).toBe(2);
-    expect((await call(`/s/${a.slug}/s1/`, { cookie: owner })).status).toBe(200);
-    const status = await (await call(`/s/${a.slug}/api/status?season=2`, { cookie: owner })).json();
+    expect((await call(`/${a.slug}/s1`, { cookie: owner })).status).toBe(200);
+    const status = await (await call(`/${a.slug}/api/status?season=2`, { cookie: owner })).json();
     expect(status.season).toMatchObject({ n: 2, started: true });
   });
 
@@ -63,7 +63,7 @@ describe('making a season', () => {
     const out = await (await seasons(a, owner, { action: 'create', confirm: 'Season 2', start })).json();
     expect(out.seasons[1]).toMatchObject({ n: 2, start, started: false });
     expect(out.seasons[0]).toMatchObject({ n: 1, ended: false, end: start });
-    const status = await (await call(`/s/${a.slug}/api/status?season=2`, { cookie: owner })).json();
+    const status = await (await call(`/${a.slug}/api/status?season=2`, { cookie: owner })).json();
     expect(status.season).toMatchObject({ n: 2, started: false, start });
     expect((await seasons(a, owner, { action: 'create', confirm: 'Season 3' })).status).toBe(400);
     expect((await get(a, owner)).current).toBe(2);
@@ -130,6 +130,6 @@ describe('moving and removing seasons', () => {
     const out = await (await seasons(a, owner, { action: 'remove', confirm: 'Season 2' })).json();
     expect(out).toMatchObject({ current: 1, seasons: [{ n: 1, end: null, ended: false }] });
     expect(await pageSeason(a.slug, owner)).toBe(1);
-    expect((await call(`/s/${a.slug}/s1/`, { cookie: owner })).status).toBe(404);
+    expect((await call(`/${a.slug}/s1`, { cookie: owner })).status).toBe(404);
   });
 });

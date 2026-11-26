@@ -4,12 +4,12 @@
 // What goes on it:
 //   by itself   a server the account makes (src/site.js), joins with its password while signed in (src/site.js),
 //               or opens as a member (src/index.js, when the stats page is served). Never one it took off.
-//   asked for   "Add to my servers" on any server's page it can see (POST /s/<server>/api/mine, src/index.js)
+//   asked for   "Add to my servers" on any server's page it can see (POST /<server>/api/mine, src/index.js)
 //
 //   GET  /api/site/mine                    { servers: [...] }, in order, each with the account's role there and who's on
 //   POST /api/site/mine/order  { servers: [slug, ...] }   the new order (servers left out keep theirs, after these)
 //   POST /api/site/mine/remove { server: slug }           off the list (the account stays whatever it is there)
-//   POST /s/<server>/api/mine  { saved: true | false }    on or off the list, from the server's own page
+//   POST /<server>/api/mine  { saved: true | false }    on or off the list, from the server's own page
 //
 // Being on the list gives nothing: what an account may see or do on a server is still that server's own
 // business (src/tenant.js access(), src/roles.js). Each row's role and online players come from the server's

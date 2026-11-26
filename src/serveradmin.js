@@ -3,6 +3,8 @@
 //   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, mod, can, … }
 //   POST /api/admin/server   any of { name, accent, tab_style, about, layout }  admins
 //                            and { icon: 'data:image/png;base64,…' | '' }     admins (a square PNG; '' removes it)
+//                            and { join_link: 'new' | 'off' }                  admins: the link that lets players in
+//                                                                               without the password (src/joinlink.js)
 //                            and { slug, public, password + confirm }           owners
 //                            and { addons: [ids] }                              the site's operators
 //
@@ -10,14 +12,14 @@
 // what it changes lives in two places: the server's settings (in the object) and its row in the directory
 // (name, address, join password).
 //
-// A new address moves the server: /s/<old>/ stops existing and cookies made for it no longer apply (they're
-// Path=/s/<old>/), so everyone joins again at the new one. Whoever changed it gets cookies for the new address
+// A new address moves the server: /<old> stops existing and cookies made for it no longer apply (they're
+// Path=/<old>), so everyone joins again at the new one. Whoever changed it gets cookies for the new address
 // with the answer. A new password ends every viewer session made with the old one; the same goes for them.
 import { json } from './util.js';
 import { loadPerms } from './roles.js';
 import { forgetSlug, serverById, slugProblem } from './directory.js';
 import {
-  clearCookie, cookie, DAY, hashPassword, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
+  clearCookie, cookie, DAY, hashPassword, joinLinkPath, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
 } from './session.js';
 import { limit, tooMany } from './limiter.js';
 import { ADDONS, addonList } from './addons.js';
@@ -38,6 +40,8 @@ function state(t, row, perms) {
     slug: row.slug,
     public: t.settings.PUBLIC === '1',
     has_password: row.has_password !== 0,
+    // the link that lets players in without typing the name and password (src/joinlink.js), as a path on this site; null when there's none
+    join_link: t.joinLink() ? joinLinkPath(row.slug, t.joinLink()) : null,
     accent: look.accent,
     tab_style: look.tabs,
     // the description and icon on its Activity page, and how its pages are laid out (src/layout.js)
@@ -132,6 +136,7 @@ export async function handleServerAdmin(t, request, url, who) {
     if (!lim.ok) return tooMany(lim.retry);
   }
   if (has('addons') && (!Array.isArray(b.addons) || b.addons.some((id) => !ADDONS[id]))) return bad('unknown add-on');
+  if (has('join_link') && b.join_link !== 'new' && b.join_link !== 'off') return bad('expected join_link: "new" or "off"', 'join_link');
 
   // ---- then change it ----
   if (Object.keys(patch).length) {
@@ -142,6 +147,10 @@ export async function handleServerAdmin(t, request, url, who) {
     }
   }
   if (icon !== undefined) await t.setIcon(icon);
+  if (has('join_link')) {
+    await t.setJoinLink(b.join_link === 'new');
+    console.log(`server: ${who.email} ${b.join_link === 'new' ? 'made a new join link for' : 'turned off the join link of'} ${row.slug}`);
+  }
   if (has('addons')) await t.setAddons(b.addons);
   const sets = [];
   if (patch.NAME) sets.push(t.env.DIRECTORY.prepare('UPDATE servers SET name = ? WHERE id = ?').bind(patch.NAME, t.id));

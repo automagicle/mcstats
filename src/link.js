@@ -89,9 +89,10 @@ export async function connectLink(request, env) {
   const denied = ingestDenied(env);
   if (denied) return denied;
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json({ error: 'expected a WebSocket' }, 426);
-  // where this server's pages are, for the mod's /mcstats links (mod 2.2.0): https://<site>/s/<slug>/
+  // where this server's pages are, for the mod's /mcstats links (mod 2.2.0): https://<site>/<slug>/. The slash
+  // on the end stays (the mod only takes an address that ends in one); the site sends /<slug>/ on to /<slug>.
   const slug = env.TENANT?.slug;
-  const page = slug ? `${uploadOrigin(env, new URL(request.url))}/s/${encodeURIComponent(slug)}/` : '';
+  const page = slug ? `${uploadOrigin(env, new URL(request.url))}/${encodeURIComponent(slug)}/` : '';
   return link(env).fetch(new Request(`https://link/connect?page=${encodeURIComponent(page)}`, request));
 }
 

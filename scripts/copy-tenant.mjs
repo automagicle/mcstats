@@ -124,4 +124,4 @@ if (bad) {
 
 console.log('4. every table matches: un-pausing');
 const info = await ops(`/servers/${slug}/finish`, {});
-console.log(`   done. ${base}/s/${info.slug}/  (members: ${info.members}, checking ${info.mc_server || 'no address'})`);
+console.log(`   done. ${base}/${info.slug}  (members: ${info.members}, checking ${info.mc_server || 'no address'})`);

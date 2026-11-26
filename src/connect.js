@@ -68,7 +68,7 @@ export async function connectedList(db) {
   }
 }
 
-// One message from the mod. page: this server's pages ("https://…/s/<slug>/"), for the email's link.
+// One message from the mod. page: this server's pages ("https://…/<slug>/"), for the email's link.
 export async function accountRequest(env, m, page) {
   const db = env.DB;
   const uuid = typeof m.uuid === 'string' && UUID_RE.test(m.uuid) ? m.uuid.toLowerCase() : null;
@@ -98,7 +98,7 @@ export async function accountRequest(env, m, page) {
   ).bind(uuid, name, email, now(), tries + 1, today()).run();
 
   const server = env.TENANT?.name || 'the Minecraft server';
-  const where = page ? `${page}#/chat` : null;
+  const where = page ? `${page.replace(/\/$/, '')}#/chat` : null;
   const emailed = await sendEmail(env, {
     to: email,
     subject: `${name} wants to connect your mcstats account`,

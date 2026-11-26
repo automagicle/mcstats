@@ -4,11 +4,42 @@ import { randomHex } from './session.js';
 
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 export const ID_RE = /^[0-9a-f]{16}$/;
-// Words a server can't be called: the site's own paths, and names that would mislead.
+// The site's own top-level paths (public/ and /api): a request for one of these is never a server's.
+// Anything added to public/ without a dot in its address belongs here too.
+export const SITE_PATHS = new Set(['api', 'new', 'join', 'account', 'servers', 'mod', 'stats', 'downloads', 'addons', 'index', 's']);
+// Words a server can't be called. Servers live at the top of the site (/<server>), so this is every page the
+// site has, the ones it may well grow, and names that would mislead. A server made before a word was added
+// here keeps working until the site really uses that address (only SITE_PATHS are routed away from servers).
 export const RESERVED = new Set([
-  'admin', 'api', 'www', 'new', 'join', 's', 'static', 'assets', 'stats', 'app', 'auth', 'login', 'logout',
-  'signin', 'signup', 'site', 'ops', 'mcstats', 'help', 'support', 'about', 'settings', 'root', 'null', 'undefined',
+  ...SITE_PATHS,
+  // signing in and accounts
+  'auth', 'login', 'logout', 'signin', 'signout', 'signup', 'register', 'sso', 'oauth', 'callback', 'verify', 'confirm',
+  'password', 'reset', 'recover', 'me', 'my', 'profile', 'user', 'users', 'member', 'members', 'settings', 'preferences',
+  'notifications', 'inbox', 'messages', 'billing', 'payment', 'payments', 'checkout', 'subscribe', 'unsubscribe',
+  'pricing', 'plans', 'premium', 'pro', 'upgrade', 'donate', 'sponsor', 'store', 'shop',
+  // the site's own pages, now or later
+  'home', 'index', 'app', 'apps', 'dashboard', 'server', 'create', 'edit', 'delete', 'remove', 'setup', 'onboarding',
+  'welcome', 'start', 'invite', 'invites', 'link', 'links', 'go', 'open', 'share', 'embed', 'widget', 'widgets', 'badge',
+  'explore', 'discover', 'browse', 'search', 'find', 'list', 'directory', 'top', 'popular', 'trending', 'featured', 'public', 'private',
+  'player', 'players', 'team', 'teams', 'season', 'seasons', 'leaderboard', 'leaderboards', 'activity', 'combat', 'chat',
+  'chatlog', 'liveview', 'live', 'map', 'maps', 'analytics', 'roles', 'layout',
+  'mods', 'plugin', 'plugins', 'addon', 'download', 'install', 'update', 'updates', 'release', 'releases', 'changelog', 'version', 'versions',
+  'help', 'support', 'contact', 'feedback', 'faq', 'docs', 'doc', 'documentation', 'guide', 'guides', 'wiki', 'learn', 'tutorial', 'tutorials',
+  'about', 'blog', 'news', 'press', 'jobs', 'careers', 'company', 'community', 'forum', 'forums', 'discord', 'status', 'roadmap',
+  'legal', 'terms', 'tos', 'privacy', 'cookies', 'security', 'abuse', 'report', 'dmca', 'copyright', 'license', 'rules', 'guidelines',
+  // how the site is built and run
+  'www', 'web', 'site', 'static', 'assets', 'asset', 'public-assets', 'cdn', 'media', 'img', 'image', 'images', 'icon', 'icons', 'fonts', 'font',
+  'css', 'js', 'script', 'scripts', 'style', 'styles', 'files', 'file', 'upload', 'uploads', 'data', 'export', 'import', 'backup',
+  'admin', 'administrator', 'ops', 'operator', 'staff', 'mod-tools', 'moderator', 'internal', 'system', 'debug', 'dev', 'test', 'testing',
+  'staging', 'beta', 'alpha', 'demo', 'example', 'sample', 'preview', 'health', 'healthz', 'ping', 'metrics', 'graphql', 'rest', 'rpc',
+  'webhook', 'webhooks', 'hook', 'hooks', 'ws', 'socket', 'ingest', 'feed', 'rss', 'atom', 'sitemap', 'robots', 'favicon', 'manifest',
+  'well-known', 'error', 'errors', 'not-found', '404', '500', 'offline', 'maintenance',
+  // names that would mislead
+  'mcstats', 'mcstats-live', 'official', 'minecraft', 'mojang', 'microsoft', 'root', 'null', 'undefined', 'true', 'false', 'none', 'nan',
+  'anonymous', 'everyone', 'nobody', 'unknown', 'default', 'new-server',
 ]);
+// /s1 … /s99 were the season archives before servers had their own addresses, and still lead to the first server's.
+const OLD_SEASON_RE = /^s\d+$/;
 
 export function slugify(s) {
   return String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
@@ -17,7 +48,7 @@ export function slugify(s) {
 
 export function slugProblem(slug) {
   if (!SLUG_RE.test(slug)) return 'The address is 3 to 32 lowercase letters, digits and dashes, and starts and ends with a letter or digit.';
-  if (RESERVED.has(slug)) return 'That address is reserved. Pick another.';
+  if (RESERVED.has(slug) || OLD_SEASON_RE.test(slug)) return 'That address is reserved. Pick another.';
   return null;
 }
 

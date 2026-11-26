@@ -12,13 +12,14 @@
 //   POST /api/site/servers/<slug>/key       a new mod key, shown once; the old one stops working at once
 //   POST /api/site/servers/<slug>/settings  { NAME, MC_SERVER, PUBLIC, TZ_NAME, CURRENT_SEASON, …, password, confirm }
 //   POST /api/site/servers/<slug>/invite    { email, role }  add an admin or member, and email them
+//   POST /api/site/servers/<slug>/joinlink  { on }     a new join link (the one before stops working), or none (src/joinlink.js)
 //   POST /api/site/servers/<slug>/open      let in to the server's own pages (the viewer cookie)
 //   GET  /api/site/mine, POST /api/site/mine/order, /mine/remove   the account's own list of servers (src/myservers.js)
 // Everything but /join and /mod needs an mcstats account to be signed in (src/account.js); everything under
 // /servers/<slug> is for that server's owner (or a super admin) only.
 import { MOD } from './modinfo.gen.js';
 import {
-  checkPassword, cleanEmail, cookie, DAY, EMAIL_RE, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newApiKey, passwordStamp,
+  checkPassword, cleanEmail, cookie, DAY, EMAIL_RE, hashPassword, joinLinkPath, MAX_PASSWORD, MIN_PASSWORD, newApiKey, passwordStamp,
   serverPath, sessionReady, sha256Hex, signToken, VIEW_DAYS,
 } from './session.js';
 import { accountOf } from './account.js';
@@ -194,7 +195,13 @@ export async function handleSite(request, env, url) {
     let info = await stub.info();
     // making it was interrupted before its object was set up: finish that now
     if (!info.slug) info = await stub.setup({ slug: row.slug, name: row.name, owner: row.owner_email });
-    return { slug: row.slug, name: row.name, url: `${url.origin}${serverPath(row.slug)}`, step: await step(), has_password: row.has_password !== 0, info };
+    const token = await stub.joinLink();
+    return {
+      slug: row.slug, name: row.name, url: `${url.origin}${serverPath(row.slug)}`, step: await step(), has_password: row.has_password !== 0,
+      // the link that lets players in without the name and password; null when there's none
+      join_link: token ? `${url.origin}${joinLinkPath(row.slug, token)}` : null,
+      info,
+    };
   };
 
   if (!action) {
@@ -264,6 +271,13 @@ export async function handleSite(request, env, url) {
       text: `${email} added you to ${row.name} on mcstats as ${role === 'admin' ? 'an admin' : 'a member'}.\n\nSign in to mcstats with this address (${who}) to get in. If you don’t have an account yet, choose "Create an account" there:\n\n${url.origin}/account?${new URLSearchParams({ next: serverPath(row.slug) })}\n\n${where}\n`,
     });
     return json({ ok: true });
+  }
+
+  if (action === '/joinlink') {
+    if (typeof r.b.on !== 'boolean') return json({ error: 'expected { on: true | false }' }, 400);
+    await stub.setJoinLink(r.b.on);
+    console.log(`site: ${email} ${r.b.on ? 'made a new join link for' : 'turned off the join link of'} ${row.slug}`);
+    return json(await state());
   }
 
   if (action === '/open') {

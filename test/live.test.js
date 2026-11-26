@@ -12,11 +12,11 @@ describe('WebSockets', () => {
   it('a server’s live updates open for its viewers only', async () => {
     const a = await makeServer('ws-a');
     const b = await makeServer('ws-b');
-    const res = await ws(`/s/${a.slug}/api/live`, { Cookie: await viewerCookie(a) });
+    const res = await ws(`/${a.slug}/api/live`, { Cookie: await viewerCookie(a) });
     expect(res.status).toBe(101);
     res.webSocket.accept();
     res.webSocket.close();
-    expect((await ws(`/s/${b.slug}/api/live`, { Cookie: await viewerCookie(a) })).status).toBe(401);
+    expect((await ws(`/${b.slug}/api/live`, { Cookie: await viewerCookie(a) })).status).toBe(401);
   });
 
   it('the mod’s link connects with its server’s key only', async () => {
@@ -53,7 +53,7 @@ describe('the status check', () => {
     expect(snapsB).toBe(0);
     // and it set itself again for the next minute
     expect(await runInDurableObject(tenant(a), (_o, s) => s.storage.getAlarm())).toBeGreaterThan(Date.now());
-    const status = await (await call(`/s/${a.slug}/api/status`, { cookie: await viewerCookie(a) })).json();
+    const status = await (await call(`/${a.slug}/api/status`, { cookie: await viewerCookie(a) })).json();
     expect(status.online.map((p) => p.name)).toEqual(['Alex']);
   });
 });
@@ -87,7 +87,7 @@ describe('a player page before any minute is recorded', () => {
     const a = await makeServer('early-page');
     const key = await newKey(a);
     const view = await viewerCookie(a);
-    const page = (uuid) => call(`/s/${a.slug}/api/player/${uuid}`, { cookie: view });
+    const page = (uuid) => call(`/${a.slug}/api/player/${uuid}`, { cookie: view });
     // on now, by the mod's list
     const alex = 'acb4cbcb-0824-4e60-b578-0fe604008bb0';
     expect((await upload(key, null, { path: '/api/ingest/online', body: { players: [{ uuid: alex, name: 'Alex' }] } })).status).toBe(200);

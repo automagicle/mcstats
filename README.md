@@ -1,7 +1,7 @@
 # mcserverstats
 
 Tracks who's on Minecraft servers and when, and shows each server on its own private dashboard. Many servers
-use one site at the same time; each has its own page (`/s/<server>/`), its own password, its own data and its own
+use one site at the same time; each has its own page (`/<server>`), its own password, its own data and its own
 members, and none can see or change another's (see [How servers are kept apart](#how-servers-are-kept-apart)).
 It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay on at home.
 
@@ -15,7 +15,7 @@ It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay o
 - **Liveview** (admins only, optional): a fourth tab that shows the world as it is right now, in 3D, straight from
   the server mod: fly a camera through the terrain, follow a player, open inventories and chests, read what's
   happening. It's behind two keys that are made on the Minecraft server (see [Liveview](#liveview)).
-- **Seasons**: a server's main page shows its current season; `/s/<server>/s1/` is its season 1 archive. Seasons split
+- **Seasons**: a server's main page shows its current season; `/<server>/s1` is its season 1 archive. Seasons split
   the recorded data by time, so nothing is copied or deleted (see [Seasons](#seasons)).
 - **Privacy**: looking at a server needs its join password (or the owner can make it public); chatting from the
   website and the admin pages need an mcstats account (email and password) that's a member of that server. The mod's uploads need that server's key.
@@ -37,9 +37,10 @@ npm run deploy
 ```
 
 Then open the site, choose **Create a server**, and follow the steps: create your mcstats account (or sign in), name the server, pick
-its address (`/s/<address>/`, checked as you type) and whether its stats are **private** (players need its join
+its address (`/<address>`, checked as you type; names the site uses or may come to use, like `/settings`, can't be taken) and whether its stats are **private** (players need its join
 password) or **public** (anyone with the address can look; no password needed), install the mod, paste the key it
-shows into the mod's config, and wait for the first upload. Players of a private server join at `/join` with the
+shows into the mod's config, and wait for the first upload. Players of a private server get in with its **join
+link** (the last step offers to make one: a single address that lets in whoever opens it), or at `/join` with the
 server's name and password; a public server's stats are simply at its address. A public server can be made private
 later once it has a password.
 
@@ -69,7 +70,7 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
    `OPS_TOKEN=… JOIN_PASSWORD=… npm run copy-tenant -- --url https://<worker address> --owner you@example.org`.
    Uploads from the mod wait (it keeps them) until the copy is checked; the script prints each table's row count
    on both sides and only finishes if they all match.
-4. Give players `/join`, the name `eggsmp` and the join password. Old links to `/s1/` go to `/s/eggsmp/s1/`.
+4. Give players `/join`, the name `eggsmp` and the join password. Old links to `/s1/` go to `/eggsmp/s1`.
 5. When you're ready, make the first server a key of its own on `/new` (signed in to the owner's account) and put it
    in the mod's `token=`; then the old `CHAT_INGEST_TOKEN` secret can be deleted.
 
@@ -83,10 +84,16 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
   hashed join password, hashed mod key, owner, created date) and holds the mcstats accounts (email, hashed password,
   hashed session tokens: see [Sign-in](#sign-in)). No stats. A D1 database rather than one directory object,
   because every page load looks a server up and one object would make every request in the world wait in one line.
-- **Which server** a request is for is decided once, in the Worker (`src/index.js`): from the address (`/s/<server>/`)
+- **Which server** a request is for is decided once, in the Worker (`src/index.js`): from the address (`/<server>`)
   for pages, and only from the key (`mcs_<server id>_…`) for the mod. A server named in a body or query string is ignored.
+- **Addresses**: servers sit at the top of the site (`/<server>`), beside its own pages (`/join`, `/new`, …:
+  `SITE_PATHS` in `src/directory.js`, which always win). They used to be at `/s/<server>/`: those addresses redirect
+  for good (301, or 308 for a request with a body), keeping the rest of the address, and a viewer cookie made at the
+  old address is moved to the new one on the way. The site's old `mcstats.<account>.workers.dev` address redirects to
+  `SITE_ORIGIN` the same way, except `/api/ingest/*` and `/downloads/*`: mods set up before the domain still upload
+  there, and the mod doesn't follow redirects.
 - **The viewer cookie** (from joining with a server's password) is signed with a key derived from `SESSION_SECRET` and
-  the server's id, and sent only to that server's pages (`Path=/s/<server>/`, HttpOnly, Secure, SameSite=Lax). Joining A
+  the server's id, and sent only to that server's pages (`Path=/<server>`, HttpOnly, Secure, SameSite=Lax). Joining A
   gives nothing on B. An mcstats **account** is signed in site-wide, but it's nobody on a server until it's a member
   there: being a member of A makes you nobody on B.
 - **Roles** are per server: `owner`, `admin`, `member` (src/roles.js), each a starting set of the five permissions.
@@ -119,7 +126,7 @@ Admins manage them on **Admin → Server → Seasons** (`src/seasonadmin.js`, `/
 Underneath these are the server's settings `CURRENT_SEASON`, `SEASONn_START` and `SEASONn_OPENS`.
 
 **Switching seasons** on the page is the **Season** menu at the far right of the footer, apart from the footer's
-links; it's only there once a server has more than one season. Earlier seasons live at `/s/<server>/s1/`, `/s2/`, ….
+links; it's only there once a server has more than one season. Earlier seasons live at `/<server>/s1`, `/s2`, ….
 
 **Recording before the official start**: to test before a season opens, set the season's start to when recording
 should begin and "officially opens" (`SEASON2_OPENS`) to the official start. Everything from `SEASON2_START` on is season 2 and counts; charts hatch
@@ -170,9 +177,10 @@ Admin it is a draft on the Save bar; nothing changes until Save.
 | **Name** | admins | Shown at the top of its pages and in emails. |
 | **Icon** | admins | A square picture, dropped on the box or picked with the button, cropped to a 128px PNG. The game's own 64×64 `server-icon.png` stays sharp. It sits beside the name in the About header on Activity, and it becomes the browser tab's icon. |
 | **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description, and Admin → Layout can switch it off altogether. |
-| **Address** (`/s/<address>/`) | owners | Moves the server: the old address stops existing and everyone joins again at the new one (cookies are per address). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
+| **Address** (`/<address>`) | owners | Moves the server: the old address stops existing (its join link too) and everyone joins again at the new one (cookies are per address). It can't be a name the site uses or may come to use (`RESERVED` in `src/directory.js`). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
 | **Private or public** | owners | A public server can only be made private once it has a join password. |
 | **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
+| **Join link** | admins | One address (`/<server>/join/<token>`) that lets in whoever opens it, with no name or password to type: made, copied, replaced and turned off here, at once (not with the Save bar). A new link stops the old one working; people it already let in stay in until the join password changes. Not offered while the server is public. |
 | **Accent color** | admins | Green (the default), blue, or any color (`#rrggbb`). |
 | **Tab style** | admins | Line (the default: the current tab is greyer with a line in the accent color under it) or Frame (set in, framed, no color). |
 | **Add-ons** | the site's operators (`SUPER_ADMIN_EMAIL`) | Features only some servers have; see Add-ons below. |
@@ -464,8 +472,12 @@ and a small "Server owners: get the mod" link in the footer. Players never need 
 
 Two things, separately:
 
-- **Looking**: the server's join password, on `/join`. It gives a cookie for that server's pages, good for 30 days or
-  until the owner changes the password. An owner can make a server public instead. No account needed.
+- **Looking**: the server's join password, on `/join`, or its **join link** (`src/joinlink.js`). Either gives a
+  cookie for that server's pages, good for 30 days or until the owner changes the password. An owner can make a
+  server public instead. No account needed. A join link is `/<server>/join/<token>`: opening it sets the cookie and
+  goes on to `/<server>`, so the token doesn't stay in the address bar. A server has one link at a time; the token
+  is kept as it is (not hashed) in the server's own object so admins can copy it again, and a link that no longer
+  works leads to `/join`, which says so.
 - **Being someone**: an **mcstats account**, an email address and a password, signed in for the whole site at
   `/account` (**Sign in** at the top of any page leads there). One account is used on every server; what it may do on
   each is that server's own business (Roles, above). Someone who can look at a server becomes a **member** of it by

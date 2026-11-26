@@ -257,7 +257,7 @@ lines up.
 
 The home page (`/`, [public/index.html](public/index.html), [public/home.js](public/home.js),
 [public/home3d.js](public/home3d.js)) introduces mcstats with its own dashboard, not with paragraphs. Each server's
-stats stay at `/s/<server>/`. Nothing on it calls a server; the only requests are the game textures its example
+stats stay at `/<server>`. Nothing on it calls a server; the only requests are the game textures its example
 players wear (`/api/mc/`, the few `src/mcassets.js` allows without a sign-in).
 
 **The examples are the dashboard, not pictures of it.** Each one is built from the dashboard's own classes and

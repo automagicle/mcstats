@@ -86,7 +86,7 @@ describe('viewer sessions', () => {
     const res = await call('/api/site/join', { method: 'POST', body: { server: a.slug, password: a.password } });
     expect(res.status).toBe(200);
     const set = res.headers.getSetCookie().find((c) => c.startsWith('mcs_view='));
-    expect(set).toMatch(/Path=\/s\/view-a\//);
+    expect(set).toMatch(/Path=\/view-a;/);
     expect(set).toMatch(/HttpOnly/);
     expect(set).toMatch(/Secure/);
     expect(set).toMatch(/SameSite=Lax/);
@@ -98,30 +98,30 @@ describe('viewer sessions', () => {
     await upload(await newKey(b), [chatEvent('B’s secret chat')]);
     const viewA = await viewerCookie(a);
     for (const path of ['/api/status', '/api/chat', '/api/roster', '/api/leaderboard', '/api/me', '/api/chat/search?q=secret', '/api/mc/textures/item/diamond.png']) {
-      const res = await call(`/s/${b.slug}${path}`, { cookie: viewA });
+      const res = await call(`/${b.slug}${path}`, { cookie: viewA });
       expect(res.status, path).toBe(401);
       expect(await res.text(), path).not.toContain('secret chat');
     }
-    const page = await call(`/s/${b.slug}/`, { cookie: viewA });
+    const page = await call(`/${b.slug}`, { cookie: viewA });
     expect(page.status).toBe(302);
     expect(page.headers.get('Location')).toBe(`/join?server=${b.slug}`);
     // and with it, A's own page works
-    expect((await call(`/s/${a.slug}/`, { cookie: viewA })).status).toBe(200);
+    expect((await call(`/${a.slug}`, { cookie: viewA })).status).toBe(200);
   });
 
   it('a client can’t claim to be a viewer by sending our internal header', async () => {
     const b = await makeServer('hdr-b');
-    const res = await call(`/s/${b.slug}/api/status`, { headers: { 'X-MCS-Who': JSON.stringify({ viewer: true, email: b.owner }) } });
+    const res = await call(`/${b.slug}/api/status`, { headers: { 'X-MCS-Who': JSON.stringify({ viewer: true, email: b.owner }) } });
     expect(res.status).toBe(401);
   });
 
   it('a new join password ends the viewer sessions made with the old one', async () => {
     const a = await makeServer('pw-change');
     const view = await viewerCookie(a);
-    expect((await call(`/s/${a.slug}/api/status`, { cookie: view })).status).toBe(200);
+    expect((await call(`/${a.slug}/api/status`, { cookie: view })).status).toBe(200);
     const res = await call(`/api/site/servers/${a.slug}/settings`, { method: 'POST', cookie: a.cookie, body: { password: 'a-brand-new-password', confirm: 'a-brand-new-password' } });
     expect(res.status, await res.clone().text()).toBe(200);
-    expect((await call(`/s/${a.slug}/api/status`, { cookie: view })).status).toBe(401);
+    expect((await call(`/${a.slug}/api/status`, { cookie: view })).status).toBe(401);
   });
 });
 
@@ -130,29 +130,29 @@ describe('admins and members', () => {
     const a = await makeServer('adm-a');
     const b = await makeServer('adm-b');
     const ownerA = await idCookie(a, a.owner);
-    const adminA = await call(`/s/${a.slug}/api/admin?season=1`, { cookie: ownerA });
+    const adminA = await call(`/${a.slug}/api/admin?season=1`, { cookie: ownerA });
     expect(adminA.status).toBe(200);
     // the Mod and data page's download picker: every jar, starting on one the site has
     const { mod } = await adminA.json();
     expect(mod.downloads.length).toBeGreaterThan(0);
     expect(mod.downloads.map((d) => d.file)).toContain(mod.suggested);
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: ownerA })).json()).admin).toBe(true);
+    expect((await (await call(`/${a.slug}/api/me`, { cookie: ownerA })).json()).admin).toBe(true);
 
     // A's owner, signed in, on B: not let in at all
-    expect((await call(`/s/${b.slug}/api/admin?season=1`, { cookie: ownerA })).status).toBe(401);
+    expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: ownerA })).status).toBe(401);
     // the same account, able to look at B: still nobody there
     const onB = both(await viewerCookie(b), await idCookie(b, a.owner));
-    const me = await (await call(`/s/${b.slug}/api/me`, { cookie: onB })).json();
+    const me = await (await call(`/${b.slug}/api/me`, { cookie: onB })).json();
     expect(me.admin).toBe(false);
     expect(me.email).toBe(null);
-    expect((await call(`/s/${b.slug}/api/admin?season=1`, { cookie: onB })).status).toBe(403);
-    expect((await call(`/s/${b.slug}/api/admin/roles`, { cookie: onB })).status).toBe(403);
+    expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: onB })).status).toBe(403);
+    expect((await call(`/${b.slug}/api/admin/roles`, { cookie: onB })).status).toBe(403);
     // B's owner makes them a member of B: a member, not an admin
     expect((await call(`/api/site/servers/${b.slug}/invite`, { method: 'POST', cookie: b.cookie, body: { email: a.owner, role: 'member' } })).status).toBe(200);
-    const asMember = await (await call(`/s/${b.slug}/api/me`, { cookie: onB })).json();
+    const asMember = await (await call(`/${b.slug}/api/me`, { cookie: onB })).json();
     expect(asMember.role).toBe('member');
     expect(asMember.admin).toBe(false);
-    expect((await call(`/s/${b.slug}/api/admin?season=1`, { cookie: onB })).status).toBe(403);
+    expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: onB })).status).toBe(403);
   });
 
   it('only the server’s owner can change roles, and an admin invited to A gets nowhere on B', async () => {
@@ -160,10 +160,10 @@ describe('admins and members', () => {
     const b = await makeServer('inv-b');
     expect((await call(`/api/site/servers/${a.slug}/invite`, { method: 'POST', cookie: a.cookie, body: { email: 'helper@example.org', role: 'admin' } })).status).toBe(200);
     const helperA = await idCookie(a, 'helper@example.org');
-    expect((await call(`/s/${a.slug}/api/admin?season=1`, { cookie: helperA })).status).toBe(200);
-    expect((await call(`/s/${a.slug}/api/admin/roles`, { cookie: helperA })).status).toBe(403);
+    expect((await call(`/${a.slug}/api/admin?season=1`, { cookie: helperA })).status).toBe(200);
+    expect((await call(`/${a.slug}/api/admin/roles`, { cookie: helperA })).status).toBe(403);
     const helperOnB = both(await viewerCookie(b), await idCookie(b, 'helper@example.org'));
-    expect((await call(`/s/${b.slug}/api/admin?season=1`, { cookie: helperOnB })).status).toBe(403);
+    expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: helperOnB })).status).toBe(403);
     // someone else's server can't be set up from /new either
     expect((await call(`/api/site/servers/${b.slug}`, { cookie: a.cookie })).status).toBe(404);
     expect((await call(`/api/site/servers/${b.slug}/key`, { method: 'POST', cookie: a.cookie, body: {} })).status).toBe(404);
@@ -173,28 +173,28 @@ describe('admins and members', () => {
     const a = await makeServer('code-a');
     const b = await makeServer('code-b');
     const player = await accountCookie('player@example.org');
-    const enter = (server, cookie) => call(`/s/${server.slug}/api/auth/enter`, { method: 'POST', cookie, body: {} });
+    const enter = (server, cookie) => call(`/${server.slug}/api/auth/enter`, { method: 'POST', cookie, body: {} });
     // signed in, but can't see A: nothing, and no member is made
-    expect((await call(`/s/${a.slug}/api/me`, { cookie: player })).status).toBe(401);
+    expect((await call(`/${a.slug}/api/me`, { cookie: player })).status).toBe(401);
     expect((await enter(a, player)).status).toBe(401);
     // nobody signed in: nothing to make a member of
     const viewA = await viewerCookie(a);
     expect((await enter(a, viewA)).status).toBe(401);
     // joined with the password: can look, and is still nobody until they ask
     const onA = both(viewA, player);
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: onA })).json()).email).toBe(null);
+    expect((await (await call(`/${a.slug}/api/me`, { cookie: onA })).json()).email).toBe(null);
     expect((await enter(a, onA)).status).toBe(200);
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: onA })).json()).role).toBe('member');
+    expect((await (await call(`/${a.slug}/api/me`, { cookie: onA })).json()).role).toBe('member');
     // a member gets in with the account alone, from any browser
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: player })).json()).role).toBe('member');
+    expect((await (await call(`/${a.slug}/api/me`, { cookie: player })).json()).role).toBe('member');
     // on B: still nothing, and looking at B doesn't make them a member of it
-    expect((await call(`/s/${b.slug}/api/me`, { cookie: player })).status).toBe(401);
-    const onB = await (await call(`/s/${b.slug}/api/me`, { cookie: both(await viewerCookie(b), player) })).json();
+    expect((await call(`/${b.slug}/api/me`, { cookie: player })).status).toBe(401);
+    const onB = await (await call(`/${b.slug}/api/me`, { cookie: both(await viewerCookie(b), player) })).json();
     expect(onB.email).toBe(null);
     // asking twice changes nothing: an admin who asks stays an admin
     const ownerA = await accountCookie(a.owner);
     expect((await enter(a, ownerA)).status).toBe(200);
-    expect((await (await call(`/s/${a.slug}/api/me`, { cookie: ownerA })).json()).role).toBe('owner');
+    expect((await (await call(`/${a.slug}/api/me`, { cookie: ownerA })).json()).role).toBe('owner');
   });
 });
 
@@ -209,12 +209,12 @@ describe('caches', () => {
       sql.exec("INSERT INTO sessions (uuid, start_ts, end_ts) VALUES ('00000000-0000-4000-8000-0000000000aa', ?, ?)", now - 600, now - 60);
       sql.exec('INSERT INTO snapshots (ts, up, online, max, listed) VALUES (?, 1, 1, 20, 1)', Math.floor(now / 60) * 60 - 60);
     });
-    const ra = await call(`/s/${a.slug}/api/status?season=1`, { cookie: await viewerCookie(a) });
+    const ra = await call(`/${a.slug}/api/status?season=1`, { cookie: await viewerCookie(a) });
     const sa = await ra.json();
     expect(sa.players_total).toBe(1);
     expect(ra.headers.get('Cache-Control')).toBe('no-store');
     // the same address on B, straight after: B's own (empty) figures
-    const rb = await call(`/s/${b.slug}/api/status?season=1`, { cookie: await viewerCookie(b) });
+    const rb = await call(`/${b.slug}/api/status?season=1`, { cookie: await viewerCookie(b) });
     const sb = await rb.json();
     expect(sb.players_total).toBe(0);
     expect(sb.last).toBe(null);
@@ -229,7 +229,7 @@ describe('caches', () => {
 
   it('pages are not cached by anyone in between', async () => {
     const a = await makeServer('page-a');
-    const res = await call(`/s/${a.slug}/`, { cookie: await viewerCookie(a) });
+    const res = await call(`/${a.slug}`, { cookie: await viewerCookie(a) });
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     const html = await res.text();
@@ -246,10 +246,10 @@ describe('joining', () => {
     expect(none.status).toBe(401);
     expect(await wrong.text()).toBe(await none.text());
     // and the pages of a server that doesn't exist look like those of one you can't see
-    const p1 = await call(`/s/${a.slug}/`);
-    const p2 = await call('/s/no-such-server/');
+    const p1 = await call(`/${a.slug}`);
+    const p2 = await call('/no-such-server');
     expect(p1.status).toBe(p2.status);
-    expect((await call(`/s/${a.slug}/api/status`)).status).toBe((await call('/s/no-such-server/api/status')).status);
+    expect((await call(`/${a.slug}/api/status`)).status).toBe((await call('/no-such-server/api/status')).status);
   });
 
   it('is rate limited the same way for a real server and a made-up one', async () => {
@@ -275,11 +275,11 @@ describe('joining', () => {
 
   it('a server can be made public, and then its page needs no password', async () => {
     const a = await makeServer('public-a');
-    expect((await call(`/s/${a.slug}/api/status`)).status).toBe(401);
+    expect((await call(`/${a.slug}/api/status`)).status).toBe(401);
     await call(`/api/site/servers/${a.slug}/settings`, { method: 'POST', cookie: a.cookie, body: { PUBLIC: '1' } });
-    expect((await call(`/s/${a.slug}/api/status`)).status).toBe(200);
+    expect((await call(`/${a.slug}/api/status`)).status).toBe(200);
     // looking is all it gives
-    expect((await call(`/s/${a.slug}/api/admin?season=1`)).status).toBe(403);
+    expect((await call(`/${a.slug}/api/admin?season=1`)).status).toBe(403);
   });
 });
 

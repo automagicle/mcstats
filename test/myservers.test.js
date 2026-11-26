@@ -11,10 +11,10 @@ const mine = async (cookie) => {
   return (await res.json()).servers;
 };
 const slugs = async (cookie) => (await mine(cookie)).map((s) => s.slug);
-const save = (slug, saved, cookie) => call(`/s/${slug}/api/mine`, { method: 'POST', cookie, body: { saved } });
+const save = (slug, saved, cookie) => call(`/${slug}/api/mine`, { method: 'POST', cookie, body: { saved } });
 // what the stats page tells its script (window.MCS)
 async function pageConfig(slug, cookie) {
-  const res = await call(`/s/${slug}/`, { cookie });
+  const res = await call(`/${slug}`, { cookie });
   if (res.status !== 200) return { status: res.status };
   const m = /window\.MCS=(\{.*?\});<\/script>/.exec(await res.text());
   return JSON.parse(m[1]);
@@ -98,7 +98,7 @@ describe('adding, removing and reordering', () => {
     expect((await save(s.slug, true, both(stranger, view))).status).toBe(200);
     expect((await mine(stranger))[0]).toMatchObject({ slug: 'mine-private', viewer: true, access: true });
     // and a request from another site is refused
-    const other = await call(`/s/${s.slug}/api/mine`, { method: 'POST', cookie: both(stranger, view), body: { saved: false }, headers: { Origin: 'https://evil.example' } });
+    const other = await call(`/${s.slug}/api/mine`, { method: 'POST', cookie: both(stranger, view), body: { saved: false }, headers: { Origin: 'https://evil.example' } });
     expect(other.status).toBe(403);
   });
 

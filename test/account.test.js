@@ -42,7 +42,7 @@ describe('the code email', () => {
   });
 
   it('only ever sends people back to a page of this site', () => {
-    expect(localPath('/s/my-smp/')).toBe('/s/my-smp/');
+    expect(localPath('/my-smp')).toBe('/my-smp');
     expect(localPath('/new?server=a&step=3')).toBe('/new?server=a&step=3');
     for (const bad of ['//evil.example', '/\\evil.example', 'https://evil.example/', 'javascript:alert(1)', '/a b', '', null, 5]) expect(localPath(bad), String(bad)).toBe(null);
   });
@@ -151,7 +151,7 @@ describe('signing in', () => {
     const a = await makeServer('acct-old');
     const exp = Math.floor(Date.now() / 1000) + 3600;
     const old = `mcs_id=${await signToken(env, { k: 'id', s: a.id, e: a.owner, x: exp })}; mcs_site=${await signToken(env, { k: 'site', e: a.owner, x: exp })}`;
-    expect((await call(`/s/${a.slug}/api/me`, { cookie: old })).status).toBe(401);
+    expect((await call(`/${a.slug}/api/me`, { cookie: old })).status).toBe(401);
     expect((await (await call('/api/site/me', { cookie: old })).json()).email).toBe(null);
     expect(await me(old)).toBe(null);
   });

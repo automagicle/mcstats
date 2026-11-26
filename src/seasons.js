@@ -3,7 +3,7 @@
 // Until SEASONn_START is set, season n hasn't started and has no data. These, and CURRENT_SEASON, are each
 // server's own settings (src/tenantenv.js); a new server starts in season 1.
 
-// The season a server's main page shows; earlier ones live under /s/<server>/s1/, /s2/, …
+// The season a server's main page shows; earlier ones live under /<server>/s1, /s2, …
 export const currentSeason = (env) => {
   const n = Number(env.CURRENT_SEASON);
   return Number.isInteger(n) && n >= 1 && n <= 99 ? n : 1;

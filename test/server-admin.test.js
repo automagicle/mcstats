@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { call, cookieOf, idCookie, makeServer, viewerCookie } from './helpers.js';
 
 const both = (...c) => c.filter(Boolean).join('; ');
-const settings = (server, cookie, body) => call(`/s/${server.slug}/api/admin/server`, { method: body ? 'POST' : 'GET', cookie, body });
-const page = async (slug, cookie) => (await call(`/s/${slug}/`, { cookie })).text();
+const settings = (server, cookie, body) => call(`/${server.slug}/api/admin/server`, { method: body ? 'POST' : 'GET', cookie, body });
+const page = async (slug, cookie) => (await call(`/${slug}`, { cookie })).text();
 async function invite(server, email, role) {
   const res = await call(`/api/site/servers/${server.slug}/invite`, { method: 'POST', cookie: server.cookie, body: { email, role } });
   expect(res.status).toBe(200);
@@ -126,15 +126,15 @@ describe('the address and the password', () => {
     const res = await settings(a, owner, { slug: 'sa-moved' });
     expect(res.status).toBe(200);
     const out = await res.json();
-    expect(out).toMatchObject({ slug: 'sa-moved', moved: '/s/sa-moved/' });
+    expect(out).toMatchObject({ slug: 'sa-moved', moved: '/sa-moved' });
     // the account is signed in site-wide, so it comes along; the viewer cookie is made again for the new address
-    expect(res.headers.getSetCookie().some((c) => c.startsWith('mcs_view=') && c.includes('Path=/s/sa-moved/'))).toBe(true);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith('mcs_view=') && c.includes('Path=/sa-moved'))).toBe(true);
     const fresh = both(cookieOf(res, 'mcs_view'), owner);
-    expect((await call('/s/sa-moved/api/me', { cookie: fresh })).status).toBe(200);
-    expect((await (await call('/s/sa-moved/api/me', { cookie: fresh })).json()).email).toBe(a.owner);
+    expect((await call('/sa-moved/api/me', { cookie: fresh })).status).toBe(200);
+    expect((await (await call('/sa-moved/api/me', { cookie: fresh })).json()).email).toBe(a.owner);
     // the old address is no server at all now, and the data came along
-    expect((await call('/s/sa-move/', { cookie: owner })).status).toBe(302);
-    expect((await call('/s/sa-move/api/me', { cookie: owner })).status).toBe(401);
+    expect((await call('/sa-move', { cookie: owner })).status).toBe(302);
+    expect((await call('/sa-move/api/me', { cookie: owner })).status).toBe(401);
     const row = await env.DIRECTORY.prepare('SELECT slug FROM servers WHERE id = ?').bind(a.id).first();
     expect(row.slug).toBe('sa-moved');
     // and players join at the new name with the same password
@@ -146,7 +146,7 @@ describe('the address and the password', () => {
     const a = await makeServer('sa-pass');
     const owner = await idCookie(a, a.owner);
     const viewer = await viewerCookie(a);
-    expect((await call(`/s/${a.slug}/api/me`, { cookie: viewer })).status).toBe(200);
+    expect((await call(`/${a.slug}/api/me`, { cookie: viewer })).status).toBe(200);
     expect((await settings(a, owner, { password: 'short', confirm: 'short' })).status).toBe(400);
     const mismatch = await settings(a, owner, { password: 'a-new-password', confirm: 'a-new-passw0rd' });
     expect(mismatch.status).toBe(400);
@@ -154,8 +154,8 @@ describe('the address and the password', () => {
 
     const res = await settings(a, owner, { password: 'a-new-password', confirm: 'a-new-password' });
     expect(res.status).toBe(200);
-    expect((await call(`/s/${a.slug}/api/me`, { cookie: viewer })).status).toBe(401);
-    expect((await call(`/s/${a.slug}/api/me`, { cookie: cookieOf(res, 'mcs_view') })).status).toBe(200);
+    expect((await call(`/${a.slug}/api/me`, { cookie: viewer })).status).toBe(401);
+    expect((await call(`/${a.slug}/api/me`, { cookie: cookieOf(res, 'mcs_view') })).status).toBe(200);
     expect((await call('/api/site/join', { method: 'POST', body: { server: a.slug, password: a.password } })).status).toBe(401);
     expect((await call('/api/site/join', { method: 'POST', body: { server: a.slug, password: 'a-new-password' } })).status).toBe(200);
   });
@@ -173,6 +173,6 @@ describe('the address and the password', () => {
     expect((await refused.json()).field).toBe('password');
     expect((await settings(open, owner, { public: false, password: 'now-it-has-one', confirm: 'now-it-has-one' })).status).toBe(200);
     expect(await (await settings(open, owner)).json()).toMatchObject({ public: false, has_password: true });
-    expect((await call('/s/sa-open/')).status).toBe(302);
+    expect((await call('/sa-open')).status).toBe(302);
   });
 });

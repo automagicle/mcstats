@@ -3,7 +3,7 @@
 // (src/directory.js), which only the Worker hands out, so no request can name it on its own.
 //
 // It answers:
-//   fetch   the server's API (/api/... with the /s/<slug> taken off), sent by the Worker with
+//   fetch   the server's API (/api/... with the /<slug> taken off), sent by the Worker with
 //           X-MCS-Who (what the cookies proved: joined, and which account; src/index.js) or, for the mod's uploads, X-MCS-Ingest
 //           (the key is checked here, against this server's own key table)
 //   alarm   the once-a-minute status check (src/poll.js) and the hourly gap fill, for this server only
@@ -17,7 +17,7 @@ import { poll } from './poll.js';
 import { fillGaps } from './gapfill.js';
 import { forgetPerms, loadPerms, ROLES, setRoleStmt } from './roles.js';
 import { clearCache } from './cache.js';
-import { cleanEmail, EMAIL_RE, sameString, sha256Hex } from './session.js';
+import { cleanEmail, EMAIL_RE, newJoinToken, sameString, sha256Hex } from './session.js';
 import { limit, tooMany } from './limiter.js';
 import { json } from './util.js';
 import { parseStart } from './seasons.js';
@@ -239,6 +239,23 @@ export class Tenant extends DurableObject {
     await clearCache(this.db);
     await this.arm();
     return this.info();
+  }
+
+  // The join link (src/joinlink.js): its token, or null when the server has none.
+  joinLink() {
+    return this.settings.JOIN_LINK || null;
+  }
+
+  // on: a new link, which replaces the one before (that one stops working at once). off: no link.
+  async setJoinLink(on) {
+    this.put('JOIN_LINK', on ? newJoinToken() : '');
+    this.load();
+    return this.joinLink();
+  }
+
+  async joinLinkOk(token) {
+    const have = this.joinLink();
+    return !!have && typeof token === 'string' && (await sameString(token, have));
   }
 
   // Which add-ons this server has (src/addons.js). Only the site's operators set this.

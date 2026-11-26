@@ -4,9 +4,9 @@ import { env } from 'cloudflare:test';
 import { accountCookie, call, makeServer, newKey } from './helpers.js';
 import { hashAccountPassword } from '../src/password.js';
 
-const me = async (s, cookie) => (await call(`/s/${s.slug}/api/chat/me`, { cookie })).json();
-const save = (s, body) => call(`/s/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'config.save', ...body } });
-const addMember = (s, email, role = 'member') => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body: { email, role } });
+const me = async (s, cookie) => (await call(`/${s.slug}/api/chat/me`, { cookie })).json();
+const save = (s, body) => call(`/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'config.save', ...body } });
+const addMember = (s, email, role = 'member') => call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body: { email, role } });
 
 describe('web chat identity', () => {
   it('follows Admin → Players and Roles', async () => {
@@ -30,14 +30,14 @@ describe('web chat identity', () => {
     expect(await me(s, await accountCookie('helper@example.org'))).toMatchObject({ admin: true });
 
     // Roles says the same thing
-    const roles = await (await call(`/s/${s.slug}/api/admin/roles`, { cookie: s.cookie })).json();
+    const roles = await (await call(`/${s.slug}/api/admin/roles`, { cookie: s.cookie })).json();
     const as = Object.fromEntries(roles.users.map((u) => [u.email, u.chat_as]));
     expect(as['steve@example.org']).toBe('Steve');
     expect(as['helper@example.org']).toBe('@admin');
     expect(as[s.owner]).toBe('@admin');
 
     // and the Chat tick switched off stops them
-    const off = await call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie,
+    const off = await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie,
       body: { email: 'steve@example.org', perms: { view: true, chat: false, admin: false, liveview: false, liveview_op: false } } });
     expect(off.status, await off.clone().text()).toBe(200);
     expect(await me(s, steve)).toMatchObject({ blocked: true, ign: null });
@@ -47,7 +47,7 @@ describe('web chat identity', () => {
 
   it('Roles picks who chats as Admin, whatever player they have, and puts them back', async () => {
     const s = await makeServer('chat-as');
-    const roles = (body) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
+    const roles = (body) => call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
     const row = async (res, email) => (await res.json()).users.find((u) => u.email === email);
     expect((await addMember(s, 'alex@example.org')).status).toBe(200);
     const alex = await accountCookie('alex@example.org');
@@ -75,7 +75,7 @@ describe('web chat identity', () => {
     expect((await roles({ email: 'stranger@example.org', chat_as: 'admin' })).status).toBe(400);
     expect((await roles({ email: 'alex@example.org', chat_as: 'everyone' })).status).toBe(400);
     expect((await addMember(s, 'helper@example.org', 'admin')).status).toBe(200);
-    expect((await call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(403);
+    expect((await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(403);
   });
   it('connects a player from in game once that account says yes (/mcstats connect)', async () => {
     const s = await makeServer('chat-connect');
@@ -98,7 +98,7 @@ describe('web chat identity', () => {
       sock.send(JSON.stringify({ type: 'account', id, ...m }));
     });
     const uuid = '00000000-0000-4000-8000-0000000000aa';
-    const connect = (cookie, accept) => call(`/s/${s.slug}/api/chat/connect`, { method: 'POST', cookie, body: { accept } });
+    const connect = (cookie, accept) => call(`/${s.slug}/api/chat/connect`, { method: 'POST', cookie, body: { accept } });
 
     expect(await ask({ action: 'status', uuid, name: 'Alex' })).toMatchObject({ ok: true, email: null, confirmed: false });
     expect(await ask({ action: 'connect', uuid, name: 'Alex', email: 'not an email' })).toMatchObject({ ok: false });
@@ -117,9 +117,9 @@ describe('web chat identity', () => {
     expect((await connect(alex, true)).status).toBe(200);
     expect(await me(s, alex)).toMatchObject({ ign: 'Alex', connected: true, connect: null });
     expect(await ask({ action: 'status', uuid, name: 'Alex' })).toMatchObject({ ok: true, email: 'alex@example.org', confirmed: true });
-    const state = await (await call(`/s/${s.slug}/api/admin?season=1`, { cookie: s.cookie })).json();
+    const state = await (await call(`/${s.slug}/api/admin?season=1`, { cookie: s.cookie })).json();
     expect(state.connected).toEqual([expect.objectContaining({ uuid, name: 'Alex', email: 'alex@example.org' })]);
-    const roles = await (await call(`/s/${s.slug}/api/admin/roles`, { cookie: s.cookie })).json();
+    const roles = await (await call(`/${s.slug}/api/admin/roles`, { cookie: s.cookie })).json();
     expect(roles.users.find((u) => u.email === 'alex@example.org').chat_as).toBe('Alex');
 
     // Admin → Players' own emails still come first
@@ -132,7 +132,7 @@ describe('web chat identity', () => {
     expect(await me(s, alex)).toMatchObject({ ign: null, connected: false });
     await ask({ action: 'connect', uuid, name: 'Alex', email: 'alex@example.org' });
     expect((await connect(alex, true)).status).toBe(200);
-    const off = await call(`/s/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'account.disconnect', uuid } });
+    const off = await call(`/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'account.disconnect', uuid } });
     expect(off.status, await off.clone().text()).toBe(200);
     expect(await me(s, alex)).toMatchObject({ ign: null });
 
@@ -148,7 +148,7 @@ describe('making an owner', () => {
   it('needs the account password of whoever does it, and can’t be undone from the page', async () => {
     const s = await makeServer('own-more');
     await env.DIRECTORY.prepare('UPDATE accounts SET pw_hash = ? WHERE email = ?').bind(await hashAccountPassword(env, 'the-owners-password'), s.owner).run();
-    const roles = (body, cookie = s.cookie) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie, body });
+    const roles = (body, cookie = s.cookie) => call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie, body });
     expect((await addMember(s, 'second@example.org', 'admin')).status).toBe(200);
     const second = await accountCookie('second@example.org');
 
@@ -159,14 +159,14 @@ describe('making an owner', () => {
     expect(await wrong.json()).toMatchObject({ field: 'password' });
     // an admin can't make owners, themselves included
     expect((await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' }, second)).status).toBe(403);
-    expect((await call(`/s/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(403);
+    expect((await call(`/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(403);
 
     const ok = await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' });
     expect(ok.status, await ok.clone().text()).toBe(200);
     expect((await ok.json()).users.find((u) => u.email === 'second@example.org')).toMatchObject({ role: 'owner', custom: false });
     // the new owner has Roles, and the owner's settings
-    expect((await call(`/s/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(200);
-    expect((await (await call(`/s/${s.slug}/api/admin/server`, { cookie: second })).json()).can.owner).toBe(true);
+    expect((await call(`/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(200);
+    expect((await (await call(`/${s.slug}/api/admin/server`, { cookie: second })).json()).can.owner).toBe(true);
     // and stays one
     expect((await roles({ email: 'second@example.org', role: 'admin' })).status).toBe(400);
     expect((await roles({ email: 'second@example.org', remove: true })).status).toBe(400);
@@ -177,7 +177,7 @@ describe('making an owner', () => {
   it('stops taking guesses at the password', async () => {
     const s = await makeServer('own-guess');
     await env.DIRECTORY.prepare('UPDATE accounts SET pw_hash = ? WHERE email = ?').bind(await hashAccountPassword(env, 'the-owners-password'), s.owner).run();
-    const roles = (body) => call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
+    const roles = (body) => call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body });
     for (let i = 0; i < 5; i++) expect((await roles({ email: 'x@example.org', role: 'owner', password: `guess-${i}` })).status).toBe(403);
     expect((await roles({ email: 'x@example.org', role: 'owner', password: 'the-owners-password' })).status).toBe(429);
   });

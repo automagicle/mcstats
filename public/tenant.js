@@ -1,9 +1,9 @@
-// Runs before app.js on a server's stats page (/s/<server>/). The Worker puts window.MCS on the page:
-// { base: '/s/<server>', slug, name, season, email, account, public }. email: who they are on this server (a
+// Runs before app.js on a server's stats page (/<server>). The Worker puts window.MCS on the page:
+// { base: '/<server>', slug, name, season, email, account, public }. email: who they are on this server (a
 // member); account: the mcstats account that's signed in, member here or not.
 //
-// 1. The page's code asks for /api/...; this sends those requests to /s/<server>/api/... instead, where
-//    this server's viewer cookie goes (it's Path=/s/<server>/). fetch and WebSocket both.
+// 1. The page's code asks for /api/...; this sends those requests to /<server>/api/... instead, where
+//    this server's viewer cookie goes (it's Path=/<server>). fetch and WebSocket both.
 // 2. The top bar gets a sign-in: to an mcstats account (the site's /account page), which then becomes a
 //    member of this server (chat, and whatever the owner lets you do). Being a member here means nothing on
 //    any other server.
@@ -68,12 +68,12 @@
 
   // Signing in is to an mcstats account, on the site's own /account page (it comes back here afterwards).
   // Being someone on this server is asked for: the server's owner can see its members' emails.
-  const signInUrl = `/account?${new URLSearchParams({ next: `${M.base}/` })}`;
+  const signInUrl = `/account?${new URLSearchParams({ next: M.base })}`;
   const signOut = () => {
     const out = h('button', { type: 'button', class: 'btn', text: 'Sign out' });
     out.addEventListener('click', async () => {
       out.disabled = true;
-      // the account is the site's, not this server's: asked of /api/account directly, not under /s/<server>
+      // the account is the site's, not this server's: asked of /api/account directly, not under /<server>
       await realFetch('/api/account/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
       location.reload();
     });
