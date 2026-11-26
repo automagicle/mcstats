@@ -33,6 +33,7 @@ import { tellPresence } from './presence.js';
 import { ADMIN_SENDER, deliverWhisper, parseCommand } from './whisper.js';
 import { modUpdateMessage } from './modupdate.js';
 import { uploadOrigin } from './site.js';
+import { accountRequest, connectedPlayer, pendingFor } from './connect.js';
 
 export const MAX_WEB_CHAT = 256; // the game's own limit for a chat message
 const IGN_RE = /^[A-Za-z0-9_.]{1,20}$/;
@@ -97,7 +98,8 @@ export async function connectLink(request, env) {
 const ADMIN = '@admin'; // roster_email's stand-in IGN for an admin (scripts/roster-sql.mjs)
 
 // Who a login email sends as this season, by what the admin page says:
-//   { ign, team }    the player Admin → Players gave this email to (team is null when they have none yet)
+//   { ign, team }    the player Admin → Players gave this email to (team is null when they have none yet), or
+//                    else the player who connected it from in game (/mcstats connect), with connected: true
 //   { admin: true }  someone Admin → Roles set to chat as Admin (user_perms.chat_admin), the roster file's
 //                    "admins" (@admin), or an owner or admin (Roles) with no player of their own
 //   null             nobody: a member whose email isn't linked to a player
@@ -114,6 +116,12 @@ export async function playerFor(env, email, perms = null) {
   const row = linked.results[0];
   if (forced.results[0]?.chat_admin || row?.ign === ADMIN) return { admin: true };
   if (row) return { ign: row.ign, team: row.team ?? null };
+  // the player who connected this account from in game (/mcstats connect, src/connect.js)
+  const own = await connectedPlayer(env.DB, email);
+  if (own) {
+    const t = await env.DB.prepare('SELECT team FROM roster WHERE season = ? AND ign = ? COLLATE NOCASE').bind(currentSeason(env), own.name).first();
+    return { ign: own.name, team: t?.team ?? null, connected: true };
+  }
   if (perms && (perms.super || perms.role === 'owner' || perms.role === 'admin')) return { admin: true };
   return null;
 }
@@ -139,7 +147,12 @@ export async function webChatMe(env, who) {
   const blocked = who.perms ? !who.perms.chat : false;
   const player = blocked ? null : await playerFor(env, who.email, who.perms);
   const linked = player ? (await linkUp(env)) === true : false;
-  return json({ email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, linked, max: MAX_WEB_CHAT, blocked });
+  // a player who asked in game to connect this account, waiting for its yes (src/connect.js)
+  const ask = who.email ? await pendingFor(env.DB, who.email) : null;
+  return json({
+    email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, connected: !!player?.connected,
+    linked, max: MAX_WEB_CHAT, blocked, connect: ask ? { name: ask.name, at: ask.requested_at } : null,
+  });
 }
 
 // POST /api/chat/send { text }
@@ -152,7 +165,7 @@ export async function sendWebChat(request, env, url, who) {
   if (who.perms && !who.perms.chat) return json({ error: 'This account isn’t allowed to send chat from the dashboard.' }, 403);
   const player = await playerFor(env, who.email, who.perms);
   if (!player) {
-    return json({ error: who.email ? `${who.email} isn’t linked to a player yet (an admin links it on Admin → Players), so it can’t send chat` : 'not signed in with an email' }, 403);
+    return json({ error: who.email ? `${who.email} isn’t linked to a player yet (connect it in game with /mcstats connect, or an admin links it on Admin → Players), so it can’t send chat` : 'not signed in with an email' }, 403);
   }
   let text;
   try {
@@ -308,17 +321,20 @@ export class ServerLink extends DurableObject {
       // the mod's version, from its User-Agent ("mcstats-chat/1.8.0"): whispers need 1.8.0
       const version = (request.headers.get('User-Agent') || '').match(/mcstats-chat\/(\d+)\.(\d+)/);
       const ua = (request.headers.get('User-Agent') || '').match(/mcstats-chat\/([\w.+-]{1,20})/);
+      // and the game's ("mcstats-chat/2.3.0 (Minecraft 1.21.11)", from 2.3.0), for offering the right jar
+      const mc = (request.headers.get('User-Agent') || '').match(/\(Minecraft ([\w.+-]{1,24})\)/);
       server.serializeAttachment({
         whispers: !!version && (Number(version[1]) > 1 || (Number(version[1]) === 1 && Number(version[2]) >= 8)),
-        version: ua ? ua[1] : null, at: Date.now(), heard: Date.now(),
+        version: ua ? ua[1] : null, minecraft: mc ? mc[1] : null, at: Date.now(), heard: Date.now(), page,
       });
-      this.note(`mod ${ua ? ua[1] : '(unknown version)'} connected`);
+      this.note(`mod ${ua ? ua[1] : '(unknown version)'} connected${mc ? ` (Minecraft ${mc[1]})` : ''}`);
       // kept for the admin page while the mod isn't connected (it still needs updating then)
       if (ua) this.ctx.waitUntil(this.ctx.storage.put('version', ua[1]));
+      if (mc) this.ctx.waitUntil(this.ctx.storage.put('minecraft', mc[1]));
       this.ctx.acceptWebSocket(server);
       server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT, ...(page && { page }) }));
       // a newer mod than this one is out (src/modupdate.js): 2.1.0 and newer tell operators in game; older ones ignore it
-      const update = ua ? modUpdateMessage(ua[1]) : null;
+      const update = ua ? modUpdateMessage(ua[1], 8, mc ? mc[1] : null) : null;
       if (update) server.send(JSON.stringify(update));
       server.send(JSON.stringify({ type: 'web', names: await this.webList() }));
       this.ctx.waitUntil(tellPresence(this.env, '/link', { up: true }));
@@ -403,6 +419,8 @@ export class ServerLink extends DurableObject {
         linked: !!ws, sockets: this.ctx.getWebSockets().length, version: a.version ?? null,
         // the version of the mod last connected, connected now or not
         last_version: a.version ?? (await this.ctx.storage.get('version')) ?? null,
+        // the Minecraft version it last said it runs on (mods from 2.3.0 say), or null
+        minecraft: a.minecraft ?? (await this.ctx.storage.get('minecraft')) ?? null,
         // what the mod said about Liveview: { enabled, control, viewer_key, control_key, access: { email: 'viewer' | 'control' } }
         liveview: a.live ? { ...a.live, access: await this.liveAccess() } : null,
         connected_ago: ago(a.at), heard_ago: ago(a.heard), started_ago: ago(this.started),
@@ -491,6 +509,18 @@ export class ServerLink extends DurableObject {
       }
       this.access = access;
       await this.ctx.storage.put('liveview_access', access);
+    }
+    // a player connecting their mcstats account from in game (mod 2.3.0, src/connect.js): { id, action, uuid, name, email? }
+    if (m?.type === 'account' && typeof m.id === 'string') {
+      let a;
+      try {
+        a = await accountRequest(this.env, m, (ws.deserializeAttachment() || {}).page || '');
+      } catch (err) {
+        console.error('account from game:', err.message);
+        a = { ok: false, error: "the website couldn't keep it" };
+      }
+      try { ws.send(JSON.stringify({ type: 'ack', id: m.id, ...a })); } catch {}
+      return;
     }
     // typed in game to a player who's only on the website (mod 1.8.0): { id, from, to, text }
     if (m?.type === 'whisper' && typeof m.id === 'string') {

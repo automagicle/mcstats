@@ -408,7 +408,7 @@ const LAYOUT_PAGES = {
   home: {
     name: 'Activity', href: '#/',
     sections: [
-      ['about', 'About the server', 'about', false, 'Icon, name and description from Server. Shows once there’s an icon or a description.'],
+      ['about', 'About the server', 'about', false, 'Icon, name and description from Server. Shown when Server → Header is on (on by default once there’s an icon).'],
       ['now', 'Right now', 'tiles', false, 'The number tiles and who’s online'],
       ['timeline', 'Players online', 'line', true],
       ['daily', 'Daily activity', 'bars', true],
@@ -533,12 +533,14 @@ applyLayout(layoutSaved, { redraw: false });
 
 // The top of the Activity page: the server's icon, name and description (Admin → Server), as saved, or as
 // they're being changed there.
+// Shown only when the owner switches it on; until they choose, it's on once there's an icon.
+const bannerOn = (setting, iconUrl) => (setting === '1' ? true : setting === '0' ? false : !!iconUrl);
 function renderAbout() {
   const f = srv.draft;
   const about = f ? f.about.trim() : MCS.about || '';
   const iconUrl = f && f.icon !== undefined ? f.icon || null : MCS.icon || null;
   const img = $('#about-icon');
-  $('#about-card').hidden = !about && !iconUrl;
+  $('#about-card').hidden = !bannerOn(f ? f.banner : MCS.banner || '', iconUrl) || (!about && !iconUrl);
   $('#about-name').textContent = (f?.name.trim() || MCS.name || '');
   $('#about-desc').textContent = about;
   $('#about-desc').hidden = !about;
@@ -546,8 +548,7 @@ function renderAbout() {
   if (iconUrl && img.getAttribute('src') !== iconUrl) img.src = iconUrl;
 }
 
-// What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP) and the Liveview
-// ones every player may use (LiveviewCommands.PLAYER_HELP). Keep them in step with the mod.
+// What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP). Keep them in step with the mod.
 const MC_COMMANDS = [
   ['/mcstats', 'Open the mcstats menu'],
   ['/mcstats profile', 'Choose what you hold and your particles on the website'],
@@ -555,11 +556,10 @@ const MC_COMMANDS = [
   ['/mcstats stats <player>', 'One player’s stats'],
   ['/mcstats top', 'Leaderboards'],
   ['/mcstats link', 'A link to your page on the website'],
+  ['/mcstats connect', 'Connect your mcstats account, to chat as yourself here'],
   ['/mcstats particle <name>', 'Set your particles (or none)'],
   ['/mcstats reset', 'Go back to the automatic look'],
   ['/mcstats help', 'This list, in game'],
-  ['/liveview optout', 'Hide yourself from Liveview'],
-  ['/liveview optin', 'Show yourself in Liveview again'],
 ];
 function renderCommands() {
   const list = $('#cmd-list');
@@ -4312,11 +4312,48 @@ function renderComposer() {
   chatInput.disabled = !can;
   chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
     : !me.ign && !me.admin
-    ? (me.email ? `${me.email} isn’t linked to a player yet, so it can’t send messages (an admin links it on Admin → Players)` : 'Sign in to send messages')
+    ? (me.email ? `${me.email} isn’t linked to a player yet · connect it in game with /mcstats connect` : 'Sign in to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"
     : `Message the server as ${me.admin ? 'Admin' : shownName(me.ign)} · /w to whisper`;
   $('#chat-compose-me').replaceChildren(me.admin ? adminTag() : me.ign ? headImg(me.ign, 24) : '');
+  renderConnectAsk();
   updateComposeCount();
+}
+
+// A player asked in game (/mcstats connect) to connect this account: say yes or no here. Yes, and this
+// account sends chat from the website as them (src/connect.js).
+function renderConnectAsk() {
+  const box = $('#chat-connect');
+  const ask = compose.me?.connect;
+  box.hidden = !ask;
+  if (!ask) return box.replaceChildren();
+  const answer = async (accept) => {
+    for (const b of box.querySelectorAll('button')) b.disabled = true;
+    try {
+      const res = await fetch('/api/chat/connect', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ accept }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `failed (${res.status})`);
+      toast(accept ? `Connected: you chat as ${shownName(ask.name)} now` : 'Request turned down');
+      await loadComposer();
+    } catch (err) {
+      toast(err.message, { error: true });
+      for (const b of box.querySelectorAll('button')) b.disabled = false;
+    }
+  };
+  const yes = el('button', { type: 'button', class: 'btn btn-primary', text: 'Connect' });
+  const no = el('button', { type: 'button', class: 'btn btn-quiet', text: 'Not me' });
+  yes.addEventListener('click', () => answer(true));
+  no.addEventListener('click', () => answer(false));
+  const switching = compose.me.ign && compose.me.ign.toLowerCase() !== ask.name.toLowerCase();
+  box.replaceChildren(
+    el('span', { class: 'chat-connect-text' }, headImg(ask.name, 20),
+      el('span', { text: `${ask.name} asked in game to connect this account (${compose.me.email}). `
+        + (switching ? `You'd chat as them instead of ${shownName(compose.me.ign)}.` : 'You’ll chat from here as them.') })),
+    el('span', { class: 'chat-connect-actions' }, yes, no));
 }
 
 function updateComposeCount() {
@@ -6348,6 +6385,11 @@ function setMe(r) {
   if (site.perms && !site.perms.view) showError(`This account (${r.email}) doesn’t have access to the dashboard. Ask an admin to allow it.`);
 }
 
+// The server mod's download, as on /mod: a Minecraft version and a mod version to pick (public/ui.js).
+function modPicker(downloads, { suggested = null, latest = null } = {}) {
+  return window.mcstatsUI.modDownload(downloads, { suggested, latest });
+}
+
 // A newer version of the server's mod (src/modupdate.js), on every page for admins. An ordinary one can be
 // put away until the next version comes out (remembered in this browser only); an urgent one stays.
 const MOD_SEEN_KEY = 'mcstats:mod-update-seen';
@@ -6371,6 +6413,7 @@ function renderModUpdate() {
     `The server runs mcstats ${u.current}; ${u.latest} is out${u.behind > 1 ? ` (${u.behind} releases newer)` : ''}`
       + (u.urgent ? ' and fixes something serious, so update it soon. ' : '. '),
     el('a', { href: '#/admin/mod', text: 'See what changed' }),
+    ...(u.jar_url ? [' · ', el('a', { href: u.jar_url, download: u.jar || '', text: `Download ${u.latest}` })] : []),
     ...(u.urgent ? [] : [' · ', later]));
   box.hidden = false;
 }
@@ -6719,7 +6762,7 @@ function applyLook(accent, tabs) {
 }
 // icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
 const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
-  about: d.about || '', icon: undefined, layout: fullLayout(d.layout) });
+  about: d.about || '', banner: d.banner || '', icon: undefined, layout: fullLayout(d.layout) });
 // What Save would change, one line each.
 function srvChanges() {
   const d = srv.data, f = srv.draft;
@@ -6734,6 +6777,7 @@ function srvChanges() {
   if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
   if (f.about.trim() !== (d.about || '')) out.push(f.about.trim() ? (d.about ? 'A new description' : 'A description') : 'No description');
   if (f.icon !== undefined) out.push(f.icon ? (d.icon ? 'A new icon' : 'An icon') : 'Remove the icon');
+  if (f.banner !== (d.banner || '')) out.push(f.banner === '1' ? 'Show the header on the Activity page' : 'Hide the header on the Activity page');
   out.push(...layoutChanges(d.layout, f.layout));
   for (const a of d.known_addons || []) {
     if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
@@ -6784,6 +6828,7 @@ async function srvSave() {
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
   if (f.about.trim() !== (d.about || '')) body.about = f.about.trim();
   if (f.icon !== undefined) body.icon = f.icon;
+  if (f.banner !== (d.banner || '')) body.banner = f.banner === '1';
   if (layoutChanges(d.layout, f.layout).length) body.layout = f.layout;
   srv.busy = true;
   srv.errors = {};
@@ -6803,6 +6848,7 @@ async function srvSave() {
     }
     // what every page shows from here on
     MCS.about = r.about;
+    MCS.banner = r.banner || '';
     MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
     layoutSaved = fullLayout(r.layout);
     // a new address is a new page; a new name is on every page's title: load it afresh
@@ -7070,10 +7116,17 @@ function renderServerAdmin(focusKey) {
   aboutBox.value = f.about;
   const aboutCount = el('span', { class: 'srv-count', text: `${f.about.length} / 280` });
   aboutBox.addEventListener('input', () => { f.about = aboutBox.value; aboutCount.textContent = `${f.about.length} / 280`; renderAdminBar(); });
+  // whether the header (icon, name, description) shows at the top of the Activity page: the owner's choice
+  const bannerBox = el('input', { type: 'checkbox', 'data-fk': 'srv:banner', disabled: owner ? null : '' });
+  bannerBox.checked = bannerOn(f.banner, iconNow);
+  bannerBox.addEventListener('change', () => { f.banner = bannerBox.checked ? '1' : '0'; redraw('srv:banner'); });
+  const bannerField = field('Header', el('label', { class: 'srv-check' }, bannerBox, el('span', { text: 'Show the icon, name and description at the top of the Activity page' })),
+    ownerOnly || 'On by default once there’s an icon. It needs an icon or a description to show.', 'banner');
   const details = card('Server', null,
     field('Name', text('name', { type: 'text', maxlength: '60', autocomplete: 'off', 'aria-label': 'Name' }), 'Shown at the top of its pages and in emails.', 'name'),
     iconField,
     field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
+    bannerField,
     field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/s/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 
@@ -7138,10 +7191,11 @@ function renderServerAdmin(focusKey) {
 
   /* ---- the mod: what the Minecraft server runs to fill these pages in ---- */
   const mod = d.mod ? card('Mod', 'runs on the Minecraft server; players don’t install anything',
-    field(`mcstats ${d.mod.version}`, el('div', { class: 'srv-mod' },
-      el('a', { class: 'btn', href: d.mod.jar_url, download: d.mod.jar, text: `Download ${d.mod.jar}` }),
-      el('a', { href: '/mod', text: 'What it needs and how to install it' })),
-      `For Minecraft ${d.mod.minecraft}.x on Fabric. The newest version; if the server has an older one, replace its jar in mods/ and restart.`),
+    field(`mcstats ${d.mod.version}`, el('div', {},
+      d.mod.downloads ? modPicker(d.mod.downloads, { suggested: d.mod.jar, latest: d.mod.version })
+        : el('a', { class: 'btn btn-primary site-go', href: d.mod.jar_url, download: d.mod.jar, text: `Download mcstats ${d.mod.version}` }),
+      el('div', { class: 'srv-mod' }, el('a', { href: '/mod', text: 'What it needs and how to install it' }))),
+      'Pick the Minecraft version the server runs. If the server has an older mod, replace its jar in mods/ and restart.'),
     owner ? field('Key', el('div', { class: 'srv-mod' }, el('a', { href: `/new?server=${encodeURIComponent(d.slug)}&step=4`, text: 'Make a new key in setup' })),
       'The key in the mod’s config file is what ties it to this server. A new one stops the old one working at once.') : null) : null;
 
@@ -7657,6 +7711,20 @@ function renderRoles() {
     pick.addEventListener('change', () => save({ email: u.email, chat_as: pick.value }, () => { pick.value = u.chat_admin ? 'admin' : 'player'; }));
     return pick;
   };
+  // Reset (back to the role's ticks) and Remove (no longer a member), for anyone but an owner
+  const actions = (u) => {
+    if (fixed(u)) return null;
+    const reset = u.custom ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to what the role gives' }) : null;
+    reset?.addEventListener('click', () => save({ email: u.email, reset: true }));
+    const remove = u.role ? el('button', { type: 'button', class: 'btn btn-quiet role-remove', text: 'Remove', 'aria-label': `Remove ${u.email}` }) : null;
+    remove?.addEventListener('click', () => {
+      const note = MCS.public
+        ? 'They lose their role and ticks. The server is public, so they can still look, and they become a member again if they choose to use their account here.'
+        : 'They lose their role and ticks, and can’t open the server again unless they have its join password.';
+      if (confirm(`Remove ${u.email} from this server?\n\n${note}`)) save({ email: u.email, remove: true });
+    });
+    return reset || remove ? el('div', { class: 'role-acts' }, reset, remove) : null;
+  };
   const body = d.users.map((u) => {
     const boxes = ROLE_PERMS.map(([key, label]) => {
       const box = el('input', { type: 'checkbox', 'aria-label': `${label} for ${u.email}` });
@@ -7674,13 +7742,8 @@ function renderRoles() {
       el('td', {}, chatCell(u)),
       ...boxes,
       el('td', {}, serverCell(u)),
-      el('td', { class: 'adm-act' }, u.custom && !fixed(u)
-        ? el('button', { type: 'button', class: 'btn btn-quiet', text: 'Reset', title: 'Back to what the role gives' }, ) : null));
+      el('td', { class: 'adm-act' }, actions(u)));
   });
-  for (const [i, tr] of body.entries()) {
-    const u = d.users[i];
-    tr.querySelector('.btn-quiet')?.addEventListener('click', () => save({ email: u.email, reset: true }));
-  }
   const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
   const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }),
     el('option', { value: 'owner', text: 'Owner…' }));
@@ -8298,6 +8361,18 @@ function renderAdmin() {
           el('div', { class: 'adm-form' }, emailBox, button('Add email', addEmail, '', `pe:${pick}:email-add`))),
         'Someone signed in to mcstats with one of these can send chat from the Chat log as this player.'));
 
+      // the email they connected themselves, in game with /mcstats connect (it counts once that account said yes)
+      const own = (d.connected || []).find((c) => lower(c.name) === pick);
+      season.push(field('Connected account',
+        own ? el('ul', { class: 'adm-list adm-emails' }, el('li', {},
+          el('span', { class: 'adm-main', text: own.email }),
+          el('span', { class: 'muted', text: own.confirmed_at ? ` connected ${ago(own.confirmed_at)}` : ` asked ${ago(own.requested_at)}, waiting for that account to say yes` }),
+          button('Disconnect', () => {
+            if (confirm(`Disconnect ${own.email} from ${name}? They can connect again in game.`)) adminDo({ action: 'account.disconnect', uuid: own.uuid }, 'Disconnected');
+          }, 'btn-quiet', `pe:${pick}:own-off`)))
+          : el('span', { class: 'muted', text: 'None. A player connects one themselves in game, with /mcstats connect.' }),
+        'The mcstats account the player connected in game. Signed in with it, someone chats from the website as this player.'));
+
       // every season: hidden, merged
       const hide = el('input', { type: 'checkbox', 'data-fk': `pe:${pick}:hide` });
       hide.checked = !!p.hidden;
@@ -8469,6 +8544,21 @@ function renderAdmin() {
           : empty('Nothing has happened to it lately.')));
   };
 
+  // every jar the site has, by Minecraft version and mod version, starting on the one the server needs
+  const downloadCard = () => {
+    const m = d.mod;
+    if (!m) return null;
+    const runs = d.link?.minecraft;
+    return el('section', { class: 'card adm-card mod-page adm-mod-dl' },
+      el('h2', { class: 'site-title', text: 'The mcstats mod' }),
+      el('p', { class: 'site-sub', text: runs
+        ? `It runs on the Minecraft server and sends what happens there to these pages. The server runs Minecraft ${runs}, so that’s picked below.`
+        : 'It runs on the Minecraft server and sends what happens there to these pages. Players don’t install anything.' }),
+      modPicker(m.downloads, { suggested: m.suggested, latest: m.version }),
+      el('p', { class: 'site-sub' }, 'Put the jar in the server’s ', el('code', { text: 'mods/' }), ' folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
+        el('a', { href: '/mod', text: 'What it needs and how to install it' })));
+  };
+
   // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update
   const updateCard = () => {
     const mu = d.mod_update;
@@ -8498,7 +8588,7 @@ function renderAdmin() {
     players: playersView,
     teams: () => [teamsCard(), rosterCard()],
     moderation: () => [rulesCard(), deletedCard(), uncountedCard()],
-    mod: () => [updateCard(), linkCard(), gapsCard()],
+    mod: () => [updateCard(), downloadCard(), linkCard(), gapsCard()],
   };
   const root = $('#admin');
   const listTop = root.querySelector('.adm-plist')?.scrollTop ?? null;

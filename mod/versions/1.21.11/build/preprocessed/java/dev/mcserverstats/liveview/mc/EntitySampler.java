@@ -33,12 +33,10 @@ public final class EntitySampler {
 	// BuiltInRegistries.ENTITY_TYPE.getKey via Ids.entityType.
 	public static Optional<EntityFrame> sample(
 			MinecraftServer server,
-			Set<UUID> optedOut,
 			int radiusBlocks,
 			List<CameraPoint> cameras) {
 		int radius = Math.max(0, radiusBlocks);
 		int cameraRadius = EntityFrame.cameraRadius(radius);
-		Set<UUID> hidden = optedOut == null ? Set.of() : optedOut;
 		List<CameraPoint> cameraPoints = cameras == null ? List.of() : cameras;
 		try {
 			List<ServerPlayer> players = List.copyOf(server.getPlayerList().getPlayers());
@@ -46,9 +44,6 @@ public final class EntitySampler {
 			List<Anchor> anchors = new ArrayList<>();
 			for (ServerPlayer player : players) {
 				try {
-					if (hidden.contains(player.getUUID())) {
-						continue;
-					}
 					ServerLevel level = dev.mcserverstats.compat.Compat.level(player);
 					double x = player.getX();
 					double y = player.getY();

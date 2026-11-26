@@ -94,6 +94,11 @@ final class ChestGui extends ChestMenu {
 		}
 	}
 
+	// Runs at the end of the tick, like a button's action (for the other server-drawn windows, AccountPrompt).
+	static void later(Runnable r) {
+		QUEUED.add(r);
+	}
+
 	static void open(Page page) {
 		int rows = Math.max(1, Math.min(6, page.rows()));
 		Map<Integer, Button> buttons = new HashMap<>();

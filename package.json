@@ -11,7 +11,7 @@
     "roster:local": "node scripts/roster-sql.mjs 2 > .wrangler/roster.sql && wrangler d1 execute mcstats --local --file .wrangler/roster.sql",
     "roster:remote": "node scripts/roster-sql.mjs 2 > .wrangler/roster.sql && wrangler d1 execute mcstats --remote --file .wrangler/roster.sql",
     "test": "node scripts/mod-info.mjs --check && vitest run",
-    "build:mod": "cd mod && ./gradlew build && mkdir -p ../public/downloads && cp build/libs/mcstats-chat-$(grep '^version=' gradle.properties | cut -d= -f2).jar ../public/downloads/",
+    "build:mod": "cd mod && ./gradlew build --continue; cd .. && node scripts/mod-release.mjs",
     "dir:migrate:local": "wrangler d1 migrations apply mcstats-directory --local",
     "dir:migrate:remote": "wrangler d1 migrations apply mcstats-directory --remote",
     "copy-tenant": "node scripts/copy-tenant.mjs"

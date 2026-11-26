@@ -4,13 +4,10 @@ import dev.mcserverstats.liveview.LogOnce;
 import dev.mcserverstats.liveview.snapshot.ActionEvent;
 import dev.mcserverstats.liveview.snapshot.BlockTouch;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
@@ -21,9 +18,6 @@ import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.HoverEvent;
-import net.minecraft.network.chat.Style;
-import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -39,13 +33,11 @@ public final class ActionHooks {
 
 	private final List<PendingPlace> pendingPlaces = new ArrayList<>();
 	private final Consumer<ActionEvent> sink;
-	private final Supplier<Set<UUID>> optOut;
 	private final Consumer<BlockTouch> touches;
 	private int tick;
 
-	public ActionHooks(Consumer<ActionEvent> sink, Supplier<Set<UUID>> optOut, Consumer<BlockTouch> touches) {
+	public ActionHooks(Consumer<ActionEvent> sink, Consumer<BlockTouch> touches) {
 		this.sink = sink;
-		this.optOut = optOut;
 		this.touches = touches;
 	}
 
@@ -111,7 +103,7 @@ public final class ActionHooks {
 		ServerMessageEvents.GAME_MESSAGE.register((server, message, overlay) -> {
 			try {
 				// overlay messages are the action bar above the hotbar, not chat
-				if (message == null || overlay || mentionsHidden(server, message)) {
+				if (message == null || overlay) {
 					return;
 				}
 				emitLine("system_message", null, "", null, null, null, "", message.getString(), message);
@@ -140,9 +132,6 @@ public final class ActionHooks {
 		AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
 			try {
 				if (level.isClientSide()) {
-					return InteractionResult.PASS;
-				}
-				if (entity instanceof Player target && hidden(target.getUUID())) {
 					return InteractionResult.PASS;
 				}
 				emit(
@@ -188,9 +177,6 @@ public final class ActionHooks {
 					touch(level, hit.getBlockPos().relative(hit.getDirection()));
 				}
 				UUID uuid = player.getUUID();
-				if (hidden(uuid)) {
-					return InteractionResult.PASS;
-				}
 				BlockPos pos = hit.getBlockPos();
 				Direction face = hit.getDirection();
 				String dimension = Ids.dimension(level);
@@ -225,9 +211,6 @@ public final class ActionHooks {
 			}
 			iterator.remove();
 			try {
-				if (hidden(pending.actor)) {
-					continue;
-				}
 				ServerLevel level = level(server, pending.dimension);
 				if (level == null) {
 					continue;
@@ -260,7 +243,7 @@ public final class ActionHooks {
 	}
 
 	private void emitChat(PlayerChatMessage message, ServerPlayer sender, net.minecraft.network.chat.ChatType.Bound params) {
-		if (sender == null || hidden(sender.getUUID())) {
+		if (sender == null) {
 			return;
 		}
 		String text = "";
@@ -286,9 +269,6 @@ public final class ActionHooks {
 
 	/** Like emit, with the line as the chat shows it (colors and all) for the page's chat. */
 	private void emitLine(String kind, UUID actor, String dimension, Integer x, Integer y, Integer z, String target, String message, Component shown) {
-		if (actor != null && hidden(actor)) {
-			return;
-		}
 		try {
 			ActionEvent event = ActionEvent.of(kind, actor, dimension, x, y, z, target, message);
 			if (shown != null) {
@@ -301,16 +281,13 @@ public final class ActionHooks {
 	}
 
 	private void emit(String kind, Player player, Level level, int x, int y, int z, String target, String message) {
-		if (player == null || hidden(player.getUUID())) {
+		if (player == null) {
 			return;
 		}
 		emit(kind, player.getUUID(), Ids.dimension(level), x, y, z, target, message);
 	}
 
 	private void emit(String kind, UUID actor, String dimension, Integer x, Integer y, Integer z, String target, String message) {
-		if (actor != null && hidden(actor)) {
-			return;
-		}
 		try {
 			sink.accept(ActionEvent.of(kind, actor, dimension, x, y, z, target, message));
 		} catch (Throwable thrown) {
@@ -318,115 +295,12 @@ public final class ActionHooks {
 		}
 	}
 
-	// Terrain is not private, so touches are recorded for opted-out players too; only the section is re-copied.
 	private void touch(Level level, BlockPos pos) {
 		try {
 			touches.accept(new BlockTouch(Ids.dimension(level), pos.getX(), pos.getY(), pos.getZ()));
 		} catch (Throwable thrown) {
 			LogOnce.warn("hook-touch", "Liveview failed to mark a changed block", thrown);
 		}
-	}
-
-	/**
-	 * GAME_MESSAGE carries vanilla's join, leave, death and advancement broadcasts with no actor, so the opt-out check
-	 * in {@link #emit} never sees who they are about. A player's name inside them is {@code Player.getDisplayName()},
-	 * whose style holds a {@code HoverEvent.ShowEntity} with the player's UUID and an insertion of their name (VERIFIED
-	 * from {@code Player.getDisplayName}, {@code decorateDisplayNameComponent} and {@code Entity.createHoverEvent}
-	 * bytecode). The join line is broadcast before the player is added to the player list ({@code PlayerList.placeNewPlayer}
-	 * bytecode), so the UUID is the primary check. Names of online opted-out players are a fallback for plugin or command
-	 * text that uses a bare name. When unsure, the line is dropped.
-	 */
-	private boolean mentionsHidden(MinecraftServer server, Component message) {
-		Set<UUID> hidden = optOut.get();
-		if (hidden == null || hidden.isEmpty()) {
-			return false;
-		}
-		Set<String> names = new HashSet<>();
-		try {
-			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-				if (hidden.contains(player.getUUID())) {
-					String name = player.getScoreboardName();
-					if (name != null && !name.isBlank()) {
-						names.add(name);
-					}
-				}
-			}
-		} catch (Throwable thrown) {
-			LogOnce.warn("hidden-names", "Liveview could not read player names for a system message", thrown);
-		}
-		int[] budget = {512};
-		if (refersToHidden(message, hidden, names, 0, budget)) {
-			return true;
-		}
-		if (budget[0] <= 0) {
-			return true;
-		}
-		String text = message.getString();
-		for (String name : names) {
-			if (containsWord(text, name)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static boolean refersToHidden(Component component, Set<UUID> hidden, Set<String> names, int depth, int[] budget) {
-		if (component == null) {
-			return false;
-		}
-		if (depth > 16 || --budget[0] <= 0) {
-			return false;
-		}
-		Style style = component.getStyle();
-		if (style != null) {
-			HoverEvent.EntityTooltipInfo shown = dev.mcserverstats.compat.Compat.hoverEntity(style);
-			if (shown != null && dev.mcserverstats.compat.Compat.uuid(shown) != null
-					&& hidden.contains(dev.mcserverstats.compat.Compat.uuid(shown))) {
-				return true;
-			}
-			String insertion = style.getInsertion();
-			if (insertion != null && names.contains(insertion)) {
-				return true;
-			}
-		}
-		if (component.getContents() instanceof TranslatableContents translatable) {
-			for (Object arg : translatable.getArgs()) {
-				if (arg instanceof Component inner && refersToHidden(inner, hidden, names, depth + 1, budget)) {
-					return true;
-				}
-			}
-		}
-		for (Component sibling : component.getSiblings()) {
-			if (refersToHidden(sibling, hidden, names, depth + 1, budget)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	// Player names are [A-Za-z0-9_], so a word boundary is any other character.
-	private static boolean containsWord(String text, String word) {
-		int from = 0;
-		while (true) {
-			int at = text.indexOf(word, from);
-			if (at < 0) {
-				return false;
-			}
-			int end = at + word.length();
-			if ((at == 0 || !nameChar(text.charAt(at - 1))) && (end == text.length() || !nameChar(text.charAt(end)))) {
-				return true;
-			}
-			from = at + 1;
-		}
-	}
-
-	private static boolean nameChar(char c) {
-		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-	}
-
-	private boolean hidden(UUID uuid) {
-		Set<UUID> hidden = optOut.get();
-		return uuid != null && hidden != null && hidden.contains(uuid);
 	}
 
 	private static ServerLevel level(MinecraftServer server, String dimension) {

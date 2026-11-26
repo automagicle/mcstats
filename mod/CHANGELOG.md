@@ -19,6 +19,28 @@ lost), put this line straight under the version's heading, and the notice says s
 
     **Urgent:** why, in one sentence.
 
+## 2.3.0 (2026-11-26)
+
+### Added
+
+- **Connect your mcstats account.** `/mcstats connect`, or **Connect Account** in the `/mcstats` menu, opens
+  an anvil: type the email of your mcstats account and click the result. The dashboard emails that address,
+  and once someone signed in with it clicks **Connect** above the Chat log's message box, they chat from the
+  website as you, with your name in game. Admins see the connected email on the player's page under
+  Admin → Players and can disconnect it; `/mcstats disconnect` does it in game. Needs this version.
+
+### Fixed
+
+- **Liveview inventory screens.** The mod now sends the page's textures and font several files at a time
+  instead of one per frame, and keeps up to 512 waiting requests instead of dropping those past 64. A page
+  opening while the world was loading could miss the inventory texture and the game's font, and show a plain
+  grey box with no slot grid.
+
+### Removed
+
+- **`/liveview optout` and `/liveview optin`.** Every player online now shows in Liveview. Earlier opt-outs
+  in `config/mcstats-liveview.json` are no longer read.
+
 ## 2.2.0 (2026-11-25)
 
 ### Added

@@ -22,6 +22,8 @@ import net.minecraft.server.level.ServerPlayer;
 //   /mcstats stats [player]        every player's head, or one player's stats
 //   /mcstats top                   leaderboards
 //   /mcstats link [player]         a link to your (or their) page on the website
+//   /mcstats connect [email]       connect your mcstats account (an anvil to type it in, without one)
+//   /mcstats disconnect            stop it chatting as you on the website
 //   /mcstats particle <name|none>  set your particles without the menu
 //   /mcstats reset                 back to the automatic look
 //   /mcstats help                  this list
@@ -40,6 +42,8 @@ final class McstatsCommands {
 			{"/mcstats stats <player>", "One player's stats"},
 			{"/mcstats top", "Leaderboards"},
 			{"/mcstats link", "A link to your page on the website"},
+			{"/mcstats connect", "Connect your mcstats account, to chat as yourself on the website"},
+			{"/mcstats disconnect", "Disconnect your mcstats account"},
 			{"/mcstats particle <name>", "Set your particles (or none)"},
 			{"/mcstats reset", "Go back to the automatic look"},
 			{"/mcstats help", "This list"},
@@ -66,6 +70,11 @@ final class McstatsCommands {
 								.suggests((c, b) -> SharedSuggestionProvider.suggest(
 										PlayerRecords.all(c.getSource().getServer()).stream().map(Entry::name), b))
 								.executes(c -> link(c, StringArgumentType.getString(c, "player")))))
+				.then(Commands.literal("connect")
+						.executes(c -> connect(c, null))
+						.then(Commands.argument("email", StringArgumentType.greedyString())
+								.executes(c -> connect(c, StringArgumentType.getString(c, "email").strip()))))
+				.then(Commands.literal("disconnect").executes(McstatsCommands::disconnect))
 				.then(Commands.literal("particle")
 						.then(Commands.argument("name", StringArgumentType.word())
 								.suggests((c, b) -> SharedSuggestionProvider.suggest(
@@ -141,6 +150,21 @@ final class McstatsCommands {
 			return 0;
 		}
 		menus.sendLink(p, e.get().uuid(), e.get().name() + "'s page");
+		return 1;
+	}
+
+	private static int connect(CommandContext<CommandSourceStack> c, String email) {
+		ServerPlayer p = playerOrSay(c.getSource());
+		if (p == null) return 0;
+		if (email == null) menus.accounts().prompt(p);
+		else menus.accounts().connect(p, email);
+		return 1;
+	}
+
+	private static int disconnect(CommandContext<CommandSourceStack> c) {
+		ServerPlayer p = playerOrSay(c.getSource());
+		if (p == null) return 0;
+		menus.accounts().disconnect(p);
 		return 1;
 	}
 

@@ -43,13 +43,15 @@ function state(t, row, perms) {
     // the description and icon on its Activity page, and how its pages are laid out (src/layout.js)
     about: t.settings.ABOUT || '',
     icon: t.settings.ICON_AT ? `/api/icon?v=${t.settings.ICON_AT}` : null,
+    // whether the owner shows that header: '1', '0', or '' for as it comes (shown once there's an icon)
+    banner: t.settings.BANNER || '',
     layout: layoutOf(t.settings),
     addons: addonList(t.settings),
     // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
     can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
     slug_locked: slugLock(t),
     // the mod this site offers (src/modinfo.gen.js, read from mod/): for the Mod card's download
-    mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built },
+    mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built, downloads: MOD.downloads },
     ...(perms.super && { known_addons: Object.entries(ADDONS).map(([id, a]) => ({ id, name: a.name, about: a.about })) }),
   };
 }
@@ -87,6 +89,7 @@ export async function handleServerAdmin(t, request, url, who) {
   }
   if (has('accent')) patch.ACCENT = String(b.accent);
   if (has('tab_style')) patch.TAB_STYLE = String(b.tab_style);
+  if (has('banner')) patch.BANNER = b.banner === true || b.banner === '1' ? '1' : '0';
   if (has('about')) patch.ABOUT = String(b.about);
   if (has('layout')) {
     if (typeof b.layout !== 'object' || Array.isArray(b.layout)) return bad('That isn’t a layout.', 'layout');
@@ -102,8 +105,8 @@ export async function handleServerAdmin(t, request, url, who) {
     }
   }
 
-  const ownerOnly = ['slug', 'public', 'password'].filter((k) => has(k) && b[k] !== '');
-  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owner can change its address, password or who can see it.' }, 403);
+  const ownerOnly = ['slug', 'public', 'password', 'banner'].filter((k) => has(k) && b[k] !== '');
+  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owner can change its address, password, who can see it, or whether the header shows.' }, 403);
   if (has('addons') && !perms.super) return json({ error: 'forbidden' }, 403);
 
   const password = typeof b.password === 'string' ? b.password : '';

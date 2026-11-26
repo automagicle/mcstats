@@ -1,7 +1,7 @@
 // Who may send chat from the dashboard, and as whom: what Admin → Players and Roles say, nothing else.
 import { describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
-import { accountCookie, call, makeServer } from './helpers.js';
+import { accountCookie, call, makeServer, newKey } from './helpers.js';
 import { hashAccountPassword } from '../src/password.js';
 
 const me = async (s, cookie) => (await call(`/s/${s.slug}/api/chat/me`, { cookie })).json();
@@ -76,6 +76,71 @@ describe('web chat identity', () => {
     expect((await roles({ email: 'alex@example.org', chat_as: 'everyone' })).status).toBe(400);
     expect((await addMember(s, 'helper@example.org', 'admin')).status).toBe(200);
     expect((await call(`/s/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(403);
+  });
+  it('connects a player from in game once that account says yes (/mcstats connect)', async () => {
+    const s = await makeServer('chat-connect');
+    const key = await newKey(s);
+    const res = await call('/api/ingest/link', { headers: { Upgrade: 'websocket', Authorization: `Bearer ${key}` } });
+    expect(res.status).toBe(101);
+    const sock = res.webSocket;
+    sock.accept();
+    const answers = new Map();
+    sock.addEventListener('message', (e) => {
+      try {
+        const m = JSON.parse(e.data);
+        if (m.type === 'ack') answers.get(m.id)?.(m);
+      } catch { /* pong */ }
+    });
+    let n = 0;
+    const ask = (m) => new Promise((resolve) => {
+      const id = `acct-${++n}`;
+      answers.set(id, resolve);
+      sock.send(JSON.stringify({ type: 'account', id, ...m }));
+    });
+    const uuid = '00000000-0000-4000-8000-0000000000aa';
+    const connect = (cookie, accept) => call(`/s/${s.slug}/api/chat/connect`, { method: 'POST', cookie, body: { accept } });
+
+    expect(await ask({ action: 'status', uuid, name: 'Alex' })).toMatchObject({ ok: true, email: null, confirmed: false });
+    expect(await ask({ action: 'connect', uuid, name: 'Alex', email: 'not an email' })).toMatchObject({ ok: false });
+    expect(await ask({ action: 'connect', uuid, name: 'Alex', email: 'Alex@Example.org' })).toMatchObject({ ok: true, email: 'alex@example.org', confirmed: false });
+
+    // asking does nothing by itself: the account sees the request, and nobody else can answer it
+    expect((await addMember(s, 'alex@example.org')).status).toBe(200);
+    expect((await addMember(s, 'bob@example.org')).status).toBe(200);
+    const alex = await accountCookie('alex@example.org');
+    const bob = await accountCookie('bob@example.org');
+    expect(await me(s, alex)).toMatchObject({ ign: null, connect: { name: 'Alex' } });
+    expect(await me(s, bob)).toMatchObject({ connect: null });
+    expect((await connect(bob, true)).status).toBe(404);
+
+    // the yes: Alex's account chats as Alex, and the admin page shows it on the player
+    expect((await connect(alex, true)).status).toBe(200);
+    expect(await me(s, alex)).toMatchObject({ ign: 'Alex', connected: true, connect: null });
+    expect(await ask({ action: 'status', uuid, name: 'Alex' })).toMatchObject({ ok: true, email: 'alex@example.org', confirmed: true });
+    const state = await (await call(`/s/${s.slug}/api/admin?season=1`, { cookie: s.cookie })).json();
+    expect(state.connected).toEqual([expect.objectContaining({ uuid, name: 'Alex', email: 'alex@example.org' })]);
+    const roles = await (await call(`/s/${s.slug}/api/admin/roles`, { cookie: s.cookie })).json();
+    expect(roles.users.find((u) => u.email === 'alex@example.org').chat_as).toBe('Alex');
+
+    // Admin → Players' own emails still come first
+    expect((await save(s, { emails: [{ email: 'alex@example.org', ign: 'Steve' }] })).status).toBe(200);
+    expect(await me(s, alex)).toMatchObject({ ign: 'Steve' });
+    expect((await save(s, { emails: [] })).status).toBe(200);
+
+    // the player disconnects in game; an admin can too
+    expect(await ask({ action: 'disconnect', uuid, name: 'Alex' })).toMatchObject({ ok: true, had: 'alex@example.org' });
+    expect(await me(s, alex)).toMatchObject({ ign: null, connected: false });
+    await ask({ action: 'connect', uuid, name: 'Alex', email: 'alex@example.org' });
+    expect((await connect(alex, true)).status).toBe(200);
+    const off = await call(`/s/${s.slug}/api/admin?season=1`, { method: 'POST', cookie: s.cookie, body: { action: 'account.disconnect', uuid } });
+    expect(off.status, await off.clone().text()).toBe(200);
+    expect(await me(s, alex)).toMatchObject({ ign: null });
+
+    // saying no ends the request
+    await ask({ action: 'connect', uuid, name: 'Alex', email: 'alex@example.org' });
+    expect((await connect(alex, false)).status).toBe(200);
+    expect(await me(s, alex)).toMatchObject({ ign: null, connect: null });
+    sock.close();
   });
 });
 

@@ -16,18 +16,13 @@ public final class InventorySampler {
 	private InventorySampler() {
 	}
 
-	public static List<InventorySample> sample(MinecraftServer server, Set<UUID> wanted, Set<UUID> optedOut) {
+	public static List<InventorySample> sample(MinecraftServer server, Set<UUID> wanted) {
 		if (wanted == null || wanted.isEmpty()) {
 			return List.of();
 		}
-		Set<UUID> hidden = optedOut == null ? Set.of() : optedOut;
 		List<InventorySample> samples = new ArrayList<>(wanted.size());
 		for (UUID uuid : wanted) {
 			try {
-				if (hidden.contains(uuid)) {
-					samples.add(InventorySample.unavailable(uuid));
-					continue;
-				}
 				ServerPlayer player = server.getPlayerList().getPlayer(uuid);
 				if (player == null) {
 					samples.add(InventorySample.unavailable(uuid));

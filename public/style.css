@@ -1109,6 +1109,21 @@ a.msg-name:hover { text-decoration: underline; }
   border-top: 1px solid var(--edge);
 }
 .chat-compose[hidden] { display: none; }
+/* a player asked in game (/mcstats connect) to connect the signed-in account */
+.chat-connect {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 9px 12px 9px 14px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.chat-connect[hidden] { display: none; }
+.chat-connect-text { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-connect-actions { display: flex; gap: 8px; }
 .chat-compose-me { flex: none; display: flex; }
 .chat-compose-me:empty { display: none; }
 .chat-compose-me img { width: 24px; height: 24px; image-rendering: pixelated; background: var(--surface-2); }
@@ -1369,7 +1384,8 @@ a.msg-name:hover { text-decoration: underline; }
 .search-filters[hidden] { display: none; }
 .sf-row { display: flex; align-items: center; gap: 10px; }
 .sf-label { width: 54px; flex: none; font-size: 12.5px; color: var(--ink-2); }
-.sf-row select {
+.sf-row select,
+.sf-row .mc-select {
   flex: 1;
   min-width: 0;
   padding: 5px 8px;
@@ -1815,7 +1831,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .ctx-attr { display: flex; flex-direction: column; gap: 6px; padding: 6px; width: 210px; }
 .ctx-label { font-size: 12px; color: var(--muted); }
 .ctx-rule { width: 270px; }
-.ctx-rule select { font: inherit; font-size: 13px; padding: 5px 6px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); }
+.ctx-rule select,
+.ctx-rule .mc-select { font: inherit; font-size: 13px; padding: 5px 6px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); }
 /* admin: chat log rules */
 .adm-note { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); max-width: 78ch; }
 .adm-rule-tag { flex: none; min-width: 44px; padding: 1px 6px; font-size: 11.5px; font-weight: 700; text-align: center; }
@@ -1823,7 +1840,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .adm-rule-tag.show { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); }
 .adm-rule-off .adm-main, .adm-rule-off .adm-rule-tag { opacity: 0.5; }
 .adm-rule-form { margin-top: 8px; }
-.adm-rule-form select.adm-input, .adm-rule-form input[type="datetime-local"] { flex: 0 1 auto; width: auto; }
+.adm-rule-form select.adm-input,
+.adm-rule-form .mc-select.adm-input, .adm-rule-form input[type="datetime-local"] { flex: 0 1 auto; width: auto; }
 .adm-rule-form input[hidden] { display: none; }
 .ctx-attr input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--ink); }
 .ctx-current { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
@@ -1878,7 +1896,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .adm-count { font-size: 12px; }
 .adm-team-add { margin-top: 10px; }
 .adm-team-add .adm-input { flex: 0 1 240px; }
-.adm-teams select.adm-input { width: auto; max-width: 170px; }
+.adm-teams select.adm-input,
+.adm-teams .mc-select.adm-input { width: auto; max-width: 170px; }
 
 /* admin: settings are a draft until Save */
 .adm-intro { margin: 10px 2px; font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
@@ -1911,7 +1930,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .adm-periods > .adm-tl { margin-bottom: 4px; }
 .adm-period { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
 .adm-period .adm-dot { margin-right: 0; }
-.adm-period select.adm-input { width: auto; max-width: 180px; }
+.adm-period select.adm-input,
+.adm-period .mc-select.adm-input { width: auto; max-width: 180px; }
 .adm-period-from { min-width: 150px; }
 .adm-table .adm-time { width: auto; max-width: none; font-variant-numeric: tabular-nums; }
 .adm-period-now { min-height: 30px; }
@@ -2167,7 +2187,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .screen-bar, .screen-keys { box-sizing: border-box; font-size: 12.5px; color: var(--ink-2); background: var(--surface); box-shadow: var(--frame), var(--lift); }
 .screen-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px 6px 10px; }
 .screen-bar label { display: flex; align-items: center; gap: 6px; }
-.screen-bar select { padding: 3px 24px 3px 6px; font: inherit; color: var(--ink); border: 1px solid var(--edge); background-color: var(--surface-2); }
+.screen-bar select,
+.screen-bar .mc-select { padding: 3px 24px 3px 6px; font: inherit; color: var(--ink); border: 1px solid var(--edge); background-color: var(--surface-2); }
 .screen-bar .btn { padding: 3px 9px; font-size: 12.5px; }
 .screen-bar .screen-keys-btn { margin-left: auto; }
 .screen-mode { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; color: var(--ink); }
@@ -2234,7 +2255,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .lv-actions { gap: 12px; }
 .lv-action-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .lv-action-row > span { width: 84px; font-size: 13px; color: var(--ink-2); }
-.lv-action-row select { max-width: 180px; padding: 5px 28px 5px 8px; }
+.lv-action-row select,
+.lv-action-row .mc-select { max-width: 180px; padding: 5px 28px 5px 8px; }
 
 /* the console: the one place a fixed-width face earns its keep, so command output lines up */
 .lv-console { height: min(54vh, 520px); margin-bottom: 10px; padding: 10px 12px; overflow: auto; scrollbar-width: thin;
@@ -2284,6 +2306,8 @@ a.pcb-who:hover { text-decoration: underline; }
 .role-table .an-tag { white-space: nowrap; }
 /* the yellow Admin tag, as the chat log shows it, for someone who can only chat as Admin */
 .role-chat-admin { display: inline-block; padding: 1px 6px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: color-mix(in srgb, var(--warning) 62%, var(--ink)); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+.role-acts { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+.role-remove:hover, .role-remove:focus-visible { color: var(--critical); }
 #roles.adm-busy { opacity: 0.6; pointer-events: none; transition: opacity 0.15s; }
 
 /* ---------- shape ---------- */
@@ -2329,8 +2353,8 @@ input[type="search"], input[type="number"], input[type="datetime-local"], textar
 }
 input[type="datetime-local"] { appearance: auto; -webkit-appearance: auto; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
-input:disabled, textarea:disabled, select:disabled { color: var(--muted); cursor: not-allowed; }
-input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--series-1); outline-offset: -1px; }
+input:disabled, textarea:disabled, select:disabled, .mc-select:disabled { color: var(--muted); cursor: not-allowed; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, .mc-select:focus-visible { outline: 2px solid var(--series-1); outline-offset: -1px; }
 input:-webkit-autofill, textarea:-webkit-autofill {
   -webkit-text-fill-color: var(--ink); caret-color: var(--ink);
   box-shadow: 0 0 0 1000px var(--surface-2) inset;
@@ -2339,7 +2363,8 @@ input:-webkit-autofill, textarea:-webkit-autofill {
 .search-bar input:focus-visible { outline: none; }
 input[type="datetime-local"]::-webkit-datetime-edit { color: var(--ink); }
 input[type="datetime-local"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.65; }
-select:not([multiple]) {
+select:not([multiple]),
+.mc-select {
   appearance: none; -webkit-appearance: none;
   font: inherit; color: var(--ink); cursor: pointer;
   background-color: var(--surface-2); border: 1px solid var(--edge); border-radius: 0;
@@ -2348,7 +2373,8 @@ select:not([multiple]) {
   background-repeat: no-repeat; background-position: right 9px center; background-size: 10px 6px;
 }
 select option, select optgroup { background: var(--surface); color: var(--ink); }
-select.tile-select { border: 0; background-color: transparent; color: inherit; }
+select.tile-select,
+.mc-select.tile-select { border: 0; background-color: transparent; color: inherit; }
 input[type="checkbox"] {
   appearance: none; -webkit-appearance: none;
   width: 16px; height: 16px; margin: 0; flex: none; vertical-align: -3px; cursor: pointer; border-radius: 0;
@@ -2854,8 +2880,10 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 /* /new: the address with its free-or-taken line, and the private-or-public choice */
 .wiz-url { display: flex; align-items: stretch; background: var(--surface-2); border: 1px solid var(--edge); }
 .wiz-url:focus-within { outline: 2px solid var(--series-1); outline-offset: -1px; }
-.wiz-url-host { display: flex; align-items: center; padding: 0 0 0 9px; font-size: 15px; color: var(--muted); white-space: nowrap; }
-.wiz-url-input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); padding: 8px 9px 8px 1px; outline: none; }
+.wiz-url-host { display: flex; align-items: center; padding: 0 0 0 10px; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.wiz-url .wiz-url-input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); padding: 8px 10px 8px 0; outline: none; box-shadow: none; }
+/* the box itself shows focus (.wiz-url:focus-within); the global input outline would draw a second ring inside it */
+.wiz-url .wiz-url-input:focus-visible { outline: none; }
 .wiz-slug-status { font-size: 12.5px; color: var(--muted); min-height: 1.45em; }
 .wiz-slug-status.ok { color: var(--good); }
 .wiz-slug-status.bad { color: var(--critical); }
@@ -3016,7 +3044,8 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .adm-pblock + .adm-pblock { margin-top: 18px; border-top: 1px solid var(--grid); }
 .adm-pblock h3 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
 .adm-pgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px 16px; }
-.adm-field select.adm-input { width: 100%; max-width: 260px; padding: 6px 28px 6px 9px; font-size: 14px; }
+.adm-field select.adm-input,
+.adm-field .mc-select.adm-input { width: 100%; max-width: 260px; padding: 6px 28px 6px 9px; font-size: 14px; }
 .adm-field .adm-periods { margin-left: 0; }
 .adm-stack { display: grid; gap: 8px; }
 .adm-stack > .adm-list { margin: 0; }
@@ -3094,3 +3123,36 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .lay-tile.off { background: var(--surface-2); color: var(--muted); }
 @media (max-width: 800px) { .lay-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lay-plan { padding: 8px; } }
 @media (max-width: 520px) { .lay-block { grid-column: 1 / -1; } }
+
+/* ---------- the site's dropdowns (public/ui.js): a button in place of each <select>, and its list ---------- */
+.mc-select-native { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important;
+  overflow: hidden !important; clip: rect(0 0 0 0) !important; border: 0 !important; opacity: 0; pointer-events: none; }
+.mc-select { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; text-align: left; white-space: nowrap;
+  line-height: 1.35; padding-top: 4px; padding-bottom: 4px; padding-left: 8px; vertical-align: middle; font-weight: inherit; }
+.mc-select[hidden] { display: none; }
+.mc-select-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mc-select:hover:not(:disabled) { border-color: var(--muted); }
+.mc-select[aria-expanded="true"] { border-color: var(--series-1); }
+.mc-select.tile-select { padding: 0 18px 0 0; background-position: right 2px center; font: inherit; }
+.mc-select-list { position: fixed; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; max-width: min(420px, calc(100vw - 16px));
+  padding: 4px; background: var(--surface); color: var(--ink); box-shadow: var(--frame), var(--lift);
+  font-family: inherit; font-size: 13px; scrollbar-width: thin; }
+.mc-select-option { position: relative; padding: 7px 28px 7px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-select-option.active { background: var(--surface-2); }
+.mc-select-option[aria-selected="true"] { font-weight: 600; box-shadow: inset 3px 0 0 var(--series-1); }
+.mc-select-option[aria-selected="true"]::after { content: ''; position: absolute; right: 10px; top: 50%; width: 10px; height: 8px; margin-top: -4px;
+  background: var(--series-1);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8' shape-rendering='crispEdges'%3E%3Cpath d='M0 4h2v2H0zM2 6h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8' shape-rendering='crispEdges'%3E%3Cpath d='M0 4h2v2H0zM2 6h2v2H2zM4 4h2v2H4zM6 2h2v2H6zM8 0h2v2H8z'/%3E%3C/svg%3E") no-repeat center / contain; }
+.mc-select-option[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.mc-select-group { padding: 8px 10px 4px; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* the mod's download (public/ui.js modDownload), the same on /mod, /new and the admin pages */
+.mod-dl { display: grid; gap: 12px; margin: 4px 0 8px; }
+.mod-dl-picks { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.mod-dl-field { display: grid; gap: 5px; min-width: 0; }
+.mod-dl-field .mc-select { min-width: 190px; padding: 6px 28px 6px 9px; font-size: 14px; }
+.mod-dl .mod-get { margin: 0; }
+.mod-dl .site-go { text-decoration: none; }
+.adm-mod-dl .site-title { font-size: 26px; }
+

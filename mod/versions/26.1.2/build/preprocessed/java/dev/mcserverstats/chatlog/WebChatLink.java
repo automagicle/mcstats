@@ -98,6 +98,8 @@ final class WebChatLink {
 	private volatile Map<String, String> webPlayers = Map.of();
 	// whispers sent up to the dashboard, waiting for its answer: id -> what to do if it says no
 	private final Map<String, Consumer<String>> waiting = new ConcurrentHashMap<>();
+	// account requests sent up (2.3.0), waiting for the dashboard's answer: id -> what to do with it
+	private final Map<String, Consumer<JsonObject>> asked = new ConcurrentHashMap<>();
 
 	// dashboardLostFor(since): how long the dashboard has been saying, since then, that it doesn't have
 	// this connection (Uploader.linkDownFor).
@@ -262,6 +264,45 @@ final class WebChatLink {
 		return true;
 	}
 
+	// A player's mcstats account (2.3.0, the dashboard's src/connect.js): action "status", "connect" (with the
+	// email they typed) or "disconnect". done gets the dashboard's answer, { ok, error?, email?, confirmed?,
+	// emailed?, page? }, on a background thread; if the website isn't connected or doesn't answer in time,
+	// { ok: false, error, offline: true }.
+	void account(String action, UUID player, String name, String email, Consumer<JsonObject> done) {
+		WebSocket ws = socket;
+		if (ws == null) {
+			done.accept(offline("the server isn't connected to the mcstats website right now"));
+			return;
+		}
+		String id = UUID.randomUUID().toString();
+		JsonObject m = new JsonObject();
+		m.addProperty("type", "account");
+		m.addProperty("id", id);
+		m.addProperty("action", action);
+		m.addProperty("uuid", player.toString());
+		m.addProperty("name", name);
+		if (email != null) m.addProperty("email", email);
+		asked.put(id, done);
+		send(ws, m.toString());
+		ScheduledExecutorService e = exec;
+		if (e != null) {
+			try {
+				e.schedule(() -> {
+					Consumer<JsonObject> c = asked.remove(id);
+					if (c != null) c.accept(offline("the website didn't answer"));
+				}, 8, TimeUnit.SECONDS);
+			} catch (RuntimeException ignored) { } // stopping
+		}
+	}
+
+	private static JsonObject offline(String why) {
+		JsonObject o = new JsonObject();
+		o.addProperty("ok", false);
+		o.addProperty("error", why);
+		o.addProperty("offline", true);
+		return o;
+	}
+
 	private void close(String why) {
 		WebSocket ws = socket;
 		socket = null;
@@ -319,7 +360,12 @@ final class WebChatLink {
 			webPlayers = Map.copyOf(names);
 			return;
 		}
-		if (type.equals("ack")) { // the dashboard's answer to a whisper sent up
+		if (type.equals("ack")) { // the dashboard's answer to a whisper or account request sent up
+			Consumer<JsonObject> a = m.has("id") ? asked.remove(m.get("id").getAsString()) : null;
+			if (a != null) {
+				a.accept(m);
+				return;
+			}
 			Consumer<String> c = m.has("id") ? waiting.remove(m.get("id").getAsString()) : null;
 			if (c != null && !(m.has("ok") && m.get("ok").getAsBoolean())) {
 				c.accept(m.has("error") ? m.get("error").getAsString() : "the website refused it");

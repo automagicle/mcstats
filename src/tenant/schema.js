@@ -253,14 +253,40 @@ export const MIGRATIONS = [
     },
   },
   {
-    // Who chats from the dashboard as Admin is picked on Admin → Roles (src/roles.js): 1 here means this
-    // member sends as Admin whatever player their email is linked to.
+    // Players connecting their mcstats account from in game (/mcstats connect, src/connect.js): one row per
+    // player, with the email they typed. It counts once someone signed in with that email says yes on the
+    // website (confirmed_at); until then it's only a request. tries/tries_day: requests made today.
     v: 5,
     up(sql) {
+      playerAccounts(sql);
+    },
+  },
+  {
+    // Who chats from the dashboard as Admin is picked on Admin → Roles (src/roles.js): 1 here means this
+    // member sends as Admin whatever player their email is linked to.
+    // Both this and player_accounts were first written as version 5, on two branches: a database that ran
+    // either one as its 5 gets the other here (each only adds what's missing).
+    v: 6,
+    up(sql) {
+      playerAccounts(sql);
       if (!hasColumn(sql, 'user_perms', 'chat_admin')) sql.exec('ALTER TABLE user_perms ADD COLUMN chat_admin INTEGER NOT NULL DEFAULT 0');
     },
   },
 ];
+
+// The table behind /mcstats connect (src/connect.js). Only adds what is missing.
+function playerAccounts(sql) {
+  sql.exec(`CREATE TABLE IF NOT EXISTS player_accounts (
+    uuid          TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    email         TEXT NOT NULL COLLATE NOCASE,
+    requested_at  INTEGER NOT NULL,
+    confirmed_at  INTEGER,
+    tries         INTEGER NOT NULL DEFAULT 0,
+    tries_day     INTEGER NOT NULL DEFAULT 0
+  )`);
+  sql.exec('CREATE INDEX IF NOT EXISTS player_accounts_email ON player_accounts (email)');
+}
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;
 

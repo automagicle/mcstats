@@ -1,6 +1,5 @@
 package dev.mcserverstats.liveview.keys;
 
-import dev.mcserverstats.liveview.LogOnce;
 import dev.mcserverstats.liveview.json.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -9,15 +8,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 
 /**
- * The two Liveview keys and the players who opted out, in {@code config/mcstats-liveview.json}.
+ * The two Liveview keys and who may use them, in {@code config/mcstats-liveview.json}. (Files written before 2.3.0
+ * also list players who had hidden themselves, as {@code opt-out-uuids}; that's no longer read.)
  *
  * <p>The viewer key lets a dashboard account watch; the control key lets it also run commands and move items. Only
  * each key's PBKDF2 hash is kept. A key that was never made is null, and nothing can be unlocked with it.
@@ -59,7 +56,6 @@ public final class KeyStore {
 	private final Path path;
 	private Key viewer;
 	private Key control;
-	private Set<UUID> optOut = Set.of();
 	/** Dashboard accounts (sign-in emails, lowercased) the server lets in, and how far: watching, or controls too. */
 	private final java.util.TreeMap<String, Level> access = new java.util.TreeMap<>();
 	private static final java.util.regex.Pattern ACCOUNT = java.util.regex.Pattern.compile("[a-z0-9._%+@-]{3,120}");
@@ -81,7 +77,6 @@ public final class KeyStore {
 			}
 			store.viewer = readKey(root.object("viewer"));
 			store.control = readKey(root.object("control"));
-			store.optOut = readOptOut(root.array("opt-out-uuids"));
 			Json.Obj accounts = root.object("access");
 			if (accounts != null) {
 				for (var entry : accounts.fields().entrySet()) {
@@ -106,10 +101,6 @@ public final class KeyStore {
 	public synchronized String id(Level level) {
 		Key key = level == Level.VIEWER ? viewer : control;
 		return key == null ? null : key.id();
-	}
-
-	public synchronized Set<UUID> optOut() {
-		return optOut;
 	}
 
 	/** An account as this file keeps it (lowercased), or null if it isn't something that could be a sign-in email. */
@@ -211,17 +202,6 @@ public final class KeyStore {
 		return generated.password();
 	}
 
-	public synchronized void saveOptOut(Set<UUID> ids) throws IOException {
-		Set<UUID> old = optOut;
-		optOut = Set.copyOf(ids);
-		try {
-			write();
-		} catch (IOException e) {
-			optOut = old;
-			throw e;
-		}
-	}
-
 	private static Key readKey(Json.Obj obj) throws Json.JsonException {
 		if (obj == null) {
 			return null;
@@ -245,24 +225,6 @@ public final class KeyStore {
 		}
 	}
 
-	private static Set<UUID> readOptOut(Json.Arr array) {
-		if (array == null) {
-			return Set.of();
-		}
-		List<UUID> ids = new ArrayList<>();
-		for (Json.Value item : array.items()) {
-			if (!(item instanceof Json.Str str)) {
-				continue;
-			}
-			try {
-				ids.add(UUID.fromString(str.value()));
-			} catch (IllegalArgumentException e) {
-				LogOnce.warn("opt-out-" + str.value(), "Liveview skipped an opt-out uuid that is not a UUID", e);
-			}
-		}
-		return Set.copyOf(ids);
-	}
-
 	private void write() throws IOException {
 		StringBuilder json = new StringBuilder("{\n");
 		appendKey(json, "viewer", viewer);
@@ -273,14 +235,7 @@ public final class KeyStore {
 			json.append(firstAccount ? "" : ", ").append('"').append(entry.getKey()).append("\": \"").append(entry.getValue().id).append('"');
 			firstAccount = false;
 		}
-		json.append("},\n");
-		json.append("  \"opt-out-uuids\": [");
-		boolean first = true;
-		for (UUID uuid : optOut) {
-			json.append(first ? "" : ", ").append('"').append(uuid).append('"');
-			first = false;
-		}
-		json.append("]\n}\n");
+		json.append("}\n}\n");
 		Files.createDirectories(path.getParent());
 		Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
 		Files.writeString(tmp, json, StandardCharsets.UTF_8);

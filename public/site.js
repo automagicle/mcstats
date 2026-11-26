@@ -652,6 +652,11 @@
     frame('Name the server', 'Pick its address and who can see it. You can change who can see it later.', form);
   }
 
+  // The mod's download: pick the Minecraft version the server runs, then the mod version (public/ui.js).
+  function modPicker(m) {
+    return window.mcstatsUI.modDownload(m.downloads, { suggested: m.jar, latest: m.version, fallback: { url: m.jar_url, file: m.jar } });
+  }
+
   // What the server needs and where the jar goes, read from the mod itself (/api/site/mod). With checks, each
   // item can be ticked off (/new); without, it's a plain numbered list (/mod).
   function installList(m, checks) {
@@ -662,17 +667,16 @@
     const code = (t) => h('code', { text: t });
     const extra = Object.entries(m.other_depends || {});
     return h('ol', { class: checks ? 'wiz-checks' : 'wiz-checks mod-steps' },
-      item(`Minecraft ${m.minecraft.replace(/^~/, '')}.x (Java Edition)`,
-        h('p', {}, 'The server must run Minecraft ', code(m.minecraft_built), ' (any ', code(`${m.minecraft_built}.x`), ' release; the mod asks for ', code(m.minecraft), '), on Java ', code(m.java.replace('>=', '')), ' or newer.')),
-      item(`Fabric Loader ${m.loader.replace('>=', '')} or newer`,
-        h('p', {}, 'The server needs the Fabric mod loader, version ', code(m.loader.replace('>=', '')), ' or newer (the mod is built with ', code(m.loader_built), '). Install it with the ', h('a', { href: m.loader_installer, target: '_blank', rel: 'noopener', text: 'official Fabric server installer' }), '. Many hosting panels can switch a server to Fabric for you.')),
+      item('Minecraft (Java Edition)',
+        h('p', {}, 'The mod is built for ', (m.downloads?.length ? [...new Set(m.downloads.filter((d) => d.version === m.version).map((d) => d.label))] : [m.minecraft_built]).map((l, i, all) => [code(l), i < all.length - 1 ? ', ' : '']).flat(), '. Pick the one the server runs when you download it below. Java 21 or newer for 1.21.x, Java 25 or newer for 26.x.')),
+      item('Fabric Loader',
+        h('p', {}, 'The server needs the Fabric mod loader (the mod is built with ', code(m.loader_built), '; any recent one works). Install it with the ', h('a', { href: m.loader_installer, target: '_blank', rel: 'noopener', text: 'official Fabric server installer' }), '. Many hosting panels can switch a server to Fabric for you.')),
       item('Fabric API: not needed',
         h('p', {}, 'The pieces of Fabric API the mod uses (', code(m.fabric_api.version), ') are built into its jar. If the server has Fabric API already, that’s fine too.')),
       extra.length ? item('Other mods it needs', h('ul', {}, extra.map(([k, v]) => h('li', {}, code(k), ' ', code(String(v)))))) : null,
-      item(`The mcstats mod ${m.version}`,
-        h('p', {}, h('a', { class: 'btn btn-primary', href: m.jar_url, download: m.jar, text: `Download ${m.jar}` }))),
+      item(`The mcstats mod ${m.version}`, modPicker(m)),
       item('Put it in the server’s mods folder, and restart',
-        h('p', {}, 'Copy ', code(m.jar), ' into the ', code('mods/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
+        h('p', {}, 'Copy the jar into the ', code('mods/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
         h('p', {}, 'On its first start the mod makes ', code(m.config_file), checks ? '; the next step fills it in.' : '; setting up your server’s page fills it in.')));
   }
 
@@ -690,9 +694,7 @@
     main.replaceChildren(h('section', { class: 'card site-card mod-page' },
       h('h1', { class: 'site-title', text: 'The mcstats mod' }),
       h('p', { class: 'site-sub', text: 'It runs on the Minecraft server and sends what happens there to the server’s mcstats page. It’s for whoever runs the server: players don’t install anything.' }),
-      h('div', { class: 'mod-get' },
-        h('a', { class: 'btn btn-primary site-go', href: m.jar_url, download: m.jar, text: `Download mcstats ${m.version}` }),
-        h('span', { class: 'site-hint', text: `${m.jar} · Minecraft ${m.minecraft_built}.x · Fabric · server side` })),
+      modPicker(m),
       h('h2', { class: 'site-h2', text: 'Installing it' }),
       installList(m, false),
       h('h2', { class: 'site-h2', text: 'Connecting it' }),

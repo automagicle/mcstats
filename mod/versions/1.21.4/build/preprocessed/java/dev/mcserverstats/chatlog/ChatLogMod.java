@@ -70,8 +70,12 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		Path dir = FabricLoader.getInstance().getConfigDir();
 		String version = FabricLoader.getInstance().getModContainer("mcstats_chat")
 				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("dev");
+		// The game's version goes in the User-Agent too (2.3.0), so the dashboard can offer the jar built for it.
+		String minecraft = FabricLoader.getInstance().getModContainer("minecraft")
+				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
+		String agent = "mcstats-chat/" + version + " (Minecraft " + minecraft + ")";
 		uploader = new Uploader(dir.resolve("mcstats-chat.properties"), dir.resolve("mcstats-chat-pending.json"), version);
-		link = new WebChatLink(uploader::config, uploader::linkDownFor, "mcstats-chat/" + version, new WebChatLink.Handler() {
+		link = new WebChatLink(uploader::config, uploader::linkDownFor, agent, new WebChatLink.Handler() {
 			@Override
 			public CompletableFuture<String> say(String name, String text, java.util.function.BooleanSupplier claim) {
 				return webMessage(name, text, claim);
@@ -98,7 +102,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 					// the dashboard asks for the view over the web chat connection, so without it nobody could
 					return c.ready() && c.webChat() ? c.liveview() : LiveSettings.DEFAULT.off();
 				},
-				() -> relayTarget(uploader.config(), "mcstats-chat/" + version),
+				() -> relayTarget(uploader.config(), agent),
 				() -> link.sendLiveInfo());
 		link.live(new WebChatLink.Live() {
 			@Override
@@ -146,7 +150,8 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		ProfileStore profiles = new ProfileStore(dir.resolve("mcstats-profiles.json"));
 		GearReporter gear = new GearReporter(uploader, profiles);
 		ServerTickEvents.END_SERVER_TICK.register(gear::tick);
-		McstatsMenus menus = new McstatsMenus(profiles, link::page);
+		// players connect their mcstats account in game (2.3.0), to chat as themselves from the website
+		McstatsMenus menus = new McstatsMenus(profiles, link::page, new Accounts(link));
 		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
 				McstatsCommands.register(dispatcher, menus));
 		ServerTickEvents.END_SERVER_TICK.register(ChestGui::runQueued);
@@ -305,7 +310,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		String jar = jarUrl(m);
 		if (jar != null) {
 			msg.append(Component.literal("[Download " + WebChatLink.clean(str(m, "latest")) + "]")
-					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(new ClickEvent.OpenUrl(java.net.URI.create(jar)))));
+					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(dev.mcserverstats.compat.Compat.openUrl(java.net.URI.create(jar)))));
 			msg.append(Component.literal(" ").withStyle(ChatFormatting.GRAY));
 		}
 		msg.append(Component.literal("swap the jar in mods/ and restart. The whole changelog is on the dashboard's Admin page.").withStyle(ChatFormatting.GRAY));
@@ -524,7 +529,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			if (info != null && info.type == EntityType.PLAYER) {
 			//#endif
 				d.addProperty("killer", plainName(by));
-				d.addProperty("killer_uuid", info.uuid.toString());
+				d.addProperty("killer_uuid", dev.mcserverstats.compat.Compat.uuid(info).toString());
 			} else if (info != null) {
 				String type = BuiltInRegistries.ENTITY_TYPE.getKey(info.type).toString();
 				d.addProperty("mob", type.startsWith("minecraft:") ? type.substring(10) : type);
@@ -539,15 +544,14 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 
 	// The entity a name in a message stands for (names carry it as their hover text).
 	private static HoverEvent.EntityTooltipInfo entityOf(Component c) {
-		return c.visit((style, text) -> style.getHoverEvent() instanceof HoverEvent.ShowEntity show
-				? Optional.of(show.entity()) : Optional.<HoverEvent.EntityTooltipInfo>empty(), Style.EMPTY).orElse(null);
+		return c.visit((style, text) -> Optional.ofNullable(dev.mcserverstats.compat.Compat.hoverEntity(style)), Style.EMPTY).orElse(null);
 	}
 
 	// Text as chat shows it (team prefixes, colors), as [{ t: text, c: "#rrggbb", p: player }] pieces.
 	// p marks pieces of a player's name (its click-to-insert text), so the dashboard can link it.
 	static JsonArray styled(Component c, int max) {
 		JsonArray out = new JsonArray();
-		HoverEvent.ShowItem[] seen = new HoverEvent.ShowItem[1];
+		HoverEvent[] seen = new HoverEvent[1];
 		c.visit((style, text) -> {
 			if (!text.isEmpty() && out.size() < max) {
 				JsonObject piece = new JsonObject();
@@ -558,11 +562,12 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				if (who != null && PLAYER_NAME.matcher(who).matches()) piece.addProperty("p", who);
 				// An item's name (the weapon in a death message): marked, and the first piece of it
 				// carries what hovering over it shows in game.
-				if (style.getHoverEvent() instanceof HoverEvent.ShowItem show) {
+				ItemStack shown = dev.mcserverstats.compat.Compat.hoverItem(style);
+				if (shown != null) {
 					piece.addProperty("w", true);
-					if (seen[0] != show) {
-						seen[0] = show;
-						JsonArray lines = tooltip(show);
+					if (seen[0] != style.getHoverEvent()) {
+						seen[0] = style.getHoverEvent();
+						JsonArray lines = hoverTooltip(shown);
 						if (lines != null) piece.add("i", lines);
 					}
 				}
@@ -575,13 +580,9 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 
 	// An item's tooltip as the game shows it (name, enchantments, attributes, lore): a list of
 	// lines, each a list of { t, c?, i? (italic) } pieces. An empty list is a blank line.
-	private static JsonArray tooltip(HoverEvent.ShowItem show) {
+	private static JsonArray hoverTooltip(ItemStack shown) {
 		try {
-			//#if MC >= 26.1
-			//$$ return tooltip(show.item().create());
-			//#else
-			return tooltip(show.item());
-			//#endif
+			return tooltip(shown);
 		} catch (RuntimeException e) {
 			LOG.debug("Couldn't read an item's tooltip", e);
 			return null;

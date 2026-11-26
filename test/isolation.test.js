@@ -130,7 +130,12 @@ describe('admins and members', () => {
     const a = await makeServer('adm-a');
     const b = await makeServer('adm-b');
     const ownerA = await idCookie(a, a.owner);
-    expect((await call(`/s/${a.slug}/api/admin?season=1`, { cookie: ownerA })).status).toBe(200);
+    const adminA = await call(`/s/${a.slug}/api/admin?season=1`, { cookie: ownerA });
+    expect(adminA.status).toBe(200);
+    // the Mod and data page's download picker: every jar, starting on one the site has
+    const { mod } = await adminA.json();
+    expect(mod.downloads.length).toBeGreaterThan(0);
+    expect(mod.downloads.map((d) => d.file)).toContain(mod.suggested);
     expect((await (await call(`/s/${a.slug}/api/me`, { cookie: ownerA })).json()).admin).toBe(true);
 
     // A's owner, signed in, on B: not let in at all

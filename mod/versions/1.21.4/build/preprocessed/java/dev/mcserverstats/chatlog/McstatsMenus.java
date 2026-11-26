@@ -39,7 +39,7 @@ import static dev.mcserverstats.chatlog.ChestGui.text;
 //         │                └─ Your Stats
 //         ├─ Server Stats (every player's head) ── Player Stats
 //         ├─ Leaderboards ── Server Stats ordered by that number
-//         └─ Website, Commands
+//         └─ Website, Connect Account (an anvil to type an email in), Commands
 final class McstatsMenus {
 	// A particle on the dashboard, with the icon it has here and the game's particle to preview it in game.
 	record Particle(String id, String label, Item icon, SimpleParticleType preview, ChatFormatting color) {
@@ -71,10 +71,16 @@ final class McstatsMenus {
 
 	private final ProfileStore profiles;
 	private final Supplier<String> site; // the server's dashboard page, ending in "/", or null
+	private final Accounts accounts;
 
-	McstatsMenus(ProfileStore profiles, Supplier<String> site) {
+	McstatsMenus(ProfileStore profiles, Supplier<String> site, Accounts accounts) {
 		this.profiles = profiles;
 		this.site = site;
+		this.accounts = accounts;
+	}
+
+	Accounts accounts() {
+		return accounts;
 	}
 
 	ProfileStore profiles() {
@@ -130,7 +136,9 @@ final class McstatsMenus {
 					sendLink(player, player.getUUID(), "your page");
 				}));
 
-				b.put(31, new Button(icon(Items.WRITABLE_BOOK, text("Commands", ChatFormatting.YELLOW), List.of(
+				b.put(32, accountButton(player));
+
+				b.put(30, new Button(icon(Items.WRITABLE_BOOK, text("Commands", ChatFormatting.YELLOW), List.of(
 						text("/mcstats help lists them all.", ChatFormatting.GRAY),
 						Component.empty(),
 						text("Click to list them in chat!", ChatFormatting.YELLOW))), c -> {
@@ -141,6 +149,38 @@ final class McstatsMenus {
 				b.put(49, ChestGui.close(player));
 			}
 		};
+	}
+
+	// Connect Account: opens the anvil to type an email in (Accounts). The status is what the dashboard said
+	// last; it's asked again each time the main menu is drawn.
+	private Button accountButton(ServerPlayer player) {
+		accounts.refresh(player);
+		Accounts.Status s = accounts.known(player.getUUID());
+		List<Component> lore = new ArrayList<>();
+		lore.add(text("Connect your mcstats account to", ChatFormatting.GRAY));
+		lore.add(text("chat as yourself on the website.", ChatFormatting.GRAY));
+		lore.add(Component.empty());
+		if (s != null && s.email() != null) {
+			lore.add(stat(s.confirmed() ? "Connected" : "Waiting for a yes", s.email(), s.confirmed() ? ChatFormatting.GREEN : ChatFormatting.GOLD));
+			if (!s.confirmed()) {
+				lore.add(text("Sign in to mcstats with it and", ChatFormatting.GRAY));
+				lore.add(text("click Connect above the chat box.", ChatFormatting.GRAY));
+			}
+			lore.add(Component.empty());
+			lore.add(text("Click to change the email!", ChatFormatting.YELLOW));
+			lore.add(text("Right-click to disconnect.", ChatFormatting.YELLOW));
+		} else {
+			if (s != null) lore.add(stat("Connected", "Nothing yet", ChatFormatting.DARK_GRAY));
+			if (s != null) lore.add(Component.empty());
+			lore.add(text("Click to type your email!", ChatFormatting.YELLOW));
+		}
+		ItemStack tag = icon(Items.NAME_TAG, text("Connect Account", ChatFormatting.LIGHT_PURPLE), lore);
+		return new Button(s != null && s.confirmed() ? ChestGui.glow(tag) : tag, c -> {
+			if (c.right() && s != null && s.email() != null) {
+				player.closeContainer();
+				accounts.disconnect(player);
+			} else accounts.prompt(player);
+		});
 	}
 
 	Page profile(ServerPlayer player) {
@@ -601,8 +641,8 @@ final class McstatsMenus {
 			java.net.URI uri = java.net.URI.create(url);
 			say(to, Component.literal("Open " + what + " on mcstats: ").withStyle(ChatFormatting.GREEN)
 					.append(Component.literal(url).withStyle(s -> s.withColor(ChatFormatting.AQUA).withUnderlined(true)
-							.withClickEvent(new ClickEvent.OpenUrl(uri))
-							.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to open in your browser"))))));
+							.withClickEvent(dev.mcserverstats.compat.Compat.openUrl(uri))
+							.withHoverEvent(dev.mcserverstats.compat.Compat.showText(Component.literal("Click to open in your browser"))))));
 		} catch (IllegalArgumentException e) {
 			say(to, Component.literal(url).withStyle(ChatFormatting.AQUA));
 		}
