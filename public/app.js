@@ -6385,41 +6385,9 @@ function setMe(r) {
   if (site.perms && !site.perms.view) showError(`This account (${r.email}) doesn’t have access to the dashboard. Ask an admin to allow it.`);
 }
 
-// Picking a jar of the server mod to download: the Minecraft version the server runs, then the mod version
-// (newest first). downloads is MOD.downloads (src/modinfo.gen.js: every jar in public/downloads, newest first);
-// suggested is the file to start on (built for the server's Minecraft version, when the dashboard knows it).
+// The server mod's download, as on /mod: a Minecraft version and a mod version to pick (public/ui.js).
 function modPicker(downloads, { suggested = null, latest = null } = {}) {
-  const list = downloads || [];
-  const wrap = el('div', { class: 'mod-pick' });
-  if (!list.length) { wrap.append(el('p', { class: 'muted', text: 'No jars are on this site yet.' })); return wrap; }
-  const labels = [...new Set(list.map((d) => d.label))];
-  const start = list.find((d) => d.file === suggested) || list[0];
-  const game = el('select', { class: 'adm-input', 'aria-label': 'Minecraft version' }, ...labels.map((l) => el('option', { value: l, text: `Minecraft ${l}` })));
-  const ver = el('select', { class: 'adm-input', 'aria-label': 'Mod version' });
-  const link = el('a', { class: 'btn btn-primary', download: '' });
-  const hint = el('span', { class: 'muted mod-pick-hint' });
-  game.value = start.label;
-  const fillVersions = (keep) => {
-    const here = list.filter((d) => d.label === game.value);
-    ver.replaceChildren(...here.map((d) => el('option', { value: d.file, text: `mcstats ${d.version}${d.version === latest ? ' (newest)' : ''}` })));
-    ver.value = here.some((d) => d.file === keep) ? keep : here[0].file;
-  };
-  const show = () => {
-    const d = list.find((x) => x.file === ver.value);
-    link.href = `/downloads/${encodeURIComponent(d.file)}`;
-    link.setAttribute('download', d.file);
-    link.textContent = `Download ${d.file}`;
-    hint.textContent = [`Fabric, server side`, d.java && `Java ${d.java.replace('>=', '')}+`, d.loader && `Fabric Loader ${d.loader.replace('>=', '')}+`].filter(Boolean).join(' · ');
-  };
-  game.addEventListener('change', () => { fillVersions(null); show(); });
-  ver.addEventListener('change', show);
-  fillVersions(start.file);
-  show();
-  wrap.append(el('div', { class: 'mod-pick-row' },
-    el('label', { class: 'mod-pick-field' }, el('span', { class: 'muted', text: 'Minecraft' }), game),
-    el('label', { class: 'mod-pick-field' }, el('span', { class: 'muted', text: 'Mod version' }), ver)),
-  el('div', { class: 'mod-pick-row' }, link, hint));
-  return wrap;
+  return window.mcstatsUI.modDownload(downloads, { suggested, latest });
 }
 
 // A newer version of the server's mod (src/modupdate.js), on every page for admins. An ordinary one can be
@@ -7225,7 +7193,7 @@ function renderServerAdmin(focusKey) {
   const mod = d.mod ? card('Mod', 'runs on the Minecraft server; players don’t install anything',
     field(`mcstats ${d.mod.version}`, el('div', {},
       d.mod.downloads ? modPicker(d.mod.downloads, { suggested: d.mod.jar, latest: d.mod.version })
-        : el('a', { class: 'btn', href: d.mod.jar_url, download: d.mod.jar, text: `Download ${d.mod.jar}` }),
+        : el('a', { class: 'btn btn-primary site-go', href: d.mod.jar_url, download: d.mod.jar, text: `Download mcstats ${d.mod.version}` }),
       el('div', { class: 'srv-mod' }, el('a', { href: '/mod', text: 'What it needs and how to install it' }))),
       'Pick the Minecraft version the server runs. If the server has an older mod, replace its jar in mods/ and restart.'),
     owner ? field('Key', el('div', { class: 'srv-mod' }, el('a', { href: `/new?server=${encodeURIComponent(d.slug)}&step=4`, text: 'Make a new key in setup' })),
@@ -8500,10 +8468,14 @@ function renderAdmin() {
     const m = d.mod;
     if (!m) return null;
     const runs = d.link?.minecraft;
-    return card('Download the mod', runs ? `the server runs Minecraft ${runs}` : 'for the server, not for players',
+    return el('section', { class: 'card adm-card mod-page adm-mod-dl' },
+      el('h2', { class: 'site-title', text: 'The mcstats mod' }),
+      el('p', { class: 'site-sub', text: runs
+        ? `It runs on the Minecraft server and sends what happens there to these pages. The server runs Minecraft ${runs}, so that’s picked below.`
+        : 'It runs on the Minecraft server and sends what happens there to these pages. Players don’t install anything.' }),
       modPicker(m.downloads, { suggested: m.suggested, latest: m.version }),
-      el('p', { class: 'adm-note' }, 'Put the jar in the server’s mods folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
-        el('a', { href: '/mod', text: 'What it needs' })));
+      el('p', { class: 'site-sub' }, 'Put the jar in the server’s ', el('code', { text: 'mods/' }), ' folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
+        el('a', { href: '/mod', text: 'What it needs and how to install it' })));
   };
 
   // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update

@@ -652,39 +652,9 @@
     frame('Name the server', 'Pick its address and who can see it. You can change who can see it later.', form);
   }
 
-  // A jar of the mod to download: pick the Minecraft version the server runs, then the mod version (newest first).
-  // m.downloads is every jar the site has (scripts/mod-info.mjs); it starts on the jar for m.minecraft_built.
+  // The mod's download: pick the Minecraft version the server runs, then the mod version (public/ui.js).
   function modPicker(m) {
-    const list = m.downloads || [];
-    if (!list.length) return h('p', {}, h('a', { class: 'btn btn-primary', href: m.jar_url, download: m.jar, text: `Download ${m.jar}` }));
-    const labels = [...new Set(list.map((d) => d.label))];
-    const start = list.find((d) => d.file === m.jar) || list[0];
-    const game = h('select', { class: 'adm-input', 'aria-label': 'Minecraft version' }, labels.map((l) => h('option', { value: l, text: `Minecraft ${l}` })));
-    const ver = h('select', { class: 'adm-input', 'aria-label': 'Mod version' });
-    const link = h('a', { class: 'btn btn-primary', download: '' });
-    const hint = h('span', { class: 'site-hint mod-pick-hint' });
-    game.value = start.label;
-    const fill = (keep) => {
-      const here = list.filter((d) => d.label === game.value);
-      ver.replaceChildren(...here.map((d) => h('option', { value: d.file, text: `mcstats ${d.version}${d.version === m.version ? ' (newest)' : ''}` })));
-      ver.value = here.some((d) => d.file === keep) ? keep : here[0].file;
-    };
-    const show = () => {
-      const d = list.find((x) => x.file === ver.value);
-      link.href = `/downloads/${encodeURIComponent(d.file)}`;
-      link.setAttribute('download', d.file);
-      link.textContent = `Download ${d.file}`;
-      hint.textContent = ['Fabric · server side', d.java && `Java ${d.java.replace('>=', '')}+`, d.loader && `Fabric Loader ${d.loader.replace('>=', '')}+`].filter(Boolean).join(' · ');
-    };
-    game.addEventListener('change', () => { fill(null); show(); });
-    ver.addEventListener('change', show);
-    fill(start.file);
-    show();
-    return h('div', { class: 'mod-pick' },
-      h('div', { class: 'mod-pick-row' },
-        h('label', { class: 'mod-pick-field' }, h('span', { class: 'site-hint', text: 'Minecraft' }), game),
-        h('label', { class: 'mod-pick-field' }, h('span', { class: 'site-hint', text: 'Mod version' }), ver)),
-      h('div', { class: 'mod-pick-row' }, link, hint));
+    return window.mcstatsUI.modDownload(m.downloads, { suggested: m.jar, latest: m.version, fallback: { url: m.jar_url, file: m.jar } });
   }
 
   // What the server needs and where the jar goes, read from the mod itself (/api/site/mod). With checks, each
@@ -724,7 +694,7 @@
     main.replaceChildren(h('section', { class: 'card site-card mod-page' },
       h('h1', { class: 'site-title', text: 'The mcstats mod' }),
       h('p', { class: 'site-sub', text: 'It runs on the Minecraft server and sends what happens there to the server’s mcstats page. It’s for whoever runs the server: players don’t install anything.' }),
-      h('div', { class: 'mod-get' }, modPicker(m)),
+      modPicker(m),
       h('h2', { class: 'site-h2', text: 'Installing it' }),
       installList(m, false),
       h('h2', { class: 'site-h2', text: 'Connecting it' }),
