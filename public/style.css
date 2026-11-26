@@ -207,11 +207,17 @@ a { color: inherit; }
 }
 
 .top-right { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
-.brand { white-space: nowrap; flex: none; }
+.brand { white-space: nowrap; flex: 0 1 auto; min-width: 0; }
+/* a long server name is cut short (the whole name is its tooltip); the tabs and controls never are */
+.brand > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.brand .logo { flex: none; }
 /* the server's name with its status beside it, as plain text: it says something about the server, it isn't a control */
-.top-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.top-id { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 0 1 auto; }
 .top .live { padding: 0; background: none; box-shadow: none; gap: 7px; color: var(--ink-2); }
 .top .live .dot { flex: none; }
+.top .live { flex: 0 1 auto; }
+/* where the bar is tight the status is its square alone; the words are its tooltip */
+@media (max-width: 1100px) and (min-width: 861px) { .top .live #live-text { display: none; } }
 .live {
   display: inline-flex;
   align-items: center;
@@ -762,14 +768,16 @@ tr.link:hover td { background: var(--hover); }
 }
 .tab-badge[hidden] { display: none; }
 .tabs a:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
-@media (max-width: 600px) {
+/* two rows once the name, five tabs and the controls can't share one: the server and the visitor's
+   controls on the first, the pages on the second */
+@media (max-width: 860px) {
   .top { flex-wrap: wrap; row-gap: 10px; }
   .top-left, .top-id { display: contents; }
   .top-left > .tabs { padding-left: 0; border-left: 0; }
   /* the status takes what's left of the first row and is cut short, so the row never wraps */
   .top .live { flex: 1 1 0; }
   .tabs { order: 2; width: 100%; }
-  .tabs a { flex: 1; text-align: center; }
+  .tabs a { flex: none; text-align: center; }
   /* first row: name, then live status and theme; second row: pages and the IGN / Name switch */
   .top { column-gap: 8px; }
   .top-right { display: contents; }
@@ -778,6 +786,16 @@ tr.link:hover td { background: var(--hover); }
   .tabs { width: auto; }
   .tabs { flex: 1 1 auto; }
   .tabs a { padding: 4px 8px; }
+  .top { padding-top: 8px; padding-bottom: 8px; }
+}
+@media (max-width: 600px) {
+  /* a phone can't fit every tab: the row scrolls sideways instead */
+  /* the name takes what the controls leave and is cut short; the status is its square alone */
+  .brand { flex: 1 1 0; margin-right: 0; }
+  .top .live { flex: none; }
+  .top .live #live-text { display: none; }
+  .top-left > .tabs { overflow-x: auto; scrollbar-width: none; margin: 0 -10px; padding: 0 10px 2px; }
+  .tabs a { flex: 1 0 auto; }
   .top { padding: 8px 10px; }
   main { padding: 10px 10px 28px; }
   .foot { padding: 0 10px 28px; }

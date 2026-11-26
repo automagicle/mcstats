@@ -151,7 +151,7 @@ multiple of its size (24px heads in badges, 14px in tooltips).
   with `gap: 1px` on an `--edge` background, not by borders.
 - Common gaps: tabs 6px; range controls 6px; segments inside a segmented control 2px; badges 16px;
   form fields 8px; a note after a form or table 12px.
-- Breakpoints in use: 1100px (top bar tightens), 800px (tiles go 2-up, numbers drop a size, page
+- Breakpoints in use: 1100px (top bar tightens), 860px (top bar goes to two rows), 800px (tiles go 2-up, numbers drop a size, page
   sections stack full width, the admin menu becomes a scrolling strip and the player editor shows
   either the list or the player), 600–640px (top bar wraps to two rows, grids go single column),
   520px (layout-editor blocks stack), 420px (smallest paddings).
@@ -192,7 +192,7 @@ multiple of its size (24px heads in badges, 14px in tooltips).
 | Step list | `.wiz-steps` | 220px column beside the step; number square 22×22 with cut corners, `--surface-2`; current `--picked` with the green line under it; done `--good` with the pixel check (`--pixel-check`, a 9×7 two-pixel-thick tick); current row `--surface-2` with frame. Under 800px a row of squares above the step |
 | Checklist box | `.wiz-check-head input` | the checkbox above, at 20×20; a ticked row takes a 10% `--good` wash |
 | Visibility choice | `.wiz-vis` | two raised options (Private, Public) side by side, one column under 520px; the picked one `--picked` with the green line under it |
-| Top bar | `.top` | left is the server: `.top-id` (name, then its status as a plain 8px square and 13px `--ink-2` text, no box), a 1px `--edge` rule, the tabs. Right is the visitor's own: search, Save, account, theme, each a 28px control set in (`--surface-2`, cut corners). Under 600px the status takes what's left of the first row and is cut short |
+| Top bar | `.top` | left is the server: `.top-id` (name, then its status as a plain 8px square and 13px `--ink-2` text, no box), a 1px `--edge` rule, the tabs. Right is the visitor's own: search, Save, account, theme, each a 28px control set in (`--surface-2`, cut corners). A long name is cut short with its whole name as the tooltip; tabs and controls never shrink. Tabs: Activity, Combat, Chat log, then Liveview and Admin for those allowed. 861–1100px: the status is its square alone. Under 860px: two rows (server and controls, then the tabs). Under 600px the name takes what the controls leave, the status is its square, and the tabs scroll sideways |
 | Save button | `.save-btn` | a set-in 28px control with a 10×12 pixel bookmark and "Save"; saved: the bookmark filled in `--series-1`, icon only (as it is under 900px) |
 | Account square | `.acct-me` | signed in: a 28×28 set-in square with the first letter of their email in `400 20px var(--px-20)`; the whole address is its tooltip and is in its menu. Signed out it's a plain `.btn` "Sign in" |
 | Server list row | `.my-row` | `/servers`: set into the panel (`--surface-2`, cut corners), 8px apart; grip (six 2px dots) · name 15px/700 with role tag and address · status square (`--good` up, `--critical` down) and 16px heads · quiet Remove that turns solid `--critical` for its second click. Under 560px who's on drops under the name |

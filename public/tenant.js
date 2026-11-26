@@ -231,7 +231,10 @@
     right.insertBefore(wrap, document.getElementById('theme-toggle'));
     right.insertBefore(save.btn, wrap);
     const brand = document.querySelector('.brand span:last-child');
-    if (brand && M.name) brand.textContent = M.name;
+    if (brand && M.name) {
+      brand.textContent = M.name;
+      brand.parentElement.title = M.name; // a long name is cut short in the bar
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();

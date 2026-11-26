@@ -2969,8 +2969,8 @@ function showView(name) {
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
   renderLayoutNote(name);
-  const tab = name === 'chat' || name === 'combat' || name === 'live' ? name : name === 'admin' ? null : 'activity';
-  for (const t of ['activity', 'chat', 'combat', 'live']) {
+  const tab = name === 'chat' || name === 'combat' || name === 'live' || name === 'admin' ? name : 'activity';
+  for (const t of ['activity', 'chat', 'combat', 'live', 'admin']) {
     if (t === tab) $(`#tab-${t}`).setAttribute('aria-current', 'page');
     else $(`#tab-${t}`).removeAttribute('aria-current');
   }
@@ -6341,6 +6341,7 @@ if (!DUMMY) {
 // connection and its keys), loaded the first time the tab is opened, like the 3D player model.
 function syncLiveTab() {
   $('#tab-live').hidden = !site.perms?.liveview;
+  $('#tab-admin').hidden = !site.admin;
 }
 const onLive = () => location.hash === '#/live' || location.hash.startsWith('#/live/');
 let liveLoad = null;
