@@ -111,6 +111,8 @@ async function state(env, srv, owner) {
   const ready = discordReady(env);
   const base = {
     ready, can_install: ready && !!env.DISCORD_CLIENT_SECRET, owner,
+    // which of the operator's settings the site doesn't have (their names only), for the setup steps the page shows
+    missing: ['DISCORD_APP_ID', 'DISCORD_PUBLIC_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET'].filter((k) => !env[k]),
     install_url: `/api/discord/install?server=${encodeURIComponent(srv.row.slug)}`,
     public: srv.isPublic, has_mod: srv.hasMod, has_join_link: !!srv.settings.JOIN_LINK,
     config: srv.config,
