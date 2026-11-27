@@ -15,7 +15,8 @@
     "dir:migrate:local": "wrangler d1 migrations apply mcstats-directory --local",
     "dir:migrate:remote": "wrangler d1 migrations apply mcstats-directory --remote",
     "copy-tenant": "node scripts/copy-tenant.mjs",
-    "discord:commands": "node scripts/discord-commands.mjs"
+    "discord:commands": "node scripts/discord-commands.mjs",
+    "discord:setup": "node scripts/discord-setup.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.9.0",

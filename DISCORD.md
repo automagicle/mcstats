@@ -745,6 +745,11 @@ Discord straight away.
 
 ## Operator setup (once, for the site)
 
+The quick way: do steps 1, 3 (the token) and 4 on the Developer Portal, then run
+`DISCORD_BOT_TOKEN=… npm run discord:setup` (`scripts/discord-setup.mjs`). It fills in step 2, sets step 5, runs
+step 6, and checks the redirect from step 4. After the secrets and a deploy (step 7),
+`DISCORD_BOT_TOKEN=… npm run discord:setup -- --endpoint` sets the Interactions Endpoint URL. The steps by hand:
+
 1. Make an application at <https://discord.com/developers/applications>, named `mcstats`, with the mcstats icon.
 2. **General**: copy the Application ID and Public Key into `wrangler.jsonc` `vars` (`DISCORD_APP_ID`,
    `DISCORD_PUBLIC_KEY`). Set the Interactions Endpoint URL to
