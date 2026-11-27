@@ -272,6 +272,43 @@ export const MIGRATIONS = [
       if (!hasColumn(sql, 'user_perms', 'chat_admin')) sql.exec('ALTER TABLE user_perms ADD COLUMN chat_admin INTEGER NOT NULL DEFAULT 0');
     },
   },
+  {
+    // The Discord bot (DISCORD.md, src/discord/): the Discord server this server is linked to, the codes that
+    // link one from Discord's side, what may be shared and where each feed goes, and Discord users linked to
+    // players. Webhook tokens are secrets: they're only ever read inside the site, never sent to a page.
+    v: 7,
+    up(sql) {
+      sql.exec(`CREATE TABLE IF NOT EXISTS discord_link (
+        id          INTEGER PRIMARY KEY CHECK (id = 1),
+        guild_id    TEXT NOT NULL,
+        guild_name  TEXT,
+        guild_icon  TEXT,
+        linked_at   INTEGER NOT NULL,
+        linked_by   TEXT NOT NULL,
+        broken      TEXT
+      )`);
+      sql.exec('CREATE TABLE IF NOT EXISTS discord_codes (hash TEXT PRIMARY KEY, made_by TEXT NOT NULL, expires_at INTEGER NOT NULL)');
+      sql.exec('CREATE TABLE IF NOT EXISTS discord_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      sql.exec(`CREATE TABLE IF NOT EXISTS discord_feeds (
+        feed           TEXT PRIMARY KEY,
+        channel_id     TEXT NOT NULL,
+        webhook_id     TEXT,
+        webhook_token  TEXT,
+        options        TEXT NOT NULL DEFAULT '{}',
+        last_ok        INTEGER,
+        last_error     TEXT,
+        last_error_at  INTEGER
+      )`);
+      sql.exec(`CREATE TABLE IF NOT EXISTS discord_players (
+        discord_id  TEXT PRIMARY KEY,
+        uuid        TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        how         TEXT NOT NULL,
+        at          INTEGER NOT NULL
+      )`);
+      sql.exec('CREATE INDEX IF NOT EXISTS discord_players_uuid ON discord_players (uuid)');
+    },
+  },
 ];
 
 // The table behind /mcstats connect (src/connect.js). Only adds what is missing.

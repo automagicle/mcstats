@@ -3187,3 +3187,19 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .mod-dl .site-go { text-decoration: none; }
 .adm-mod-dl .site-title { font-size: 26px; }
 
+
+/* ---------- Admin → Discord (public/app.js renderDiscordAdmin) ---------- */
+.dsc-fields { max-width: 720px; }
+.dsc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dsc-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.dsc-check input { margin-top: 3px; }
+.dsc-check input:disabled + span { opacity: 0.7; }
+.dsc-inline { display: inline-flex; gap: 4px; align-items: center; margin-right: 12px; font-size: 13px; }
+.dsc-hour { width: auto; padding: 2px 6px; }
+.dsc-feed { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 10px 0; border-top: 2px solid var(--grid); }
+.dsc-feed:first-child { border-top: 0; padding-top: 0; }
+.dsc-feed-state { font-size: 13px; color: var(--ink-2); text-align: right; }
+.dsc-feed-opts { grid-column: 1 / -1; }
+.dsc-code { display: block; padding: 8px 10px; background: var(--surface-2); font-size: 13px; user-select: all; overflow-wrap: anywhere; }
+.dsc-notice { padding: 12px 16px; margin-bottom: 16px; border-left: 4px solid var(--series-1); }
+@media (max-width: 640px) { .dsc-feed { grid-template-columns: 1fr; } .dsc-feed-state { text-align: left; } }

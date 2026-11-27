@@ -62,14 +62,18 @@
       { "name": "LINK", "class_name": "ServerLink" },
       { "name": "PRESENCE", "class_name": "Presence" },
       { "name": "LIVEVIEW", "class_name": "LiveRelay" },
-      { "name": "LIMITER", "class_name": "Limiter" }
+      { "name": "LIMITER", "class_name": "Limiter" },
+      // DISCORD_RELAY is one per server too: everything the Discord bot posts by itself goes out through it
+      // (src/discord/relay.js). See DISCORD.md.
+      { "name": "DISCORD_RELAY", "class_name": "DiscordRelay" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ServerLink"] },
     { "tag": "v2", "new_sqlite_classes": ["Presence"] },
     { "tag": "v3", "new_sqlite_classes": ["LiveRelay"] },
-    { "tag": "v4", "new_sqlite_classes": ["Tenant", "Limiter"] }
+    { "tag": "v4", "new_sqlite_classes": ["Tenant", "Limiter"] },
+    { "tag": "v5", "new_sqlite_classes": ["DiscordRelay"] }
   ],
 
   // Secrets (npx wrangler secret put NAME), never put here:
@@ -80,6 +84,8 @@
   //   SUPER_ADMIN_EMAIL  site operators: can do everything on any server they sign in to
   //   CHAT_INGEST_TOKEN  the old shared mod token; still accepted for the first server (LEGACY_SLUG)
   //   MC_SERVER          the old server address; copied into the first server's settings once
+  //   DISCORD_BOT_TOKEN  the Discord bot's token (Developer Portal → Bot); without it the bot is off. DISCORD.md
+  //   DISCORD_CLIENT_SECRET  the Discord app's OAuth2 secret, for "Add to Discord" on the dashboard
   "vars": {
     // Every server runs the mod, which needs this Minecraft version; player pages draw armor and items with its textures.
     "MC_VERSION": "26.2",
@@ -89,7 +95,11 @@
     // had before sends its pages here (src/index.js); that address still takes the uploads of mods set up before the domain.
     "SITE_ORIGIN": "https://mcstats.live",
     "EMAIL_FROM": "mcstats <noreply@emptyconsole.com>",
-    "MAX_SERVERS_PER_OWNER": "3"
+    "MAX_SERVERS_PER_OWNER": "3",
+    // The Discord app (DISCORD.md, "Operator setup"): its Application ID and Public Key from the Developer
+    // Portal. Both are public. Left empty, the bot is off and Admin → Discord says so.
+    "DISCORD_APP_ID": "",
+    "DISCORD_PUBLIC_KEY": ""
   },
 
   "observability": { "enabled": true }

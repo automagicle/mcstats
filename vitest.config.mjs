@@ -17,6 +17,11 @@ export default defineConfig(async () => {
           SUPER_ADMIN_EMAIL: 'operator@example.org',
           ADMIN_EMAIL: 'oldadmin@example.org',
           EMAIL_DEV_LOG: '1',
+          // the Discord bot (test/discord.test.js signs interactions with the matching private key)
+          DISCORD_APP_ID: '100000000000000001',
+          DISCORD_PUBLIC_KEY: 'fd434ef878a1ddc23c3233f375a5480458a46874b778047e7802efddb867f165',
+          DISCORD_BOT_TOKEN: 'test-bot-token',
+          DISCORD_CLIENT_SECRET: 'test-client-secret',
           TEST_DIRECTORY_MIGRATIONS: directory,
           TEST_LEGACY_MIGRATIONS: legacy,
         },

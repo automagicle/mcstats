@@ -11,6 +11,7 @@
 //   /api/site/*          joining and making servers, and each account's list of them (src/site.js, src/myservers.js)
 //                        /api/ops/*  the operator's (src/ops.js)
 //   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
+//   /api/discord/*       the Discord bot: Discord's interactions, adding it to a Discord server, player faces (src/discord/)
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear
 //   everything else      the static pages in public/ (/, /join, /new, /account, …: SITE_PATHS in src/directory.js)
@@ -33,12 +34,16 @@ import { ADDONS, addonList } from './addons.js';
 import { lookAttrs, lookOf } from './look.js';
 import { layoutOf } from './layout.js';
 import { commandsOf } from './commands.js';
+import { handleDiscord } from './discord/index.js';
+import { discordAdmin } from './discord/admin.js';
+import { uploadOrigin } from './site.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
 export { LiveRelay } from './liveview.js';
 export { Tenant } from './tenant.js';
 export { Limiter } from './limiter.js';
+export { DiscordRelay } from './discord/relay.js';
 
 const INGEST = /^\/api\/ingest\/(chat|gear|online|advancements|link|liveview)$/;
 // Handled here rather than in the server's object: WebSockets (passed straight to the server's Presence,
@@ -182,6 +187,8 @@ async function server(request, env, url, ctx, slug, rest) {
   const { who, account } = proved;
 
   if (rest === '/api/mine') return mine(request, env, url, row, stub, proved);
+  // Admin → Discord talks to Discord and the directory, so it's answered here (src/discord/admin.js)
+  if (rest === '/api/admin/discord') return discordAdmin(request, env, url, row, stub, who, uploadOrigin(env, url));
   if (isApi && !HERE(rest)) {
     return stub.fetch(forServer(request, url, rest, { 'X-MCS-Who': JSON.stringify(who) }));
   }
@@ -264,6 +271,7 @@ export default {
     if (p.startsWith('/api/site/')) return handleSite(request, env, url);
     if (p.startsWith('/api/account/')) return handleAccount(request, env, url);
     if (p.startsWith('/api/ops/')) return handleOps(request, env, url);
+    if (p.startsWith('/api/discord/')) return handleDiscord(request, env, url, ctx);
 
     const s = /^\/s\/([^/]+)(\/.*)?$/.exec(p);
     if (s) return oldAddress(request, env, url, s[1], s[2] || '');

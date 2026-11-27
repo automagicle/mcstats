@@ -92,7 +92,7 @@ final class Uploader {
 		add(kind, uuid, name, display, rich, text, null);
 	}
 
-	// via: "web" for chat sent from the dashboard.
+	// via: "web" for chat sent from the dashboard, "discord" for chat sent from Discord (2.4.0).
 	void add(String kind, UUID uuid, String name, JsonArray display, JsonArray rich, String text, String via) {
 		add(kind, uuid, name, display, rich, text, via, null);
 	}
