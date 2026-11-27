@@ -380,13 +380,22 @@ $('#name-toggle').addEventListener('click', (e) => {
 //   rosterColumn()         -> { key, title, plural, none, options: [[value, label]], label(value) }
 //                             a column on Admin → Teams' roster and in Players, kept in the roster row's `key`
 //   sampleData()           -> options for the sample data's generator (public/dummy.js)
+//   page()                 -> { id, title, show(root, { refresh }), names?(root) }  a page of its own, at
+//                             #/<id>, with a tab after Chat log. show draws it into root (a promise; called
+//                             again with refresh: true each minute while it's open), names redraws it when
+//                             the IGN / Name switch is used
 // With no add-ons, every one of those places is simply empty.
 const ADDONS = Array.isArray(window.MCS_ADDONS) ? window.MCS_ADDONS : [];
 let addonsSetUp = false;
 function addons(hook, ...args) {
   if (!addonsSetUp) {
     addonsSetUp = true;
-    for (const a of ADDONS) a.setup?.({ el, $, icon, recall, remember, ago, rosterOf, BASE });
+    for (const a of ADDONS) a.setup?.({
+      el, $, icon, recall, remember, ago, rosterOf, BASE,
+      // for an add-on's page: the server's data, players as the rest of the site shows them, teams, tooltips
+      api, fmt, headImg, shownName, teamName, playerLink, showTip, hideTip, setItemIcon, advTexture,
+      rosterLoad, activityTeams, activityTeam, archived,
+    });
   }
   const out = [];
   for (const a of ADDONS) {
@@ -398,6 +407,28 @@ function addons(hook, ...args) {
     }
   }
   return out;
+}
+
+// The add-ons' own pages: [{ id, title, show, names?, root }]. The first time this is asked, each gets its
+// tab (after Chat log) and an empty view to draw in.
+let addonPageList = null;
+function addonPages() {
+  if (addonPageList) return addonPageList;
+  addonPageList = [];
+  for (const p of addons('page')) {
+    if (!p || !/^[a-z][a-z0-9-]{0,23}$/.test(p.id || '') || typeof p.show !== 'function' || document.getElementById(`view-${p.id}`)) continue;
+    $('#tab-live').before(el('a', { href: `#/${p.id}`, id: `tab-${p.id}`, text: p.title || p.id }), '\n        ');
+    const root = el('section', { id: `view-${p.id}`, class: 'addon-view', hidden: '' });
+    $('#view-chat').after(root);
+    addonPageList.push({ ...p, root });
+  }
+  return addonPageList;
+}
+const addonPageAt = (hash = location.hash) => addonPages().find((p) => hash === `#/${p.id}`) || null;
+async function showAddonPage(page, opts = {}) {
+  showView(page.id);
+  document.title = `${page.title} · ${SITE}`;
+  await page.show(page.root, opts);
 }
 
 /* ---------- layout: how each page's sections and number tiles are arranged (Admin → Layout) ---------- */
@@ -3038,9 +3069,10 @@ async function loadSnapshots(from) {
   return state.snaps.rows.filter((r) => r[0] >= from);
 }
 
-// Shows one of the views ('home', 'player', 'chat', 'combat', 'admin', 'live') and marks its tab.
+// Shows one of the views ('home', 'player', 'chat', 'combat', 'admin', 'live', or an add-on's page) and marks its tab.
 function showView(name) {
-  for (const v of ['home', 'player', 'chat', 'combat', 'admin', 'live']) $(`#view-${v}`).hidden = v !== name;
+  const extra = addonPages().map((p) => p.id);
+  for (const v of ['home', 'player', 'chat', 'combat', 'admin', 'live', ...extra]) $(`#view-${v}`).hidden = v !== name;
   if (name !== 'player') clearPlayerModel();
   if (name !== 'live') liveMod?.hide(); // Liveview stops drawing, and lets go of its connection after a while
   document.body.classList.toggle('chat-mode', name === 'chat');
@@ -3048,8 +3080,8 @@ function showView(name) {
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
   renderLayoutNote(name);
-  const tab = name === 'chat' || name === 'combat' || name === 'live' || name === 'admin' ? name : 'activity';
-  for (const t of ['activity', 'chat', 'combat', 'live', 'admin']) {
+  const tab = name === 'chat' || name === 'combat' || name === 'live' || name === 'admin' || extra.includes(name) ? name : 'activity';
+  for (const t of ['activity', 'chat', 'combat', 'live', 'admin', ...extra]) {
     if (t === tab) $(`#tab-${t}`).setAttribute('aria-current', 'page');
     else $(`#tab-${t}`).removeAttribute('aria-current');
   }
@@ -6407,6 +6439,9 @@ function rerenderNames() {
     renderOnlineThen(true);
     renderComposer();
     renderChatOnline();
+  } else {
+    const page = addonPages().find((p) => !p.root.hidden);
+    try { page?.names?.(page.root); } catch (err) { console.error(`add-on page ${page.id}:`, err); }
   }
 }
 
@@ -7662,7 +7697,7 @@ const analyticsPage = () => {
   if (m) return `player:${m[1].toLowerCase()}`;
   if (onLive()) return 'live';
   if (location.hash.startsWith('#/admin')) return 'admin';
-  return { '#/chat': 'chat', '#/combat': 'combat' }[location.hash] || 'home';
+  return { '#/chat': 'chat', '#/combat': 'combat' }[location.hash] || addonPageAt()?.id || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
 function sendHit(beat) {
@@ -7922,7 +7957,7 @@ function renderAnalytics() {
   const root = $('#analytics');
   const rows = d.rows.filter((r) => !(stats.noAdmins && d.visitors[r.visitor]?.admin));
   const who = (v) => d.visitors[v]?.name || v;
-  const pageName = (p) => (p.startsWith('player:') ? `Player · ${d.players[p.slice(7)] || 'unknown'}` : { home: 'Activity', chat: 'Chat log', combat: 'Combat', admin: 'Admin' }[p] || p);
+  const pageName = (p) => (p.startsWith('player:') ? `Player · ${d.players[p.slice(7)] || 'unknown'}` : { home: 'Activity', chat: 'Chat log', combat: 'Combat', admin: 'Admin', live: 'Liveview', advancements: 'Advancements' }[p] || p);
   const time = (min) => (min < 60 ? `${min} min` : `${fmtHours(min / 60)} h`);
   const dayTs = (day) => Date.parse(`${day}T00:00:00Z`) / 1000;
 
@@ -9290,6 +9325,7 @@ async function route() {
     else if (location.hash === '#/admin/roles') await showRoles();
     else if (location.hash === '#/admin/discord') await showDiscordAdmin();
     else if (onLive()) await showLive();
+    else if (addonPageAt()) await showAddonPage(addonPageAt());
     else await showHome();
     renderUnread();
     countView();
@@ -9633,6 +9669,7 @@ async function refresh() {
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
     else if (location.hash.startsWith('#/admin')) { /* the admin page reloads only on a change */ }
     else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
+    else if (addonPageAt()) await showAddonPage(addonPageAt(), { refresh: true });
     else await showHome();
     renderUnread();
     showError('');
