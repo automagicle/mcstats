@@ -48,6 +48,10 @@ final class WebChatLink {
 		// The dashboard has a newer version of this mod (2.1.0): { current, latest, urgent, urgent_why: [],
 		// changes: [], more, jar }, sent each time the connection opens while this one is out of date.
 		default void update(JsonObject m) {}
+
+		// The /mcstats commands the dashboard's admins switched off (2.4.0): their ids, all of them each time.
+		// Said in the hello (commands_off) and whenever the list changes ({ type: "commands", off }).
+		default void commands(java.util.List<String> off) {}
 	}
 
 	// Liveview (2.0.0) borrows this connection for three small things: telling the dashboard whether it's on
@@ -334,6 +338,12 @@ final class WebChatLink {
 		return page;
 	}
 
+	private static java.util.List<String> strings(com.google.gson.JsonArray a) {
+		java.util.List<String> out = new java.util.ArrayList<>();
+		for (JsonElement e : a) if (e.isJsonPrimitive() && out.size() < 64) out.add(e.getAsString());
+		return out;
+	}
+
 	private void handle(WebSocket ws, String message) {
 		if (message.equals("pong")) return;
 		JsonObject m;
@@ -348,6 +358,11 @@ final class WebChatLink {
 				String p = m.get("page").getAsString();
 				if (p.matches("https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._~/-]*)?/")) page = p;
 			}
+			if (m.has("commands_off") && m.get("commands_off").isJsonArray()) handler.commands(strings(m.getAsJsonArray("commands_off")));
+			return;
+		}
+		if (type.equals("commands")) { // an admin switched /mcstats commands on or off (2.4.0)
+			if (m.has("off") && m.get("off").isJsonArray()) handler.commands(strings(m.getAsJsonArray("off")));
 			return;
 		}
 		if (type.equals("web")) { // who's on the website now

@@ -149,14 +149,15 @@
         </section>
 
         <!-- what players can type in game (the mod's /mcstats and /liveview; app.js MC_COMMANDS) -->
-        <section class="card" data-sec="commands">
+        <!-- unless Admin → Mod and commands says otherwise it starts closed, and the heading opens it (app.js renderCommands) -->
+        <section class="card cmd-card cmd-fold cmd-closed" data-sec="commands">
           <div class="card-head">
             <div class="card-title card-title-stacked">
               <h2>In-game commands</h2>
-              <span class="card-sub">type these in Minecraft chat · click one to copy it</span>
+              <span class="card-sub">what players can type in Minecraft chat · click to show</span>
             </div>
           </div>
-          <ul class="cmd-list" id="cmd-list"></ul>
+          <ul class="cmd-list" id="cmd-list" hidden></ul>
         </section>
       </div>
     </section>
@@ -321,7 +322,8 @@
             <a href="#/admin/roles" id="adm-tab-roles" hidden>Roles</a>
             <span class="adm-rail-rule" aria-hidden="true"></span>
             <a href="#/admin/moderation" id="adm-tab-moderation">Chat and deaths</a>
-            <a href="#/admin/mod" id="adm-tab-mod">Mod and data<i class="adm-rail-dot" id="adm-mod-dot" hidden></i></a>
+            <a href="#/admin/mod" id="adm-tab-mod">Mod and commands<i class="adm-rail-dot" id="adm-mod-dot" hidden></i></a>
+            <a href="#/admin/data" id="adm-tab-data">Connection and data</a>
             <a href="#/admin/analytics" id="adm-tab-analytics">Analytics</a>
           </div>
         </nav>

@@ -19,6 +19,9 @@
 // check, and the mod is asked here to open its Liveview connection when someone wants to watch. The
 // view itself goes over that other connection, not this one.
 //
+// The mod is also told here which /mcstats commands the server's admins switched off (src/commands.js, mod
+// 2.4.0): in the hello each time it connects (commands_off), and with { type: 'commands', off } when that changes.
+//
 // The socket hibernates while idle, so an idle link costs next to nothing. The mod's pings (every 30
 // seconds) are answered by this object itself, not by Cloudflare's automatic reply: after a deploy
 // the automatic reply could keep answering for a connection this object no longer holds, so the mod
@@ -34,6 +37,7 @@ import { ADMIN_SENDER, deliverWhisper, parseCommand } from './whisper.js';
 import { modUpdateMessage } from './modupdate.js';
 import { uploadOrigin } from './site.js';
 import { accountRequest, connectedPlayer, pendingFor } from './connect.js';
+import { cleanCommandsOff, commandsOff } from './commands.js';
 
 export const MAX_WEB_CHAT = 256; // the game's own limit for a chat message
 const IGN_RE = /^[A-Za-z0-9_.]{1,20}$/;
@@ -70,6 +74,19 @@ export async function linkStatus(env) {
 // Whether this side holds the mod's web chat connection, or null if that couldn't be found out. The
 // mod is told with each online list (src/online.js): after a deploy its connection can look open to it
 // while this side no longer has it, and that's how it finds out to reconnect.
+// The /mcstats commands switched off changed (Admin → Mod and commands): tell the mod now, if it's connected.
+// It hears the list again each time it connects, so nothing is lost when it isn't. Returns whether it was told.
+export async function tellCommands(env, off) {
+  if (!env.LINK) return false;
+  try {
+    const res = await link(env).fetch('https://link/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ off }) });
+    return !!(await res.json()).told;
+  } catch (err) {
+    console.error('link commands:', err.message);
+    return false;
+  }
+}
+
 export async function linkUp(env) {
   if (!env.LINK) return null;
   try {
@@ -93,7 +110,9 @@ export async function connectLink(request, env) {
   // on the end stays (the mod only takes an address that ends in one); the site sends /<slug>/ on to /<slug>.
   const slug = env.TENANT?.slug;
   const page = slug ? `${uploadOrigin(env, new URL(request.url))}/${encodeURIComponent(slug)}/` : '';
-  return link(env).fetch(new Request(`https://link/connect?page=${encodeURIComponent(page)}`, request));
+  // and the /mcstats commands this server's admins switched off (mod 2.4.0; src/commands.js)
+  const off = commandsOff(env).join(',');
+  return link(env).fetch(new Request(`https://link/connect?page=${encodeURIComponent(page)}&off=${encodeURIComponent(off)}`, request));
 }
 
 const ADMIN = '@admin'; // roster_email's stand-in IGN for an admin (scripts/roster-sql.mjs)
@@ -333,13 +352,25 @@ export class ServerLink extends DurableObject {
       if (ua) this.ctx.waitUntil(this.ctx.storage.put('version', ua[1]));
       if (mc) this.ctx.waitUntil(this.ctx.storage.put('minecraft', mc[1]));
       this.ctx.acceptWebSocket(server);
-      server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT, ...(page && { page }) }));
+      // commands_off: the /mcstats commands this server's admins switched off (mod 2.4.0 takes them away; older ones ignore it)
+      const off = (cleanCommandsOff(reqUrl.searchParams.get('off') || '') || '').split(',').filter(Boolean);
+      server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT, ...(page && { page }), commands_off: off }));
       // a newer mod than this one is out (src/modupdate.js): 2.1.0 and newer tell operators in game; older ones ignore it
       const update = ua ? modUpdateMessage(ua[1], 8, mc ? mc[1] : null) : null;
       if (update) server.send(JSON.stringify(update));
       server.send(JSON.stringify({ type: 'web', names: await this.webList() }));
       this.ctx.waitUntil(tellPresence(this.env, '/link', { up: true }));
       return new Response(null, { status: 101, webSocket: client });
+    }
+
+    // the /mcstats commands switched off changed (src/commands.js): { off: [ids] }
+    if (path === '/commands' && request.method === 'POST') {
+      const { off } = await request.json();
+      const list = (cleanCommandsOff(Array.isArray(off) ? off : []) || '').split(',').filter(Boolean);
+      const ws = this.socket();
+      let told = false;
+      if (ws) try { ws.send(JSON.stringify({ type: 'commands', off: list })); told = true; } catch {}
+      return json({ ok: true, told });
     }
 
     // who has the dashboard open changed (src/presence.js): { names }

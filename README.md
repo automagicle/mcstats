@@ -161,7 +161,8 @@ log is left empty.
 ## Admin page
 
 `#/admin` (linked in the footer for admins only) is one page with a menu down the left: **Players**, **Teams**,
-**Layout**, **Server**, **Chat and deaths**, **Mod and data**, **Analytics**, and, for owners, **Roles**. On a
+**Layout**, **Server**, **Chat and deaths**, **Mod and commands**, **Connection and data**, **Analytics**, and, for
+owners, **Roles**. On a
 phone the menu is a strip that scrolls sideways. One Save bar at the bottom covers every section. It only
 appears when something is unsaved, lists each change, and puts a count on the section it belongs to. Reset
 puts that draft back. Nothing on the site changes until Save, and Save applies all of it or none of it.
@@ -461,11 +462,19 @@ npx wrangler d1 execute mcstats --remote --command "INSERT OR REPLACE INTO playe
 npx wrangler d1 execute mcstats --remote --command "DELETE FROM player_aliases WHERE alias = 'OldName'"
 ```
 
+**Mod and commands** has the mod's download (every jar, starting on the one for the Minecraft version the server
+runs), what changed when a newer one is out, and the mod's in-game commands (`src/commands.js`). Each `/mcstats`
+command has a switch, saved as it's clicked: one that's off is gone in game for everyone (it doesn't run, and
+leaves tab completion, `/mcstats help`, the menus and the list on the Activity page). `/mcstats help` always stays,
+and the `/liveview` commands are listed to read. The mod hears at once over its connection, and again every time it
+connects; it needs mod 2.4.0, and an older mod keeps every command. The same section decides whether the **In-game
+commands** box on the Activity page starts closed (it does unless switched off; its heading opens it).
+
 ## Getting the mod
 
 The jar is in `public/downloads/` (kept in git, so a deploy from a push serves it). People find it at **`/mod`**: the
 download, what the server needs (read from the mod itself) and where the key comes from. `/mod` is linked from the home
-page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Server → Mod** (for its admins)
+page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Mod and commands** (for its admins)
 and a small "Server owners: get the mod" link in the footer. Players never need it, and nothing else points them at it.
 
 ## Sign-in

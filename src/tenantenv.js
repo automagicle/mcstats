@@ -8,13 +8,15 @@
 //   MC_SERVER, TZ_NAME, CURRENT_SEASON, SEASONn_START, SEASONn_OPENS, CHAT_RESETS, PUBLIC, ACCENT, TAB_STYLE, LAYOUT, ABOUT
 //                           this server's settings (ACCENT and TAB_STYLE are how its pages look: src/look.js;
 //                           LAYOUT how they're arranged and ABOUT its description: src/layout.js)
+//   COMMANDS_OFF, COMMANDS_FOLD  which /mcstats commands are switched off, and whether the Activity page's
+//                           commands box starts closed (src/commands.js)
 //   ADMIN_EMAIL             not used: who's an admin is in this server's user_perms (roles)
 //   CHAT_INGEST_TOKEN       not passed on: the mod's key is checked before a request gets here,
 //                           and INGEST_OK says it was
 //   TENANT                  { id, slug, name }
 import { remoteDb } from './sql.js';
 
-export const SETTING_RE = /^(MC_SERVER|TZ_NAME|CURRENT_SEASON|CHAT_RESETS|PUBLIC|ACCENT|TAB_STYLE|LAYOUT|ABOUT|BANNER|SEASON\d{1,2}_(START|OPENS))$/;
+export const SETTING_RE = /^(MC_SERVER|TZ_NAME|CURRENT_SEASON|CHAT_RESETS|PUBLIC|ACCENT|TAB_STYLE|LAYOUT|ABOUT|BANNER|COMMANDS_OFF|COMMANDS_FOLD|SEASON\d{1,2}_(START|OPENS))$/;
 
 // The site-wide values every server shares.
 const SHARED = ['ASSETS', 'MC_VERSION', 'SUPER_ADMIN_EMAIL', 'SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', 'EMAIL_DEV_LOG', 'LIMITER', 'DEV_NO_AUTH', 'DEV_EMAIL'];

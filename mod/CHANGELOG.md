@@ -19,6 +19,16 @@ lost), put this line straight under the version's heading, and the notice says s
 
     **Urgent:** why, in one sentence.
 
+## 2.4.0 (2026-11-26)
+
+### Added
+
+- **Switch commands off from the dashboard.** Admin → Mod and commands lists every `/mcstats` command with a
+  switch. A command that's switched off is gone in game for everyone within a moment: it doesn't run, it
+  leaves tab completion and `/mcstats help`, and the menus lose its button. `/mcstats help` always stays.
+  The choice is kept in `config/mcstats-commands-off.txt`, so it holds after a restart even before the
+  dashboard is reached. Needs this version: an older mod keeps every command whatever the dashboard says.
+
 ## 2.3.0 (2026-11-26)
 
 ### Added

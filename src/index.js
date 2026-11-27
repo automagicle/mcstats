@@ -32,6 +32,7 @@ import { serveHomeAsset } from './mcassets.js';
 import { ADDONS, addonList } from './addons.js';
 import { lookAttrs, lookOf } from './look.js';
 import { layoutOf } from './layout.js';
+import { commandsOf } from './commands.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
@@ -216,6 +217,8 @@ async function server(request, env, url, ctx, slug, rest) {
     layout: layoutOf(g.settings), about: g.settings.ABOUT || '',
     icon: g.settings.ICON_AT ? `/${row.slug}/api/icon?v=${g.settings.ICON_AT}` : null,
     banner: g.settings.BANNER || '',
+    // the /mcstats commands switched off, and whether the commands box on the Activity page starts closed (src/commands.js)
+    commands: commandsOf(g.settings),
   };
   // Only this server's add-ons are put on its page (src/addons.js), ahead of app.js so they're there when it starts.
   const extras = addons.flatMap((id) => [

@@ -142,6 +142,10 @@ Choices are kept in `config/mcstats-profiles.json`.
 | `/mcstats reset` | Back to the automatic look |
 | `/mcstats help` | Lists these in game |
 
+The dashboard's admins can switch any of these off but `/mcstats help` (2.4.0 or newer; Admin → Mod and
+commands). A command that's off doesn't run, and leaves tab completion, `/mcstats help` and the menus. What's
+off is kept in `config/mcstats-commands-off.txt`, so it holds from the start of the server.
+
 `/liveview help` lists Liveview's commands, as does the dashboard's Liveview page.
 
 ## Liveview
@@ -255,7 +259,7 @@ Needs JDK 25.
 
 ```bash
 cd mod
-./gradlew build      # → versions/<mc>/build/libs/mcstats-chat-2.3.0+mc<mc>.jar
+./gradlew build      # → versions/<mc>/build/libs/mcstats-chat-2.4.0+mc<mc>.jar
 ```
 
 For another Minecraft version, update `minecraft_version` and `fabric_api_version` in `gradle.properties`

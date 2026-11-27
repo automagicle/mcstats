@@ -90,6 +90,11 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 			public void update(JsonObject m) {
 				newUpdate(m);
 			}
+
+			@Override
+			public void commands(java.util.List<String> off) {
+				McstatsCommands.setOff(off, server);
+			}
 		});
 		instance = this;
 
@@ -151,6 +156,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		GearReporter gear = new GearReporter(uploader, profiles);
 		ServerTickEvents.END_SERVER_TICK.register(gear::tick);
 		// players connect their mcstats account in game (2.3.0), to chat as themselves from the website
+		McstatsCommands.load(dir.resolve("mcstats-commands-off.txt")); // the ones switched off on the dashboard (2.4.0)
 		McstatsMenus menus = new McstatsMenus(profiles, link::page, new Accounts(link));
 		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
 				McstatsCommands.register(dispatcher, menus));

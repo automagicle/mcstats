@@ -1,6 +1,13 @@
 package dev.mcserverstats.chatlog;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -14,6 +21,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 // /mcstats: menus for players to see stats and choose how they look on the dashboard (McstatsMenus).
@@ -28,65 +36,125 @@ import net.minecraft.server.level.ServerPlayer;
 //   /mcstats reset                 back to the automatic look
 //   /mcstats help                  this list
 // Everything here is open to every player; nothing changes the world.
+//
+// The dashboard's admins can switch any of them off but help (2.4.0; Admin, Mod and commands): the dashboard
+// sends the ids that are off over the web chat connection (WebChatLink), and such a command is then gone for
+// everyone: it doesn't run, tab completion and /mcstats help leave it out, and the menus lose its button.
+// The list is kept in config/mcstats-commands-off.txt, so it still holds after a restart, before the
+// dashboard has been heard from.
 final class McstatsCommands {
 	private McstatsCommands() {
 	}
 
 	private static McstatsMenus menus;
 
-	// Also listed on the dashboard's player page and README.
+	// Also listed on the dashboard's Activity page and README. The third column is the id the dashboard
+	// switches the command off by (src/commands.js there); help has none, and stays.
 	static final String[][] HELP = {
-			{"/mcstats view", "Open the mcstats menu"},
-			{"/mcstats profile", "Choose what you hold and your particles on the website"},
-			{"/mcstats stats", "Every player's stats"},
-			{"/mcstats stats <player>", "One player's stats"},
-			{"/mcstats top", "Leaderboards"},
-			{"/mcstats link", "A link to your page on the website"},
-			{"/mcstats connect", "Connect your mcstats account, to chat as yourself on the website"},
-			{"/mcstats disconnect", "Disconnect your mcstats account"},
-			{"/mcstats particle <name>", "Set your particles (or none)"},
-			{"/mcstats reset", "Go back to the automatic look"},
-			{"/mcstats help", "This list"},
+			{"/mcstats view", "Open the mcstats menu", "view"},
+			{"/mcstats profile", "Choose what you hold and your particles on the website", "profile"},
+			{"/mcstats stats", "Every player's stats", "stats"},
+			{"/mcstats stats <player>", "One player's stats", "stats"},
+			{"/mcstats top", "Leaderboards", "top"},
+			{"/mcstats link", "A link to your page on the website", "link"},
+			{"/mcstats connect", "Connect your mcstats account, to chat as yourself on the website", "connect"},
+			{"/mcstats disconnect", "Disconnect your mcstats account", "disconnect"},
+			{"/mcstats particle <name>", "Set your particles (or none)", "particle"},
+			{"/mcstats reset", "Go back to the automatic look", "reset"},
+			{"/mcstats help", "This list", null},
 	};
+	private static final Set<String> IDS = Set.of("view", "profile", "stats", "top", "link", "connect", "disconnect", "particle", "reset");
+
+	// the commands the dashboard's admins switched off, and the file they're kept in
+	private static volatile Set<String> off = Set.of();
+	private static volatile Path offFile;
+
+	static boolean on(String id) {
+		return !off.contains(id);
+	}
+
+	// At startup: what was off when the server last heard from the dashboard.
+	static void load(Path file) {
+		offFile = file;
+		try {
+			if (Files.exists(file)) off = known(java.util.List.of(Files.readString(file, StandardCharsets.UTF_8).split("[\\s,]+")));
+		} catch (IOException | RuntimeException e) {
+			ChatLogMod.LOG.warn("Couldn't read {}; every /mcstats command is on until the dashboard says otherwise", file, e);
+		}
+	}
+
+	private static Set<String> known(Collection<String> ids) {
+		Set<String> out = new TreeSet<>();
+		for (String id : ids) if (id != null && IDS.contains(id)) out.add(id);
+		return Set.copyOf(out);
+	}
+
+	// The dashboard said which commands are off (when the connection opens, and whenever an admin changes it).
+	// Any thread. Players get their command list again, so tab completion follows at once.
+	static void setOff(Collection<String> ids, MinecraftServer server) {
+		Set<String> next = known(ids);
+		if (next.equals(off)) return;
+		off = next;
+		ChatLogMod.LOG.info(next.isEmpty() ? "Every /mcstats command is on again (set on the dashboard)"
+				: "/mcstats commands switched off on the dashboard: " + String.join(", ", new TreeSet<>(next)));
+		Path file = offFile;
+		if (file != null) {
+			try {
+				Files.writeString(file, String.join(",", new TreeSet<>(next)) + "\n", StandardCharsets.UTF_8);
+			} catch (IOException e) {
+				ChatLogMod.LOG.warn("Couldn't write {}", file, e);
+			}
+		}
+		if (server != null) {
+			server.execute(() -> {
+				for (ServerPlayer p : server.getPlayerList().getPlayers()) server.getCommands().sendCommands(p);
+			});
+		}
+	}
 
 	static void register(CommandDispatcher<CommandSourceStack> dispatcher, McstatsMenus m) {
 		menus = m;
 		dispatcher.register(Commands.literal("mcstats")
-				.executes(c -> openOrHelp(c, "main"))
+				.executes(c -> on("view") ? openOrHelp(c, "main") : help(c.getSource()))
 				.then(Commands.literal("help").executes(c -> help(c.getSource())))
-				.then(Commands.literal("view").executes(c -> openOrHelp(c, "main")))
-				.then(Commands.literal("menu").executes(c -> openOrHelp(c, "main")))
-				.then(Commands.literal("profile").executes(c -> openOrHelp(c, "profile")))
-				.then(Commands.literal("top").executes(c -> openOrHelp(c, "top")))
+				.then(Commands.literal("view").requires(s -> on("view")).executes(c -> openOrHelp(c, "main")))
+				.then(Commands.literal("menu").requires(s -> on("view")).executes(c -> openOrHelp(c, "main")))
+				.then(Commands.literal("profile").requires(s -> on("profile")).executes(c -> openOrHelp(c, "profile")))
+				.then(Commands.literal("top").requires(s -> on("top")).executes(c -> openOrHelp(c, "top")))
 				.then(Commands.literal("stats")
+						.requires(s -> on("stats"))
 						.executes(c -> openOrHelp(c, "stats"))
 						.then(Commands.argument("player", StringArgumentType.word())
 								.suggests((c, b) -> SharedSuggestionProvider.suggest(
 										PlayerRecords.all(c.getSource().getServer()).stream().map(Entry::name), b))
 								.executes(McstatsCommands::statsOf)))
 				.then(Commands.literal("link")
+						.requires(s -> on("link"))
 						.executes(c -> link(c, null))
 						.then(Commands.argument("player", StringArgumentType.word())
 								.suggests((c, b) -> SharedSuggestionProvider.suggest(
 										PlayerRecords.all(c.getSource().getServer()).stream().map(Entry::name), b))
 								.executes(c -> link(c, StringArgumentType.getString(c, "player")))))
 				.then(Commands.literal("connect")
+						.requires(s -> on("connect"))
 						.executes(c -> connect(c, null))
 						.then(Commands.argument("email", StringArgumentType.greedyString())
 								.executes(c -> connect(c, StringArgumentType.getString(c, "email").strip()))))
-				.then(Commands.literal("disconnect").executes(McstatsCommands::disconnect))
+				.then(Commands.literal("disconnect").requires(s -> on("disconnect")).executes(McstatsCommands::disconnect))
 				.then(Commands.literal("particle")
+						.requires(s -> on("particle"))
 						.then(Commands.argument("name", StringArgumentType.word())
 								.suggests((c, b) -> SharedSuggestionProvider.suggest(
 										java.util.stream.Stream.concat(java.util.stream.Stream.of("none"),
 												McstatsMenus.PARTICLES.stream().map(McstatsMenus.Particle::id)), b))
 								.executes(McstatsCommands::particle)))
-				.then(Commands.literal("reset").executes(McstatsCommands::reset)));
+				.then(Commands.literal("reset").requires(s -> on("reset")).executes(McstatsCommands::reset)));
 	}
 
 	static int help(CommandSourceStack source) {
 		source.sendSuccess(() -> Component.literal("mcstats commands").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
 		for (String[] line : HELP) {
+			if (line[2] != null && !on(line[2])) continue; // switched off on the dashboard
 			String command = line[0];
 			String typed = command.contains("<") ? command.substring(0, command.indexOf('<')) : command;
 			Component c = Component.literal("  " + command).withStyle(s -> s.withColor(ChatFormatting.AQUA)

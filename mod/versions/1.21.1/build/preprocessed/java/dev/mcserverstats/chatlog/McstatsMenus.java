@@ -107,11 +107,11 @@ final class McstatsMenus {
 				if (me != null) lore.add(stat("Playtime", me.playtime(), ChatFormatting.GREEN));
 				lore.add(Component.empty());
 				lore.add(text("Click to view!", ChatFormatting.YELLOW));
-				b.put(13, new Button(icon(head(player.getUUID(), player), text("Your Profile", ChatFormatting.GREEN), lore), c -> profile(player).open()));
+				if (McstatsCommands.on("profile")) b.put(13, new Button(icon(head(player.getUUID(), player), text("Your Profile", ChatFormatting.GREEN), lore), c -> profile(player).open()));
 
 				int online = server.getPlayerList().getPlayerCount();
 				int known = PlayerRecords.all(server).size();
-				b.put(20, new Button(icon(Items.FILLED_MAP, text("Server Stats", ChatFormatting.GREEN), List.of(
+				if (McstatsCommands.on("stats")) b.put(20, new Button(icon(Items.FILLED_MAP, text("Server Stats", ChatFormatting.GREEN), List.of(
 						text("Every player who has played here.", ChatFormatting.GRAY),
 						text("Hover a head for a summary, click", ChatFormatting.GRAY),
 						text("it for all of their stats.", ChatFormatting.GRAY),
@@ -121,13 +121,13 @@ final class McstatsMenus {
 						Component.empty(),
 						text("Click to view!", ChatFormatting.YELLOW))), c -> serverStats(player, Sort.ONLINE, 0).open()));
 
-				b.put(22, new Button(icon(Items.GOLD_INGOT, text("Leaderboards", ChatFormatting.GOLD), List.of(
+				if (McstatsCommands.on("top")) b.put(22, new Button(icon(Items.GOLD_INGOT, text("Leaderboards", ChatFormatting.GOLD), List.of(
 						text("The top players for playtime,", ChatFormatting.GRAY),
 						text("kills, deaths and distance.", ChatFormatting.GRAY),
 						Component.empty(),
 						text("Click to view!", ChatFormatting.YELLOW))), c -> leaderboards(player).open()));
 
-				b.put(24, new Button(icon(Items.SPYGLASS, text("Website", ChatFormatting.AQUA), List.of(
+				if (McstatsCommands.on("link")) b.put(24, new Button(icon(Items.SPYGLASS, text("Website", ChatFormatting.AQUA), List.of(
 						text("Get a link to your page on the", ChatFormatting.GRAY),
 						text("mcstats website.", ChatFormatting.GRAY),
 						Component.empty(),
@@ -136,7 +136,7 @@ final class McstatsMenus {
 					sendLink(player, player.getUUID(), "your page");
 				}));
 
-				b.put(32, accountButton(player));
+				if (McstatsCommands.on("connect")) b.put(32, accountButton(player));
 
 				b.put(30, new Button(icon(Items.WRITABLE_BOOK, text("Commands", ChatFormatting.YELLOW), List.of(
 						text("/mcstats help lists them all.", ChatFormatting.GRAY),
@@ -227,15 +227,15 @@ final class McstatsMenus {
 				pl.add(Component.empty());
 				pl.add(text("Click to choose!", ChatFormatting.YELLOW));
 				ItemStack pIcon = icon(p == null ? Items.BLAZE_POWDER : p.icon(), text("Particle Effect", ChatFormatting.LIGHT_PURPLE), pl);
-				b.put(23, new Button(p == null ? pIcon : ChestGui.glow(pIcon), c -> menus.particles(player).open()));
+				if (McstatsCommands.on("particle")) b.put(23, new Button(p == null ? pIcon : ChestGui.glow(pIcon), c -> menus.particles(player).open()));
 
-				b.put(25, new Button(icon(Items.BOOK, text("Your Stats", ChatFormatting.GREEN), List.of(
+				if (McstatsCommands.on("stats")) b.put(25, new Button(icon(Items.BOOK, text("Your Stats", ChatFormatting.GREEN), List.of(
 						text("Everything the game counts", ChatFormatting.GRAY),
 						text("about you here.", ChatFormatting.GRAY),
 						Component.empty(),
 						text("Click to view!", ChatFormatting.YELLOW))), c -> menus.playerStats(player, player.getUUID(), this).open()));
 
-				b.put(39, new Button(icon(Items.PAPER, text("View on Website", ChatFormatting.AQUA), List.of(
+				if (McstatsCommands.on("link")) b.put(39, new Button(icon(Items.PAPER, text("View on Website", ChatFormatting.AQUA), List.of(
 						text("Your page, with your 3D model.", ChatFormatting.GRAY),
 						text("Changes show up within a minute.", ChatFormatting.GRAY),
 						Component.empty(),
@@ -243,7 +243,7 @@ final class McstatsMenus {
 					player.closeContainer();
 					sendLink(player, player.getUUID(), "your page");
 				}));
-				b.put(41, new Button(icon(Items.BARRIER, text("Reset Display", ChatFormatting.RED), List.of(
+				if (McstatsCommands.on("reset")) b.put(41, new Button(icon(Items.BARRIER, text("Reset Display", ChatFormatting.RED), List.of(
 						text("Go back to the automatic look:", ChatFormatting.GRAY),
 						text("your best weapon, no particles.", ChatFormatting.GRAY),
 						Component.empty(),
@@ -253,7 +253,7 @@ final class McstatsMenus {
 					open();
 				}));
 
-				b.put(48, ChestGui.back(main(player)));
+				if (McstatsCommands.on("view")) b.put(48, ChestGui.back(main(player)));
 				b.put(49, ChestGui.close(player));
 			}
 		};
@@ -426,7 +426,7 @@ final class McstatsMenus {
 				sortLore.add(text("Click to change!", ChatFormatting.YELLOW));
 				b.put(50, new Button(icon(Items.HOPPER, text("Sorted by " + sort.label, ChatFormatting.GREEN), sortLore),
 						c -> serverStats(player, sort.next(), 0).open()));
-				b.put(48, ChestGui.back(main(player)));
+				if (McstatsCommands.on("view")) b.put(48, ChestGui.back(main(player)));
 				b.put(49, ChestGui.close(player));
 			}
 		};
@@ -547,7 +547,7 @@ final class McstatsMenus {
 				b.put(22, board(server, Items.SKELETON_SKULL, Sort.MOB_KILLS, e -> PlayerRecords.number(e.mobKills())));
 				b.put(23, board(server, Items.TOTEM_OF_UNDYING, Sort.DEATHS, e -> PlayerRecords.number(e.deaths())));
 				b.put(24, board(server, Items.LEATHER_BOOTS, Sort.DISTANCE, e -> PlayerRecords.distance(e.travelledCm())));
-				b.put(48, ChestGui.back(main(player)));
+				if (McstatsCommands.on("view")) b.put(48, ChestGui.back(main(player)));
 				b.put(49, ChestGui.close(player));
 			}
 

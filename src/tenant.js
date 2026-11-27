@@ -27,6 +27,7 @@ import { ADDONS, addonList } from './addons.js';
 import { handleServerAdmin } from './serveradmin.js';
 import { handleSeasons } from './seasonadmin.js';
 import { modOnline } from './online.js';
+import { cleanCommandsOff } from './commands.js';
 
 const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
 const MINUTE = 60_000;
@@ -213,6 +214,14 @@ export class Tenant extends DurableObject {
       } else if (k === 'BANNER') {
         // the header at the top of the Activity page: '1' shown, '0' hidden, '' as it comes (shown once there's an icon)
         clean[k] = v === '1' || v === '0' ? v : '';
+      } else if (k === 'COMMANDS_OFF') {
+        // the /mcstats commands switched off in game (src/commands.js)
+        const off = cleanCommandsOff(v);
+        if (off == null) return { error: 'That isn’t a list of /mcstats commands.' };
+        clean[k] = off;
+      } else if (k === 'COMMANDS_FOLD') {
+        // the In-game commands box on the Activity page: '0' starts open, '' (as it comes) closed
+        clean[k] = v === '0' ? '0' : '';
       } else if (k === 'TZ_NAME') {
         try {
           if (v) new Intl.DateTimeFormat('en', { timeZone: v });

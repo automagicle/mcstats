@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "mcstats_chat",
-	"version": "2.3.0",
+	"version": "2.4.0",
 	"name": "mcstats",
 	"description": "Sends chat, joins, leaves, deaths (with who did it) and advancements, what players wear and carry, and their advancement progress, to an mcstats dashboard, shows chat sent from the dashboard in game, passes whispers between the game and the dashboard, and lets the dashboard's admins watch the world live (Liveview), with a second key to run commands, and gives players /mcstats menus for stats and how they look on the dashboard.",
 	"license": "MIT",

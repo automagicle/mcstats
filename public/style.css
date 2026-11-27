@@ -2963,7 +2963,34 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 
 /* the top of the Activity page: the server's icon, name and description */
 /* the in-game commands on the Activity page: each command a button that copies it */
+/* closed until its heading is clicked (unless Admin → Mod and commands says it starts open): a chevron on the right */
+.cmd-fold > .card-head { cursor: pointer; flex-wrap: nowrap; user-select: none; }
+.cmd-fold > .card-head::after { content: ""; flex: none; width: 8px; height: 8px; margin-right: 6px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: translateY(2px) rotate(-135deg); transition: transform 0.12s; }
+.cmd-fold.cmd-closed > .card-head::after { transform: translateY(-2px) rotate(45deg); }
+.cmd-fold > .card-head:hover::after { border-color: var(--ink); }
+.cmd-fold > .card-head:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; }
+.cmd-closed > .card-head { margin-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .cmd-fold > .card-head::after { transition: none; } }
+/* Admin → Mod and commands: each command with its switch, and Liveview's to read */
+.adm-cmds { list-style: none; margin: 0 0 14px; padding: 0; max-width: 78ch; font-size: 13.5px; }
+.adm-cmds li { padding: 7px 0; border-top: 1px solid var(--grid); }
+.adm-cmds li:first-child { border-top: 0; }
+.adm-cmd { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.adm-cmd input { flex: none; margin: 4px 0 0; }
+.adm-cmd:has(input:disabled) { cursor: default; }
+.adm-cmd-rows { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.adm-cmd-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px; min-width: 0; }
+.adm-cmds code { font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--surface-2); padding: 2px 7px; white-space: nowrap; }
+.adm-cmd-what { color: var(--ink-2); min-width: 0; }
+.adm-cmds li.off code { color: var(--muted); text-decoration: line-through; }
+.adm-cmds li.off .adm-cmd-what { color: var(--muted); }
+.adm-cmd-tag { flex: none; font-size: 12.5px; }
+.adm-cmd-fold { gap: 8px; white-space: normal; }
+.adm-cmds-cap { margin: 12px 0 2px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
+.adm-cmd-warn { padding: 8px 10px; box-shadow: var(--frame), inset 3px 0 0 var(--warning); color: var(--ink); }
 .cmd-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 6px 20px; }
+/* display: grid above would otherwise beat the hidden attribute */
+.cmd-list[hidden] { display: none; }
 .cmd-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .cmd-code { flex: none; font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--surface-2); border: 0; padding: 2px 7px; cursor: pointer; white-space: nowrap; }
 .cmd-code:hover { color: var(--accent-green); }

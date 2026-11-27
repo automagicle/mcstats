@@ -18,6 +18,7 @@ import { applyRules, cleanRule, MAX_RULES, rulesState } from './chatrules.js';
 import { rewordDeaths } from './chat.js';
 import { EMAIL_RE } from './session.js';
 import { connectedList, disconnectPlayer } from './connect.js';
+import { COMMANDS_MOD, commandsOf, commandsSupported } from './commands.js';
 
 const IGN_RE = /^[A-Za-z0-9_]{1,32}$/;
 const TEAM_RE = /^[a-z][a-z0-9-]{0,19}$/;
@@ -84,9 +85,12 @@ export async function adminState(env, season) {
     deleted: deleted.results,
     link,
     mod_update: modUpdate(link?.last_version, undefined, link?.minecraft), // a newer mod to install, with what changed (src/modupdate.js)
-    // every jar the site has, for the Mod and data page's download picker
+    // every jar the site has, for the Mod and commands page's download picker
     // suggested: the newest jar for the Minecraft version the server's mod last said it runs on
     mod: { version: MOD.version, minecraft_built: MOD.minecraft_built, downloads: MOD.downloads, server_minecraft: link?.minecraft ?? null, suggested: modJar(link?.minecraft).file },
+    // which /mcstats commands are switched off and whether the Activity page's box starts closed (src/commands.js);
+    // supported: whether the server's mod is new enough to take them away (null: it has never connected)
+    commands: { ...commandsOf(env), needs: COMMANDS_MOD, supported: commandsSupported(link?.last_version) },
     chat_rules: await rulesState(db), // which chat log lines are left out (src/chatrules.js)
   });
 }

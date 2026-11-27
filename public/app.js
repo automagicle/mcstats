@@ -549,22 +549,43 @@ function renderAbout() {
 }
 
 // What players can type in game: the mod's /mcstats commands (mod McstatsCommands.HELP). Keep them in step with the mod.
+//   [command, what it does, id]: the id is what Admin → Mod and commands switches it off by (src/commands.js);
+//   help has none, and can't be switched off.
 const MC_COMMANDS = [
-  ['/mcstats', 'Open the mcstats menu'],
-  ['/mcstats profile', 'Choose what you hold and your particles on the website'],
-  ['/mcstats stats', 'Every player’s stats'],
-  ['/mcstats stats <player>', 'One player’s stats'],
-  ['/mcstats top', 'Leaderboards'],
-  ['/mcstats link', 'A link to your page on the website'],
-  ['/mcstats connect', 'Connect your mcstats account, to chat as yourself here'],
-  ['/mcstats particle <name>', 'Set your particles (or none)'],
-  ['/mcstats reset', 'Go back to the automatic look'],
-  ['/mcstats help', 'This list, in game'],
+  ['/mcstats', 'Open the mcstats menu', 'view'],
+  ['/mcstats profile', 'Choose what you hold and your particles on the website', 'profile'],
+  ['/mcstats stats', 'Every player’s stats', 'stats'],
+  ['/mcstats stats <player>', 'One player’s stats', 'stats'],
+  ['/mcstats top', 'Leaderboards', 'top'],
+  ['/mcstats link', 'A link to your page on the website', 'link'],
+  ['/mcstats connect', 'Connect your mcstats account, to chat as yourself here', 'connect'],
+  ['/mcstats disconnect', 'Disconnect your mcstats account', 'disconnect'],
+  ['/mcstats particle <name>', 'Set your particles (or none)', 'particle'],
+  ['/mcstats reset', 'Go back to the automatic look', 'reset'],
+  ['/mcstats help', 'This list, in game', null],
 ];
+// The mod's /liveview commands (LiveviewCommands.java), for Admin → Mod and commands. op: operators only.
+const LIVEVIEW_COMMANDS = [
+  ['/liveview help', 'List these commands in game', false],
+  ['/liveview who', 'Who is watching right now', true],
+  ['/liveview access', 'Which dashboard accounts may use Liveview', true],
+  ['/liveview access viewer <account>', 'Let an account watch', true],
+  ['/liveview access control <account>', 'Let an account watch and use controls', true],
+  ['/liveview access remove <account>', 'Take an account off the list', true],
+  ['/liveview key viewer', 'Make a new viewer key (the old one stops working)', true],
+  ['/liveview key control', 'Make a new control key (the old one stops working)', true],
+];
+// The In-game commands box on the Activity page: the commands that are on (MCS.commands.off are the ones the
+// server's admins switched off), each a button that copies it. Unless the admins chose otherwise the box
+// starts closed, and its heading opens it. open: what this visitor did with it since the page loaded.
+let commandsOpen = null;
 function renderCommands() {
   const list = $('#cmd-list');
-  if (!list || list.firstChild) return;
-  for (const [cmd, what] of MC_COMMANDS) {
+  if (!list) return;
+  const off = MCS.commands?.off || [];
+  const fold = MCS.commands ? MCS.commands.fold !== false : true;
+  const rows = MC_COMMANDS.filter(([, , id]) => !id || !off.includes(id));
+  list.replaceChildren(...rows.map(([cmd, what]) => {
     // up to the first "<": the part that can be typed as it is, as the mod's own help does
     const typed = cmd.includes('<') ? cmd.slice(0, cmd.indexOf('<')) : cmd;
     const btn = el('button', { type: 'button', class: 'cmd-code', title: `Copy ${typed.trim()}`, text: cmd });
@@ -576,7 +597,31 @@ function renderCommands() {
         toast('Couldn’t copy. Type it in Minecraft chat.', { error: true });
       }
     });
-    list.append(el('li', { class: 'cmd-row' }, btn, el('span', { class: 'cmd-what', text: what })));
+    return el('li', { class: 'cmd-row' }, btn, el('span', { class: 'cmd-what', text: what }));
+  }));
+  const card = list.closest('.card'), head = card?.querySelector('.card-head');
+  if (!head) return;
+  const open = !fold || commandsOpen === true;
+  card.classList.toggle('cmd-fold', fold);
+  card.classList.toggle('cmd-closed', !open);
+  list.hidden = !open;
+  const sub = head.querySelector('.card-sub');
+  if (sub) sub.textContent = open ? 'type these in Minecraft chat · click one to copy it' : 'what players can type in Minecraft chat · click to show';
+  if (fold) {
+    head.setAttribute('role', 'button');
+    head.setAttribute('tabindex', '0');
+    head.setAttribute('aria-expanded', String(open));
+    head.setAttribute('aria-controls', 'cmd-list');
+  } else for (const a of ['role', 'tabindex', 'aria-expanded', 'aria-controls']) head.removeAttribute(a);
+  if (!head.dataset.fold) {
+    head.dataset.fold = '1';
+    const flip = () => {
+      if (!card.classList.contains('cmd-fold')) return;
+      commandsOpen = card.classList.contains('cmd-closed');
+      renderCommands();
+    };
+    head.addEventListener('click', flip);
+    head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
   }
 }
 
@@ -6622,7 +6667,7 @@ window.addEventListener('beforeunload', (e) => {
 // The admin page's sections, and the box each draws in (Players, Teams and the two at-once ones share #admin).
 const ADMIN_SECTIONS = {
   players: ['admin', 'Players'], teams: ['admin', 'Teams'], layout: ['layout-admin', 'Layout'], server: ['server-admin', 'Server'],
-  roles: ['roles', 'Roles'], moderation: ['admin', 'Chat and deaths'], mod: ['admin', 'Mod and data'], analytics: ['analytics', 'Analytics'],
+  roles: ['roles', 'Roles'], moderation: ['admin', 'Chat and deaths'], mod: ['admin', 'Mod and commands'], data: ['admin', 'Connection and data'], analytics: ['analytics', 'Analytics'],
 };
 function adminTab(name) {
   admin.tab = name;
@@ -6638,7 +6683,7 @@ function adminTab(name) {
   renderAdminBar();
 }
 
-// Players, Teams, Chat and deaths, Mod and data: all drawn from GET /api/admin. pick: a player to edit.
+// Players, Teams, Chat and deaths, Mod and commands, Connection and data: all drawn from GET /api/admin. pick: a player to edit.
 async function showAdmin(section = 'players', pick = null) {
   showView('admin');
   adminTab(section);
@@ -7190,16 +7235,6 @@ function renderServerAdmin(focusKey) {
       tabs('line', 'Line', 'The current tab is a shade greyer, with a line in the accent color under it.'),
       tabs('frame', 'Frame', 'The current tab is set in, with a frame around it and no color.')), null, 'tab_style'));
 
-  /* ---- the mod: what the Minecraft server runs to fill these pages in ---- */
-  const mod = d.mod ? card('Mod', 'runs on the Minecraft server; players don’t install anything',
-    field(`mcstats ${d.mod.version}`, el('div', {},
-      d.mod.downloads ? modPicker(d.mod.downloads, { suggested: d.mod.jar, latest: d.mod.version })
-        : el('a', { class: 'btn btn-primary site-go', href: d.mod.jar_url, download: d.mod.jar, text: `Download mcstats ${d.mod.version}` }),
-      el('div', { class: 'srv-mod' }, el('a', { href: '/mod', text: 'What it needs and how to install it' }))),
-      'Pick the Minecraft version the server runs. If the server has an older mod, replace its jar in mods/ and restart.'),
-    owner ? field('Key', el('div', { class: 'srv-mod' }, el('a', { href: `/new?server=${encodeURIComponent(d.slug)}&step=4`, text: 'Make a new key in setup' })),
-      'The key in the mod’s config file is what ties it to this server. A new one stops the old one working at once.') : null) : null;
-
   /* ---- add-ons: the site's operators only ---- */
   const extras = d.known_addons?.length ? card('Add-ons', 'features only some servers have; only the site’s operators see this',
     ...d.known_addons.map((a) => {
@@ -7214,7 +7249,7 @@ function renderServerAdmin(focusKey) {
 
   const seasonsCard = srv.seasons ? renderSeasons(card, redraw) : null;
   const formErr = srv.errors.form ? el('div', { class: 'notice notice-error', role: 'alert', text: srv.errors.form }) : null;
-  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(mod ? [mod] : []), ...(extras ? [extras] : []));
+  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(extras ? [extras] : []));
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   renderAdminBar();
 }
@@ -8058,6 +8093,35 @@ const IGN_OK = /^[A-Za-z0-9_]{1,32}$/;
 const EMAIL_OK = /^[^\s@"'<>,;]{1,64}@[^\s@"'<>,;]{1,180}\.[^\s@"'<>,;]{2,}$/;
 const playerHref = (name) => `#/admin/players/${encodeURIComponent(name)}`;
 
+// Admin → Mod and commands: a switch was clicked. Saved at once (POST /api/admin/server, src/serveradmin.js);
+// the mod hears straight away if it's connected, and the Activity page's box follows on this page.
+async function commandsSave(body, fk, done, game = false) {
+  if (admin.cmdBusy || !admin.data?.commands) return;
+  admin.cmdBusy = true;
+  try {
+    const res = await fetch('/api/admin/server', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const r = await res.json().catch(() => null);
+    if (!res.ok || !r?.commands) throw new Error(r?.error || `The server answered ${res.status}.`);
+    const c = admin.data.commands = { ...admin.data.commands, ...r.commands };
+    MCS.commands = r.commands;
+    if (srv.data) srv.data.commands = r.commands;
+    renderCommands();
+    const where = !game ? '' : c.supported === false ? ` · in game once the mod is ${c.needs} or newer`
+      : r.commands_told ? ' in game now' : ' · the mod isn’t connected, so in game once it is';
+    toast(`${done}${where}`, { ms: where.length > 12 ? 5000 : 3000 });
+  } catch (err) {
+    toast(`Not saved: ${err.message}`, { error: true, ms: 5000 });
+  } finally {
+    admin.cmdBusy = false;
+    if (admin.tab === 'mod') renderAdmin();
+    document.querySelector(`#admin [data-fk="${CSS.escape(fk)}"]`)?.focus({ preventScroll: true });
+  }
+}
+
 function renderAdmin() {
   const d = admin.data;
   if (!d) return;
@@ -8643,7 +8707,60 @@ function renderAdmin() {
         : 'It runs on the Minecraft server and sends what happens there to these pages. Players don’t install anything.' }),
       modPicker(m.downloads, { suggested: m.suggested, latest: m.version }),
       el('p', { class: 'site-sub' }, 'Put the jar in the server’s ', el('code', { text: 'mods/' }), ' folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
-        el('a', { href: '/mod', text: 'What it needs and how to install it' })));
+        el('a', { href: '/mod', text: 'What it needs and how to install it' })),
+      // the key that ties the mod to this server is made in setup, by its owners
+      site.super && MCS.slug ? el('p', { class: 'site-sub' }, 'The key in the mod’s config file is what ties it to this server. ',
+        el('a', { href: `/new?server=${encodeURIComponent(MCS.slug)}&step=4`, text: 'Make a new key in setup' }), ' (the old one stops working at once).') : null);
+  };
+
+  // the mod's /mcstats commands, each with a switch: one that's off is gone in game for everyone (src/commands.js).
+  // And whether the In-game commands box on the Activity page starts closed. Both are saved as they're clicked.
+  const commandsCard = () => {
+    const c = d.commands;
+    if (!c) return null;
+    const busy = !!admin.cmdBusy;
+    const groups = [];
+    for (const [cmd, what, id] of MC_COMMANDS) {
+      const g = id && groups.find((x) => x.id === id);
+      if (g) g.rows.push([cmd, what]);
+      else groups.push({ id, rows: [[cmd, what]] });
+    }
+    const row = ({ id, rows }) => {
+      const on = !id || !c.off.includes(id);
+      const fk = `cmd:${id || 'help'}`;
+      const box = el('input', { type: 'checkbox', 'data-fk': fk, disabled: !id || busy ? '' : null });
+      box.checked = on;
+      const name = rows[0][0];
+      box.addEventListener('change', () => commandsSave(
+        { commands_off: box.checked ? c.off.filter((x) => x !== id) : [...c.off, id] }, fk, box.checked ? `${name} is on` : `${name} is off`, true));
+      return el('li', { class: on ? null : 'off' }, el('label', { class: 'adm-cmd' }, box,
+        el('span', { class: 'adm-cmd-rows' }, ...rows.map(([cmd, what]) => el('span', { class: 'adm-cmd-row' },
+          el('code', { text: cmd === '/mcstats' ? '/mcstats · /mcstats view' : cmd }), el('span', { class: 'adm-cmd-what', text: what })))),
+        !id ? el('span', { class: 'muted adm-cmd-tag', text: 'always on' }) : on ? null : el('span', { class: 'adm-rule-tag hide', text: 'Off' })));
+    };
+    const old = c.supported === false
+      ? el('p', { class: 'adm-note adm-cmd-warn' }, `The server’s mod is ${d.link?.last_version || 'an older version'}, and switching commands off needs ${c.needs} or newer. Until it’s updated every command stays on in game, whatever is picked here.`)
+      : c.supported == null ? el('p', { class: 'adm-note', text: `Switching a command off needs mod ${c.needs} or newer on the server.` }) : null;
+    const fold = el('input', { type: 'checkbox', 'data-fk': 'cmd:fold', disabled: busy ? '' : null });
+    fold.checked = c.fold;
+    fold.addEventListener('change', () => commandsSave({ commands_fold: fold.checked }, 'cmd:fold',
+      fold.checked ? 'The commands box starts closed' : 'The commands box starts open'));
+    return card('/mcstats commands', 'what players can type in game · saved as you click',
+      el('p', { class: 'adm-note', text: 'A command that’s switched off is gone for everyone within a moment: it doesn’t run, and it leaves tab completion, /mcstats help, the menus and the list on the Activity page.' }),
+      old,
+      el('ul', { class: 'adm-cmds' }, ...groups.map(row)),
+      field('On the Activity page', el('label', { class: 'adm-check adm-check-lg adm-cmd-fold' }, fold, el('span', { text: 'Keep the In-game commands box closed until someone opens it' })),
+        'On by default. The box’s heading opens it. Switched off, the list is always showing.'));
+  };
+
+  // the mod's /liveview commands, to read: they aren't switched on or off here
+  const liveviewCard = () => {
+    const list = (rows) => el('ul', { class: 'adm-cmds adm-cmds-ro' }, ...rows.map(([cmd, what]) => el('li', {},
+      el('span', { class: 'adm-cmd-row' }, el('code', { text: cmd }), el('span', { class: 'adm-cmd-what', text: what })))));
+    return card('/liveview commands', 'for reference; these can’t be switched off here',
+      el('p', { class: 'adm-note', text: 'They come with Liveview. All but help only work for the Minecraft server’s operators, so players can’t run them.' }),
+      el('h3', { class: 'adm-cmds-cap', text: 'Everyone' }), list(LIVEVIEW_COMMANDS.filter((r) => !r[2])),
+      el('h3', { class: 'adm-cmds-cap', text: 'Operators' }), list(LIVEVIEW_COMMANDS.filter((r) => r[2])));
   };
 
   // a newer mod than the server runs (src/modupdate.js): what changed in each release since, and how to update
@@ -8675,7 +8792,8 @@ function renderAdmin() {
     players: playersView,
     teams: () => [teamsCard(), rosterCard()],
     moderation: () => [rulesCard(), deletedCard(), uncountedCard()],
-    mod: () => [updateCard(), downloadCard(), linkCard(), gapsCard()],
+    mod: () => [updateCard(), downloadCard(), commandsCard(), liveviewCard()],
+    data: () => [linkCard(), gapsCard()],
   };
   const root = $('#admin');
   const listTop = root.querySelector('.adm-plist')?.scrollTop ?? null;
@@ -8896,7 +9014,7 @@ async function route() {
   if (location.hash !== '#/admin/server') srvLeave(); // a look tried on Admin → Server but not saved
   const m = location.hash.match(/^#\/player\/([0-9a-fA-F-]{36})$/);
   // Admin's sections: #/admin (Players), #/admin/players/<name>, #/admin/teams, …
-  const adm = location.hash.match(/^#\/admin(?:\/(players|teams|moderation|mod)(?:\/([^/]{1,40}))?)?$/);
+  const adm = location.hash.match(/^#\/admin(?:\/(players|teams|moderation|mod|data)(?:\/([^/]{1,40}))?)?$/);
   try {
     if (m) await showPlayer(m[1]);
     else if (location.hash === '#/chat') await showChat();

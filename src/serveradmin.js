@@ -5,6 +5,10 @@
 //                            and { icon: 'data:image/png;base64,…' | '' }     admins (a square PNG; '' removes it)
 //                            and { join_link: 'new' | 'off' }                  admins: the link that lets players in
 //                                                                               without the password (src/joinlink.js)
+//                            and { commands_off: [ids], commands_fold: bool }  admins: which /mcstats commands are
+//                                                                               off in game, and whether the Activity
+//                                                                               page's commands box starts closed
+//                                                                               (src/commands.js)
 //                            and { slug, public, password + confirm }           owners
 //                            and { addons: [ids] }                              the site's operators
 //
@@ -26,6 +30,8 @@ import { ADDONS, addonList } from './addons.js';
 import { lookOf } from './look.js';
 import { MOD } from './modinfo.gen.js';
 import { iconFromDataUrl, layoutOf } from './layout.js';
+import { cleanCommandsOff, commandsOf } from './commands.js';
+import { tellCommands } from './link.js';
 
 // Why the address can't be changed, or null. The old shared mod token finds the first server by its address
 // (LEGACY_SLUG), so that server stays put until it has a key of its own and the shared token is gone.
@@ -50,11 +56,13 @@ function state(t, row, perms) {
     // whether the owner shows that header: '1', '0', or '' for as it comes (shown once there's an icon)
     banner: t.settings.BANNER || '',
     layout: layoutOf(t.settings),
+    // which /mcstats commands are switched off, and whether the Activity page's commands box starts closed
+    commands: commandsOf(t.settings),
     addons: addonList(t.settings),
     // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
     can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
     slug_locked: slugLock(t),
-    // the mod this site offers (src/modinfo.gen.js, read from mod/): for the Mod card's download
+    // the mod this site offers (src/modinfo.gen.js, read from mod/)
     mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built, downloads: MOD.downloads },
     ...(perms.super && { known_addons: Object.entries(ADDONS).map(([id, a]) => ({ id, name: a.name, about: a.about })) }),
   };
@@ -99,6 +107,14 @@ export async function handleServerAdmin(t, request, url, who) {
     if (typeof b.layout !== 'object' || Array.isArray(b.layout)) return bad('That isn’t a layout.', 'layout');
     patch.LAYOUT = JSON.stringify(b.layout);
   }
+  let commandsOff;
+  if (has('commands_off')) {
+    commandsOff = Array.isArray(b.commands_off) ? cleanCommandsOff(b.commands_off) : null;
+    if (commandsOff == null) return bad('That isn’t a list of /mcstats commands.', 'commands_off');
+    if (commandsOff !== (cleanCommandsOff(t.settings.COMMANDS_OFF) || '')) patch.COMMANDS_OFF = commandsOff;
+    else commandsOff = undefined;
+  }
+  if (has('commands_fold')) patch.COMMANDS_FOLD = b.commands_fold === false || b.commands_fold === '0' ? '0' : '';
   let icon;
   if (has('icon')) {
     if (b.icon === '') icon = null;
@@ -146,6 +162,12 @@ export async function handleServerAdmin(t, request, url, who) {
       return bad(out.error, field);
     }
   }
+  // the mod takes the commands away as soon as it hears (and hears again whenever it connects)
+  let told;
+  if (commandsOff !== undefined) {
+    told = await tellCommands(env, commandsOff.split(',').filter(Boolean));
+    console.log(`server: ${who.email} set the /mcstats commands switched off on ${row.slug} to [${commandsOff}]${told ? '' : ' (the mod isn’t connected)'}`);
+  }
   if (icon !== undefined) await t.setIcon(icon);
   if (has('join_link')) {
     await t.setJoinLink(b.join_link === 'new');
@@ -185,5 +207,5 @@ export async function handleServerAdmin(t, request, url, who) {
   }
   const headers = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   for (const c of cookies) headers.append('Set-Cookie', c);
-  return new Response(JSON.stringify({ ...state(t, row, perms), ...(slug && { moved: serverPath(row.slug) }) }), { headers });
+  return new Response(JSON.stringify({ ...state(t, row, perms), ...(slug && { moved: serverPath(row.slug) }), ...(told !== undefined && { commands_told: told }) }), { headers });
 }
