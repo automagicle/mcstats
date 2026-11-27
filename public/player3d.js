@@ -566,6 +566,36 @@ export async function buildModel(spec, keep, cancelled = () => spec.signal?.abor
     }
   }));
 
+  // An elytra in the chest slot: the two folded wings on the back, as the game's ElytraModel has them
+  // at rest. Each is a 10×20×2 box (grown by 1) hung from its shoulder and overlapping the other,
+  // tipped 15° away from the back and 15° outward, two pixels behind the body. The game's model has y
+  // down and faces -z; here y is up and the front is +z, which is a half turn about x.
+  const chest = spec.armor?.chest;
+  if (chest && (chest.asset || chest.id) === 'elytra') {
+    const img = await loadImage(TEX('entity/equipment/wings/elytra'));
+    if (img && !cancelled()) {
+      const tex = keep(pixelTexture(img));
+      const mat = material(tex);
+      const gmat = chest.glint && glintTex ? keep(glintMaterial(tex, glintTex, new THREE.Vector2(2, 1))) : null;
+      if (gmat) glints.push(gmat);
+      const TILT = Math.PI / 12;
+      for (const side of [1, -1]) { // their left wing, then the right (the same picture, mirrored)
+        const wing = new THREE.Group();
+        wing.position.set(side * 5, 0, -2);
+        wing.rotation.set(TILT, 0, side * TILT, 'ZYX');
+        const m = mesh(cube(10, 20, 2, 22, 0, img.width, img.height, 1, side < 0), mat, side * -5, -10, -1);
+        m.userData.slot = 'chest';
+        wing.add(m);
+        if (gmat) {
+          const shine = new THREE.Mesh(m.geometry, gmat);
+          shine.position.copy(m.position);
+          wing.add(shine);
+        }
+        parts.body.add(wing);
+      }
+    }
+  }
+
   // Held items: the weapon in the main (right) hand, the egg in the off (left) hand, placed exactly
   // as the game places them (see HELD above).
   // The item drawn in a hand, as a group of its own (not yet in the hand), or null.
@@ -828,6 +858,15 @@ export async function mountPlayer(container, spec) {
   let swapping = 0;
   const ray = new THREE.Raycaster();
   return {
+    // Shows them turned `from` radians away, coming round to face the front (the landing page's arrival).
+    turnIn(from) {
+      if (drag || reducedMotion()) return;
+      clearTimeout(settle);
+      spin = from;
+      spinSpeed = 0;
+      spinHome = true;
+      wake();
+    },
     // The armor slot or hand ('head' … 'feet', 'mainhand', 'offhand') under a point on the page, or
     // null: whatever the pointer meets first, so skin in front of a piece hides it.
     pick(x, y) {

@@ -939,16 +939,73 @@
     show(2);
   }
 
-  // The top bar says who's signed in, on every one of these pages: a link to /account.
+  // The top bar says who's signed in, on every one of these pages: the first letter of their email in a square
+  // (the whole address is its tooltip), a link to /account. Beside it, "Your servers": a link to /servers that
+  // opens a list of them when pointed at or focused, each one a link straight to that server.
   const acct = h('a', { class: 'btn btn-quiet acct-btn top-acct', href: '/account', hidden: true });
-  const mineLink = h('a', { class: 'btn btn-quiet top-acct top-mine', href: '/servers', hidden: true, 'aria-current': page === 'servers' ? 'page' : null });
-  toggle?.before(mineLink, acct);
+  const chevron = () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    for (const [k, v] of Object.entries({ class: 'top-chev', width: '9', height: '6', viewBox: '0 0 9 6', 'aria-hidden': 'true', 'shape-rendering': 'crispEdges', fill: 'currentColor' })) svg.setAttribute(k, v);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M0 0h9v2H0zM1 2h7v1H1zM2 3h5v1H2zM3 4h3v1H3zM4 5h1v1H4z');
+    svg.append(path);
+    return svg;
+  };
+  const mineLabel = h('span');
+  const mineLink = h('a', { class: 'top-link top-mine', href: '/servers', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-current': page === 'servers' ? 'page' : null }, mineLabel, chevron());
+  const mineList = h('div', { class: 'top-drop', role: 'menu', 'aria-label': 'Your servers' });
+  const mine = h('div', { class: 'top-menu top-acct', hidden: true }, mineLink, mineList);
+  toggle?.before(mine, acct);
+  // the list: asked for the first time the menu opens, and again if that was over a minute ago
+  let mineAt = 0, mineOpen = false, mineTimer = 0;
+  const mineRow = (sv) => {
+    const state = sv.access === false || sv.access == null ? 'none' : sv.status;
+    const what = state === 'up' ? (sv.online ? `${sv.online} online` : 'Nobody on') : state === 'down' ? 'Offline' : state === 'paused' ? 'Paused' : '';
+    return h('a', { class: 'top-drop-row', role: 'menuitem', href: sv.access === false ? `/join?server=${encodeURIComponent(sv.slug)}` : `/${sv.slug}` },
+      h('span', { class: 'my-dot', 'data-state': state }), h('span', { class: 'top-drop-name', text: sv.name || sv.slug }),
+      what ? h('span', { class: 'top-drop-what', text: what }) : null);
+  };
+  const drawMine = (servers) => mineList.replaceChildren(
+    ...(servers == null ? [h('p', { class: 'top-drop-note', text: 'Loading…' })]
+      : servers.length ? servers.map(mineRow)
+        : [h('p', { class: 'top-drop-note', text: 'No servers yet. Join one or create your own, and it shows up here.' })]),
+    h('a', { class: 'top-drop-all', role: 'menuitem', href: '/servers', text: servers?.length ? 'Manage your servers' : 'Open your servers' }));
+  drawMine(null);
+  const openMine = (on) => {
+    clearTimeout(mineTimer);
+    if (on === mineOpen) return;
+    mineOpen = on;
+    mine.classList.toggle('open', on);
+    mineLink.setAttribute('aria-expanded', String(on));
+    if (on && Date.now() - mineAt > 60000) {
+      mineAt = Date.now();
+      api('/api/site/mine').then((r) => drawMine(r.servers || []), () => { mineAt = 0; drawMine([]); });
+    }
+  };
+  // a moment's grace on the way out, so crossing the gap to the list doesn't close it
+  mine.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') openMine(true); });
+  mine.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') { clearTimeout(mineTimer); mineTimer = setTimeout(() => openMine(false), 160); } });
+  mine.addEventListener('focusin', () => openMine(true));
+  mine.addEventListener('focusout', (e) => { if (!mine.contains(e.relatedTarget)) openMine(false); });
+  mine.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && mineOpen) { openMine(false); mineLink.blur(); }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = [...mineList.querySelectorAll('a')];
+    if (!items.length) return;
+    e.preventDefault();
+    openMine(true);
+    const i = items.indexOf(document.activeElement);
+    (items[e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : i - 1] ?? mineLink).focus();
+  });
   function markAccount(email) {
-    mineLink.hidden = !email;
-    mineLink.textContent = matchMedia('(max-width: 640px)').matches ? 'Servers' : 'Your servers';
-    // on a phone the bar has no room for an address
-    acct.textContent = email ? (matchMedia('(max-width: 640px)').matches ? 'Account' : email) : 'Sign in';
+    const small = matchMedia('(max-width: 640px)').matches;
+    mine.hidden = !email;
+    mineLabel.textContent = small ? 'Servers' : 'Your servers';
+    acct.className = email ? 'acct-btn acct-me top-acct' : 'btn btn-quiet acct-btn top-acct';
+    acct.textContent = email ? (email.trim().charAt(0) || '?') : 'Sign in';
     acct.title = email ? `Signed in as ${email}` : '';
+    if (email) acct.setAttribute('aria-label', `Account: ${email}`);
+    else acct.removeAttribute('aria-label');
     acct.hidden = page === 'account' && !email;
   }
   api('/api/account/me').then((me) => markAccount(me.email), () => {});
