@@ -9113,39 +9113,11 @@ function renderDiscordAdmin() {
   const cards = [];
   if (dsc.notice) cards.push(el('div', { class: 'card dsc-notice', role: 'status', text: dsc.notice }));
 
-  // The bot isn't set up on this site (or "Add to Discord" isn't): the operator's steps, from DISCORD.md's
-  // "Operator setup". d.missing names the settings the site doesn't have yet, so the steps they belong to show as to do.
-  const missing = d.missing || [];
-  const setupCard = () => {
-    const c = (t) => el('code', { text: t });
-    const a = (href, t) => el('a', { href, target: '_blank', rel: 'noopener', text: t });
-    const has = (...names) => !names.some((n) => missing.includes(n));
-    const step = (done, title, ...kids) => el('li', { class: done ? 'dsc-step done' : 'dsc-step' },
-      el('strong', { text: title }), done == null ? '' : el('span', { class: `dsc-step-tag${done ? ' done' : ''}`, text: done ? 'Done' : 'To do' }),
-      el('div', { class: 'dsc-step-what' }, ...kids));
-    return card(d.ready ? 'Finish setting up the bot' : 'Set up the Discord bot',
-      d.ready ? 'for the site’s operator · Add to Discord needs it' : 'for the site’s operator · once for the whole site',
-      note(d.ready
-        ? 'The bot works, but the Add to Discord button doesn’t yet: the site is missing the Discord app’s client secret. Whoever runs this mcstats site does step 4.'
-        : 'The Discord bot isn’t switched on for this site yet, so no server here can link one. Whoever runs this mcstats site (with its code and its Cloudflare account) does this once. The whole design is in DISCORD.md in the repository.'),
-      el('ol', { class: 'dsc-steps' },
-        step(null, 'Make the Discord application', 'At ', a('https://discord.com/developers/applications', 'discord.com/developers/applications'), ', named ', c('mcstats'), ', with the mcstats icon.'),
-        step(has('DISCORD_APP_ID', 'DISCORD_PUBLIC_KEY'), 'General', 'Copy the Application ID and the Public Key into ', c('wrangler.jsonc'), ' under ', c('vars'), ' (', c('DISCORD_APP_ID'), ', ', c('DISCORD_PUBLIC_KEY'),
-          '). After the first deploy, set the Interactions Endpoint URL to ', c(`${location.origin}/api/discord/interactions`), '. Discord checks it when you save.'),
-        step(has('DISCORD_BOT_TOKEN'), 'Bot', 'Reset and copy the token, then run ', c('npx wrangler secret put DISCORD_BOT_TOKEN'), '. Leave Public Bot on, and every privileged intent off.'),
-        step(has('DISCORD_CLIENT_SECRET'), 'OAuth2', 'Copy the Client Secret, then run ', c('npx wrangler secret put DISCORD_CLIENT_SECRET'), '. Add the redirect ', c(`${location.origin}/api/discord/oauth`), '. This is what the Add to Discord button uses.'),
-        step(null, 'Installation', 'Guild Install only. Install link “Discord Provided Link”, with the scopes ', c('bot'), ' and ', c('applications.commands'), ' and the permissions ', c('536955904'), '.'),
-        step(null, 'Register the commands', 'Run ', c('npm run discord:commands'), ', and again whenever ', c('src/discord/definitions.js'), ' changes. They show up in Discord within a minute or so.'),
-        step(null, 'Deploy', 'Run ', c('npm run deploy'), ' (it runs the directory migration first), or push to the branch that deploys. Then come back to this page.')),
-      note('The secrets are typed into wrangler, never into this page. Until this is done, nothing on this tab can be switched on.'));
-  };
-
   if (!d.ready) {
-    cards.push(setupCard());
+    cards.push(card('Discord', null, note('The Discord bot isn’t set up on this site yet. Its operator follows “Operator setup” in DISCORD.md.')));
     root.replaceChildren(...cards);
     return;
   }
-  if (missing.length) cards.push(setupCard());
 
   /* ---- not linked: the two ways in ---- */
   if (!d.link) {
