@@ -13,15 +13,14 @@ export function warm(spec) {
     .then(() => made.forEach((x) => x.dispose?.()), () => {});
 }
 
-// mountPlayer(container) -> { show(spec, turn), turnIn(from), setMainhand(item), dispose() }: the player page's own model,
+// mountPlayer(container) -> { show(spec), setMainhand(item), dispose() }: the player page's own model,
 // swapped for another player's on show(). setMainhand puts another item in their hand, as picking one
 // from the list under the model does on a player's page.
 export function mountPlayer(container) {
   let current = null, token = 0;
   let held = null; // what their hand should hold: an item picked while the model was still being built is kept
   return {
-    // turn: when given, they appear turned that far away (radians) and come round to face the front
-    async show(spec, turn = 0) {
+    async show(spec) {
       const mine = ++token;
       held = spec.mainhand;
       const next = await mountModel(container, spec);
@@ -29,9 +28,7 @@ export function mountPlayer(container) {
       current?.dispose(); // the new one is already drawn on top, so there's no gap
       current = next;
       if (held !== spec.mainhand) next.setMainhand(held);
-      if (turn) next.turnIn(turn);
     },
-    turnIn(from) { current?.turnIn(from); },
     setMainhand(item) {
       held = item;
       return current?.setMainhand(item);

@@ -11,6 +11,14 @@
 // Each piece is built as public/app.js builds the real one, with the dashboard's own classes
 // (public/style.css); the function it follows is named beside it.
 (() => {
+  // The page always opens at the top (or at the section its address names): where it was scrolled to
+  // isn't kept, so a refresh starts it over, examples and all.
+  history.scrollRestoration = 'manual';
+  if (performance.getEntriesByType('navigation')[0]?.type === 'reload') {
+    const toTop = () => scrollTo({ top: 0, behavior: 'instant' });
+    toTop();
+    addEventListener('load', toTop, { once: true });
+  }
   const $ = (id) => document.getElementById(id);
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   const h = (tag, attrs = {}, ...kids) => {
@@ -843,7 +851,6 @@
   const FEATURED = ['Pebble_', 'kestrel', 'Saltwater', 'Brickhouse']; // netherite and a sword, an elytra and a mace, a trident, iron
   let current = FEATURED[0];
   let three = null, model = null;
-  let profileSeen = false; // the page has been scrolled to: from then on a newly picked player turns in as they appear
 
   // Little bars, one per hour, with the hour labels under them as text (app.js, hourBars).
   // A full bar is fullAt minutes, or the biggest bar.
@@ -1036,7 +1043,7 @@
     addPick(name);
     renderProfile();
     renderModelNote();
-    model?.show(specOf(byName.get(name)), profileSeen ? -1.2 : 0);
+    model?.show(specOf(byName.get(name)));
     for (const b of pick.children) b.setAttribute('aria-pressed', String(b.dataset.name === name));
     const page = $('p-page');
     if (!reduced()) {
@@ -1063,7 +1070,7 @@
     try {
       const m = await load3d();
       model = m.mountPlayer($('p-model'));
-      await model.show(specOf(byName.get(current)), profileSeen ? -2.7 : 0);
+      await model.show(specOf(byName.get(current)));
     } catch {
       $('p-model-card').hidden = true; // no WebGL, or the library couldn't load: the page does without it
     }
@@ -1564,7 +1571,7 @@
      The top bar's link for the section in view is marked by a line that slides from one link to the next.
      Each example comes up to meet the reader as it arrives: --p on it runs from 0 to 1 over that stretch
      (public/style.css, .home-motion), and the first time it's reached it does something of its own: the
-     chart rolls up to now, numbers count up, the player turns to face you.
+     chart rolls up to now, numbers count up.
      A section's heading stays beside its example; when the next one comes for its place it's flicked away
      rather than pushed out at the speed of the page, and it springs back when the page is scrolled up again.
      The bar's height is measured, so what sticks stops under it. */
@@ -1685,10 +1692,8 @@
         chartWaits = false;
         drawTimeline(ROLL, { duration: 1400, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
       }, 0.55);
-      // a player's page: the player turns round to face you as their numbers count up
+      // a player's page: their numbers count up
       arrive($('profile'), () => {
-        model?.turnIn(-2.7);
-        profileSeen = true;
         rollAll($('p-page'), '.tile-value, .pcb-value');
       }, 0.3);
       // the small cards drop in; the week fills in day by day, the table's bars grow, the password is typed

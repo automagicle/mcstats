@@ -2745,7 +2745,10 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
 .home .top-left { display: flex; align-items: center; }
 .home .top-right { margin-left: auto; }
 /* --top-h is the top bar's height (public/home.js measures it): what sticks or is scrolled to stops under the bar, not behind it */
-html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: calc(var(--top-h, 63px) + 20px); }
+html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: calc(var(--top-h, 63px) + 20px); scroll-snap-type: y proximity; }
+/* Scrolling settles on each example for a moment: when it stops near one, the page comes to rest with the
+   example just under the bar (where its heading sticks). --gap is the space above each; links to it land there too. */
+.home-shot, .home-feature, .home-more, .home-live { scroll-snap-align: start; scroll-margin-top: calc(2px - var(--gap)); padding-top: var(--gap); }
 @media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
 
 .home-hero { position: relative; isolation: isolate; padding: 104px 0 56px; text-align: center; touch-action: pan-y; }
@@ -2777,7 +2780,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-cta { padding: 9px 20px; font-size: 14px; text-decoration: none; }
 
 /* the dashboard, framed like a window, straight on the page */
-.home-shot { position: relative; padding: 28px 0 0; }
+.home-shot { position: relative; --gap: 28px; }
 .home-window { position: relative; background: var(--page); box-shadow: var(--frame), var(--lift); }
 .home-wbar { display: flex; align-items: center; gap: 16px; padding: 8px 12px; background: var(--bar); border-bottom: 1px solid var(--edge); }
 .home-wbrand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); white-space: nowrap; }
@@ -2806,7 +2809,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 }
 
 /* a section: a short heading and one sentence beside its example */
-.home-feature { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; align-items: start; padding: 76px 0 0; }
+.home-feature { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px; align-items: start; --gap: 90px; }
 .home-ftext { position: sticky; top: calc(var(--top-h, 63px) + 22px); padding-top: 6px; }
 .home-ftext h2, .home-end h2 { font: 400 40px/1 var(--px-40); margin: 0 0 10px; text-wrap: balance; }
 .home-ftext p { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--ink-2); }
@@ -2825,7 +2828,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-chat { height: 540px; }
 
 /* smaller things, side by side */
-.home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 76px 0 0; }
+.home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; --gap: 90px; }
 .home-mini { margin: 0; padding: 18px 18px 20px; display: flex; flex-direction: column; }
 .home-mini h3 { font: 400 30px/1.05 var(--px-30); margin: 0 0 4px; }
 .home-mini > p { margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }
@@ -2847,7 +2850,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-join .site-go { text-decoration: none; }
 
 /* ---- Liveview, as an example to fly around (public/homelive.js): the real one's World tab, with its own classes (.lv-…) ---- */
-.home-live { padding: 84px 0 0; }
+.home-live { --gap: 100px; }
 .home-live-head { max-width: 640px; margin: 0 0 24px; }
 .home-live-head h2 { font: 400 40px/1 var(--px-40); margin: 0 0 10px; text-wrap: balance; text-shadow: 3px 3px 0 var(--title-shadow); }
 .home-live-head p { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--ink-2); }
@@ -2907,7 +2910,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .ld-prow small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ld-prow .btn { padding: 4px 10px; font-size: 12.5px; }
 @media (max-width: 640px) {
-  .home-live { padding-top: 60px; }
+  .home-live { --gap: 68px; }
   .home-live-head h2 { font: 400 30px/1.05 var(--px-30); }
   .ld-stage { height: clamp(320px, 62vh, 520px); }
   .ld-prow { grid-template-columns: 24px minmax(0, 1fr) auto; }
@@ -2954,7 +2957,7 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-motion .home-end > * { transform: translateY(calc((1 - var(--p, 1)) * 30px)); opacity: var(--p, 1); }
 @media (prefers-reduced-motion: reduce) { .home-nav-line { transition: none; } }
 
-.home-end { padding: 92px 0 88px; text-align: center; }
+.home-end { padding: 104px 0 92px; text-align: center; }
 .home-end p { margin: 0 auto 26px; font-size: 16px; color: var(--ink-2); max-width: 44ch; }
 .home-foot { font-size: 12.5px; }
 .home-foot-brand { display: flex; align-items: center; gap: 8px; font: 400 20px/1 var(--px-20); color: var(--ink-2); }
@@ -2962,13 +2965,12 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 
 @media (max-width: 1000px) {
   .home-nav { display: none; }
-  .home-feature { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 60px; }
-  .home-more { padding-top: 60px; }
+  .home-feature { grid-template-columns: minmax(0, 1fr); gap: 20px; --gap: 68px; }
+  .home-more { --gap: 68px; }
   .home-ftext { position: static; max-width: 560px; }
   .home-more { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
 }
 @media (max-width: 800px) {
-  .home-shot { padding: 28px 0 0; }
   .home-wtabs { display: none; }
 }
 @media (max-width: 600px) {

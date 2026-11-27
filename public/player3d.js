@@ -858,15 +858,6 @@ export async function mountPlayer(container, spec) {
   let swapping = 0;
   const ray = new THREE.Raycaster();
   return {
-    // Shows them turned `from` radians away, coming round to face the front (the landing page's arrival).
-    turnIn(from) {
-      if (drag || reducedMotion()) return;
-      clearTimeout(settle);
-      spin = from;
-      spinSpeed = 0;
-      spinHome = true;
-      wake();
-    },
     // The armor slot or hand ('head' … 'feet', 'mainhand', 'offhand') under a point on the page, or
     // null: whatever the pointer meets first, so skin in front of a piece hides it.
     pick(x, y) {
