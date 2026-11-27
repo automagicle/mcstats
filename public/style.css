@@ -2745,10 +2745,9 @@ button.wiz-step-btn:hover { background: var(--surface-2); }
 .home .top-left { display: flex; align-items: center; }
 .home .top-right { margin-left: auto; }
 /* --top-h is the top bar's height (public/home.js measures it): what sticks or is scrolled to stops under the bar, not behind it */
-html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: calc(var(--top-h, 63px) + 20px); scroll-snap-type: y proximity; }
-/* Scrolling settles on each example for a moment: when it stops near one, the page comes to rest with the
-   example just under the bar (where its heading sticks). --gap is the space above each; links to it land there too. */
-.home-shot, .home-feature, .home-more, .home-live { scroll-snap-align: start; scroll-margin-top: calc(2px - var(--gap)); padding-top: var(--gap); }
+html:has(body.home) { scroll-behavior: smooth; scroll-padding-top: calc(var(--top-h, 63px) + 20px); }
+/* --gap is the space above each example; a link to one lands with it just under the bar (where its heading sticks). */
+.home-shot, .home-feature, .home-more, .home-live { scroll-margin-top: calc(2px - var(--gap)); padding-top: var(--gap); }
 @media (prefers-reduced-motion: reduce) { html:has(body.home) { scroll-behavior: auto; } }
 
 .home-hero { position: relative; isolation: isolate; padding: 104px 0 56px; text-align: center; touch-action: pan-y; }
