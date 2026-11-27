@@ -98,8 +98,8 @@
     "MAX_SERVERS_PER_OWNER": "3",
     // The Discord app (DISCORD.md, "Operator setup"): its Application ID and Public Key from the Developer
     // Portal. Both are public. Left empty, the bot is off and Admin → Discord says so.
-    "DISCORD_APP_ID": "",
-    "DISCORD_PUBLIC_KEY": ""
+    "DISCORD_APP_ID": "1575764612098428962",
+    "DISCORD_PUBLIC_KEY": "e845b71165b44d44b5c77ceff269dca09c6a59c36aac944c286e9c315a18dc7c"
   },
 
   "observability": { "enabled": true }
