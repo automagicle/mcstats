@@ -42,7 +42,7 @@
       <nav class="home-nav" aria-label="On this page">
         <a href="#players">Player pages</a>
         <a href="#chat">Chat log</a>
-        <a href="/mod">Get the mod</a>
+        <a href="#liveview">Liveview</a>
       </nav>
     </div>
     <div class="top-right">
@@ -203,6 +203,125 @@
           <div class="site-field" aria-hidden="true"><span class="site-label">Server name</span><span class="adm-input site-input">Birchwood SMP</span><span class="site-hint">The name the server’s owner gave you.</span></div>
           <div class="site-field" aria-hidden="true"><span class="site-label">Server password</span><span class="adm-input site-input home-pass">••••••••<i></i></span></div>
           <a class="btn btn-primary site-go" href="/join">Join</a>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- Liveview: the admins' window into the world, as an example to fly around (public/homelive.js) -->
+    <section class="home-live" id="liveview">
+      <div class="home-live-head">
+        <h2>Watch the world as it happens</h2>
+        <p>Liveview is the admins’ window into the game: fly anywhere, follow a player, see what they’re carrying. This is Birchwood SMP right now.</p>
+        <p class="home-try">Try it: click the world to fly, or click a player to open their inventory.</p>
+      </div>
+      <div class="home-live-body" id="lv-demo">
+        <section class="card lv-world">
+          <div class="card-head">
+            <div class="card-title">
+              <h2>World</h2>
+              <span class="card-sub" id="ld-terrain">Loading the game’s textures</span>
+            </div>
+            <div class="range-ctl">
+              <button type="button" class="lv-control" id="ld-control" aria-pressed="false" title="Controls let you run commands and move items. Off until you switch them on.">
+                <svg class="lv-lock" width="14" height="16" viewBox="0 0 7 8" shape-rendering="crispEdges" aria-hidden="true" fill="currentColor"><path class="lv-lock-bar" d="M1 1h1v3H1zM5 1h1v3H5zM2 0h3v1H2z"/><path d="M0 4h7v4H0z"/><path class="lv-lock-hole" d="M3 5h1v2H3z"/></svg>
+                <span id="ld-control-label">Watching only</span>
+              </button>
+              <div class="seg"><button type="button" id="ld-fullbright" aria-pressed="false" title="Light everything fully, like night vision">Fullbright</button></div>
+              <div class="seg" id="ld-dims" role="group" aria-label="Dimension">
+                <button type="button" data-dim="overworld" aria-pressed="true">Overworld</button>
+                <button type="button" data-dim="nether" aria-pressed="false">Nether</button>
+                <button type="button" data-dim="end" aria-pressed="false">End</button>
+              </div>
+            </div>
+          </div>
+          <div class="lv-stage ld-stage" id="ld-stage">
+            <canvas id="ld-view" class="ld-view" tabindex="0" aria-label="3D view of the example world"></canvas>
+            <div class="lv-hud"><b id="ld-hud-pos"></b><span id="ld-hud-more"></span></div>
+            <div class="lv-cross"></div>
+            <div class="lv-help" id="ld-help">Click the view to fly, or drag to look around.</div>
+            <div class="lv-banner ld-toast" id="ld-toast" role="status" hidden></div>
+            <div class="lv-follow" id="ld-follow" hidden>
+              <span>Following <strong id="ld-follow-name"></strong></span>
+              <div class="seg" role="group" aria-label="View">
+                <button type="button" data-follow="first" title="What they see">First person</button>
+                <button type="button" data-follow="back" title="Behind them">Behind</button>
+                <button type="button" data-follow="front" title="In front, facing them">In front</button>
+              </div>
+              <button type="button" class="btn" id="ld-follow-stop" title="Stop following (Esc)">Stop</button>
+            </div>
+            <div class="lv-tools">
+              <button type="button" id="ld-menu-btn" title="Players: go to them, follow them, open inventories (M)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="5" r="2.6"/><path d="M2.8 13.5c.6-2.6 2.6-4 5.2-4s4.6 1.4 5.2 4"/></svg><span>Players</span></button>
+              <button type="button" id="ld-chat-btn" title="Chat and commands (T, Enter or /)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span>Chat</span></button>
+              <button type="button" id="ld-keys-btn" title="What the keys and mouse do" aria-expanded="false" aria-controls="ld-keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8"/><path d="M4 6.5h1M7.5 6.5h1M11 6.5h1M4.5 9.5h7"/></svg><span>Keys</span></button>
+              <button type="button" id="ld-settings-btn" title="Fly speed, mouse, field of view and sky" aria-expanded="false" aria-controls="ld-settings"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><rect x="9" y="3" width="3" height="3"/><rect x="4" y="10" width="3" height="3"/></svg><span>Settings</span></button>
+              <button type="button" id="ld-full-btn" title="Fullscreen (F)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg><span>Fullscreen</span></button>
+            </div>
+            <form class="lv-pop lv-settings" id="ld-settings" hidden autocomplete="off">
+              <div class="lv-pop-head"><h3>Settings</h3><button type="button" class="btn btn-quiet" id="ld-settings-reset">Reset</button></div>
+              <label class="lv-range"><span>Fly speed</span><output id="ld-set-speed-out"></output><input type="range" id="ld-set-speed" min="2" max="40" step="1" aria-label="Fly speed"></label>
+              <label class="lv-range"><span>Mouse sensitivity</span><output id="ld-set-sens-out"></output><input type="range" id="ld-set-sens" min="10" max="300" step="5" aria-label="Mouse sensitivity"></label>
+              <label class="lv-range"><span>Field of view</span><output id="ld-set-fov-out"></output><input type="range" id="ld-set-fov" min="30" max="110" step="1" aria-label="Field of view"></label>
+              <label class="lv-range"><span>Time of day</span><output id="ld-set-time-out"></output><input type="range" id="ld-set-time" min="0" max="23999" step="250" aria-label="Time of day"></label>
+              <label class="adm-check"><input type="checkbox" id="ld-set-sky"> Sun, moon and stars</label>
+              <label class="adm-check"><input type="checkbox" id="ld-set-clouds"> Clouds</label>
+            </form>
+            <div class="lv-pop lv-keys" id="ld-keys" hidden>
+              <div class="lv-pop-head"><h3>Keys and mouse</h3><button type="button" class="icon-btn" id="ld-keys-close" aria-label="Close" title="Close (Esc)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+              <h4>Moving around</h4>
+              <dl>
+                <dt><kbd>Click</kbd></dt><dd>Fly: the mouse looks around. <kbd>Esc</kbd> lets go.</dd>
+                <dt><kbd>Drag</kbd></dt><dd>Look around without flying.</dd>
+                <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move.</dd>
+                <dt><kbd>Space</kbd><kbd>Shift</kbd></dt><dd>Up and down.</dd>
+                <dt><kbd>Ctrl</kbd></dt><dd>Faster. Scroll while flying to set the speed.</dd>
+              </dl>
+              <h4>Players and blocks</h4>
+              <dl>
+                <dt><kbd>Click</kbd> a player</dt><dd>Open their inventory.</dd>
+                <dt><kbd>E</kbd></dt><dd>Inventory of the player you follow, or the nearest one.</dd>
+                <dt><kbd>Right-click</kbd> a barrel</dt><dd>See what’s inside.</dd>
+                <dt><kbd>M</kbd></dt><dd>Players: go to one, follow them, open an inventory.</dd>
+                <dt><kbd>V</kbd></dt><dd>Switch the view while following. <kbd>Esc</kbd> stops.</dd>
+              </dl>
+              <h4>Chat and the page</h4>
+              <dl>
+                <dt><kbd>T</kbd><kbd>Enter</kbd></dt><dd>Chat.</dd>
+                <dt><kbd>/</kbd></dt><dd>A command. /tp and /spectate move your camera; anything else needs controls on.</dd>
+                <dt><kbd>F</kbd></dt><dd>Fullscreen.</dd>
+              </dl>
+            </div>
+            <div class="lv-chat ld-chat" id="ld-chat" aria-live="polite"></div>
+            <form class="lv-chat-input" id="ld-chat-form" hidden><input id="ld-chat-input" autocomplete="off" spellcheck="false" maxlength="120" aria-label="Chat message or command" placeholder="Chat from the dashboard, or / for a command (/tp and /spectate move your camera)"></form>
+            <aside class="lv-side" id="ld-side" hidden>
+              <header>
+                <h3>Players</h3>
+                <button type="button" class="icon-btn" id="ld-side-close" aria-label="Close" title="Close (Esc)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+              </header>
+              <div class="lv-side-list" id="ld-side-list"></div>
+            </aside>
+            <div class="lv-screen-wrap" id="ld-screen" hidden><div id="ld-screen-host"></div></div>
+            <!-- no WebGL, or the 3D code didn't load: say so instead of an empty box -->
+            <div class="ld-fail" id="ld-fail" hidden>The 3D view needs WebGL, which this browser has switched off. The rest of the page works without it.</div>
+          </div>
+        </section>
+
+        <div class="tiles">
+          <div class="tile"><div class="tile-label">Online now</div><div class="tile-value" id="ld-s-online">–</div><div class="tile-sub">players on the server</div></div>
+          <div class="tile"><div class="tile-label">Tick time</div><div class="tile-value" id="ld-s-mspt">–</div><div class="tile-sub">ms per tick, 50 is the limit</div></div>
+          <div class="tile"><div class="tile-label">Mobs nearby</div><div class="tile-value" id="ld-s-mobs">–</div><div class="tile-sub">around players and your camera</div></div>
+          <div class="tile"><div class="tile-label">Watching</div><div class="tile-value" id="ld-s-viewers">1</div><div class="tile-sub">page watching: yours</div></div>
+        </div>
+
+        <div class="grid2">
+          <section class="card">
+            <div class="card-head"><div class="card-title"><h2>Players online</h2><span class="card-sub" id="ld-online-sub"></span></div></div>
+            <div id="ld-players"></div>
+          </section>
+          <section class="card">
+            <div class="card-head"><div class="card-title"><h2>Recent activity</h2></div></div>
+            <div class="lv-feed" id="ld-feed"><div class="empty">Nothing has happened yet.</div></div>
+          </section>
         </div>
       </div>
     </section>

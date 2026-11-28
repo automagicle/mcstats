@@ -2820,6 +2820,70 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 .home-pass i { width: 1px; height: 16px; margin-left: 2px; background: var(--series-1); }
 .home-join .site-go { text-decoration: none; }
 
+/* Liveview example (public/homelive.js): the real viewer's stage, pointed at a made-up world */
+.home-live { --gap: 100px; padding-top: 100px; }
+.home-live-head { max-width: 640px; margin: 0 0 24px; }
+.home-live-head h2 { font: 400 40px/1 var(--px-40); margin: 0 0 10px; text-wrap: balance; text-shadow: 3px 3px 0 var(--title-shadow); }
+.home-live-head p { margin: 0; font-size: 15.5px; line-height: 1.5; color: var(--ink-2); }
+.home-live-head .home-try { margin-top: 12px; font-size: 13px; color: var(--muted); }
+.home-live-body > .card, .home-live-body .grid2 > .card { margin: 0; }
+.home-live-body .tiles { margin: 14px 0; }
+.home-live-body .card-head .range-ctl { flex-wrap: wrap; justify-content: flex-end; }
+.ld-stage { height: clamp(380px, 68vh, 700px); margin: 0 -16px -16px; }
+.ld-view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; cursor: crosshair; touch-action: pan-y; }
+.ld-view:focus-visible { box-shadow: inset 0 0 0 2px var(--series-1); }
+.ld-stage.looking .ld-view { cursor: grabbing; }
+.ld-stage:not(.flying) .lv-cross { display: none; }
+.ld-stage:not(.ld-ready) > :not(.ld-view):not(.ld-fail) { visibility: hidden; }
+.ld-stage:not(.ld-ready):not(.ld-off)::after { content: 'Loading the world'; position: absolute; inset: 0; display: grid; place-items: center; font: 400 20px/1 var(--px-20); color: var(--muted); }
+.ld-fail { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 14px; color: var(--ink-2); }
+.ld-fail[hidden] { display: none; }
+.ld-toast { top: auto; bottom: 52px; box-shadow: var(--frame), inset 3px 0 0 var(--series-1), var(--lift); max-width: min(520px, calc(100% - 24px)); width: auto; }
+.home-live .lv-control:focus-visible, .home-live .lv-tools button:focus-visible, .home-live .lv-screen-close:focus-visible, .home-live .btn:focus-visible,
+.home-live .seg button:focus-visible, .home-live .icon-btn:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.home-live .btn.lv-danger { color: var(--critical); }
+.home-live .btn.lv-danger.armed { color: #fff; --pc: var(--critical); background: var(--critical); box-shadow: var(--pixel); }
+.home-live .lv-follow .seg button[aria-pressed="true"] { color: var(--ink); }
+.ld-chat { width: min(560px, 100%); }
+.ld-line { padding: 1px 8px 2px 6px; font: 400 20px/1.1 var(--px-20); letter-spacing: 0.02em; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; background: rgba(0, 0, 0, 0.5); white-space: pre-wrap; overflow-wrap: anywhere; transition: opacity 1s ease-in; }
+.ld-line.gone { opacity: 0; }
+.ld-chat.open .ld-line.gone { opacity: 1; transition: none; }
+.ld-chat.open { max-height: min(300px, 60%); }
+.ld-chat:not(.open) .ld-line:nth-last-child(n + 11) { display: none; }
+.ld-stage .lv-screen-wrap > div { grid-template-columns: 352px; grid-template-areas: "bar" "screen"; }
+.ld-gui { width: 352px; background: #c6c6c6; box-shadow: inset 4px 4px 0 #fff, inset -4px -4px 0 #555, 0 0 0 2px #000; }
+.ld-gui.editing { box-shadow: inset 4px 4px 0 #fff, inset -4px -4px 0 #555, 0 0 0 2px #000, 0 0 0 4px var(--warning); }
+.ld-gui.editing .ld-slot { cursor: pointer; }
+.ld-slot { position: absolute; width: 36px; height: 36px; background: #8b8b8b; box-shadow: inset 2px 2px 0 #373737, inset -2px -2px 0 #fff; outline: none; }
+.ld-slot:hover::after, .ld-slot:focus-visible::after { content: ''; position: absolute; inset: 2px; background: rgba(255, 255, 255, 0.5); pointer-events: none; }
+.ld-item, .ld-glint { position: absolute; left: 2px; top: 2px; width: 32px; height: 32px; image-rendering: pixelated; pointer-events: none; }
+.ld-glint { -webkit-mask-size: 100% 100%; mask-size: 100% 100%; mix-blend-mode: screen; opacity: 0.5;
+  background: linear-gradient(115deg, transparent 38%, #b98cff 48%, #8a5cf0 52%, transparent 62%) 0 0 / 300% 300%; animation: ld-glint 4s linear infinite; }
+@keyframes ld-glint { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.ld-count { position: absolute; right: 1px; bottom: -2px; z-index: 1; font: 400 20px/1 var(--px-20); color: #fff; text-shadow: 2px 2px 0 #3f3f3f; pointer-events: none; }
+.ld-slot.held-from .ld-item, .ld-slot.held-from .ld-glint, .ld-slot.held-from .ld-count { opacity: 0.3; }
+.ld-label { position: absolute; font: 400 20px/1 var(--px-20); color: #404040; }
+.ld-dollbox { position: absolute; left: 50px; top: 14px; width: 102px; height: 144px; display: grid; place-items: center; background: #000; box-shadow: inset 2px 2px 0 #373737, inset -2px -2px 0 #fff; }
+.ld-doll { width: 56px; height: 112px; image-rendering: pixelated; }
+.ld-arrow { position: absolute; left: 270px; top: 60px; width: 32px; height: 28px; background: #8b8b8b; clip-path: polygon(0 36%, 56% 36%, 56% 0, 100% 50%, 56% 100%, 56% 64%, 0 64%); }
+.home .mc-held { left: 0; top: 0; }
+.home .mc-held .ld-item, .home .mc-held .ld-glint { left: 0; top: 0; }
+.home .mc-held[hidden] { display: none; }
+.ld-prow { display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--grid); font-size: 13.5px; }
+.ld-prow:first-child { border-top: 0; padding-top: 0; }
+.ld-prow .lv-face { width: 24px; height: 24px; }
+.ld-prow small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ld-prow .btn { padding: 4px 10px; font-size: 12.5px; }
+@media (max-width: 640px) {
+  .home-live { --gap: 68px; padding-top: 68px; }
+  .home-live-head h2 { font: 400 30px/1.05 var(--px-30); }
+  .ld-stage { height: clamp(320px, 62vh, 520px); }
+  .ld-prow { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .ld-prow small { grid-column: 2 / -1; grid-row: 2; }
+  .ld-line { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .ld-glint { animation: none; } .ld-line { transition: none; } }
+
 .home-end { padding: 110px 0 96px; text-align: center; }
 .home-end p { margin: 0 auto 26px; font-size: 16px; color: var(--ink-2); max-width: 44ch; }
 .home-foot { font-size: 12.5px; }

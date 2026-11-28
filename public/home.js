@@ -155,6 +155,7 @@
     out.push(...p.today.map(([a, b]) => [a, b ?? null]));
     return (p.sessions = out);
   }
+  let live = null; // the Liveview example, once it has loaded: live.event(a line of the chat log)
   const online = new Set(PLAYERS.filter((p) => sessionsOf(p).at(-1)[1] === null).map((p) => p.name));
   const playedBetween = (p, from, to) => sessionsOf(p).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b ?? now(), to) - Math.max(a, from)), 0);
   // how many were on in each minute from..to (to itself isn't counted)
@@ -883,8 +884,8 @@
   /* their model (public/home3d.js, loaded as soon as the page is idle) */
   let loading = null;
   const load3d = () => (loading ??= import('/home3d.js').then((m) => { three = m; return m; }));
-  const near = (el, fn) => {
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); fn(); } }, { rootMargin: '1200px' });
+  const near = (el, fn, margin = 1200) => {
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); fn(); } }, { rootMargin: `${margin}px` });
     io.observe(el);
   };
   // Fetch the 3D code and every texture the first models need while the reader is still up top, so the
@@ -1019,6 +1020,7 @@
     if (m.name === current && (m.kind === 'death' || m.kind === 'chat')) { renderChatTile(); renderCombat(); }
     else if (m.cause === current) renderCombat();
     if (atEnd || m.you) log.scrollTop = log.scrollHeight;
+    live?.event(m);
   }
 
   // The server keeps going while the page is open: whoever's online talks, fights, dies and earns
@@ -1172,9 +1174,13 @@
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    add({ kind: 'chat', name: 'You', you: true, text });
     input.value = '';
     send.disabled = true;
+    sayFromPage(text);
+  });
+  // a message from the page (the box above, or the chat in the Liveview example), and whoever answers it
+  function sayFromPage(text) {
+    add({ kind: 'chat', name: 'You', you: true, text });
     const on = [...online];
     if (!on.length) return;
     const who = any(on), others = on.filter((n) => n !== who);
@@ -1182,7 +1188,26 @@
     const reply = fill(any(options), others).replace('{n}', who);
     later(900 + Math.random() * 900, () => add({ kind: 'chat', name: who, text: reply }));
     if (others.length && Math.random() < 0.45) later(2400 + Math.random() * 1200, () => add({ kind: 'chat', name: others[0], text: any(CHIME).replace('{n}', who) }));
-  });
+  }
+
+  // The Liveview example (public/homelive.js). Loaded as the section comes near, and told every line
+  // the chat log gets, so who's online, what's said and who dies are the same there as everywhere else.
+  near($('liveview'), async () => {
+    try {
+      const m = await import('/homelive.js');
+      live = await m.mount({
+        players: PLAYERS, online, specOf, gearOf, head, itemTip, hideTip,
+        clock: () => clock(now()),
+        say: sayFromPage,
+        kill: (name) => add({ kind: 'death', name, text: 'was killed', cause: 'Command' }),
+      });
+    } catch {
+      const fail = $('ld-fail');
+      if (fail) fail.hidden = false;
+      const terrain = $('ld-terrain');
+      if (terrain) terrain.textContent = '';
+    }
+  }, 2200);
 
   /* ---------------- a player's card: click a name or a badge anywhere (app.js: openCard, renderCard) ---------------- */
 
