@@ -7,6 +7,7 @@
 //                    together by config.save, when the page's Save button is pressed; the rest
 //                    (restoring a message, counting a death again, …) happen at once.
 import { json } from './util.js';
+import { canManage } from './roles.js';
 import { fillGaps } from './gapfill.js';
 import { clearCache } from './cache.js';
 import { tellPresence } from './presence.js';
@@ -37,14 +38,15 @@ const ADMIN_IGN = '@admin'; // roster_email's stand-in IGN for an admin chatting
 export const isAdmin = (env, who) => !!who?.email && !!who?.perms?.admin;
 
 // GET /api/me: who's signed in and what they may do (the page shows or hides things by it).
-//   super  may use the Roles tab (this server's owners, and the site's super admins)
+//   super  may use the Roles tab and the owner-and-admin things (src/roles.js canManage)
+//   owner  may make owners (this server's owners, and the site's super admins)
 export async function me(env, who) {
   const admin = isAdmin(env, who);
   // admins are told on every page when the server's mod has a newer version (the admin page has the details)
   const status = admin ? await linkStatus(env) : null;
   const u = admin ? modUpdate(status?.last_version, undefined, status?.minecraft) : null;
   return json({
-    email: who.email, admin, super: !!(who.perms?.super || who.perms?.owner),
+    email: who.email, admin, super: canManage(who.perms), owner: !!(who.perms?.super || who.perms?.owner),
     role: who.perms?.role ?? null, perms: who.perms ?? null,
     server: env.TENANT ? { slug: env.TENANT.slug, name: env.TENANT.name } : null,
     mod_update: u && { current: u.current, latest: u.latest, urgent: u.urgent, behind: u.behind, jar: u.jar, jar_url: u.jar_url },

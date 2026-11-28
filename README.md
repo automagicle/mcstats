@@ -108,6 +108,8 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
   gives nothing on B. An mcstats **account** is signed in site-wide, but it's nobody on a server until it's a member
   there: being a member of A makes you nobody on B.
 - **Roles** are per server: `owner`, `admin`, `member` (src/roles.js), each a starting set of the five permissions.
+  Owners and admins can do the same things (the Roles tab, the address, password and visibility, Discord linking),
+  except that only an owner makes owners, and no one but a super admin changes or removes an owner.
   Every admin check asks "is this email an admin *of this server*".
 - **Caches** are per server: the `cache` table is in each server's own database, and Liveview's assets are cached
   under the server's id. Only the game's own textures and Mojang skins are shared, keyed by version and name.
@@ -173,7 +175,7 @@ log is left empty.
 
 `#/admin` (linked in the footer for admins only) is one page with a menu down the left: **Players**, **Teams**,
 **Layout**, **Server**, **Chat and deaths**, **Mod and commands**, **Connection and data**, **Analytics**, and, for
-owners, **Roles**. On a
+owners and admins, **Roles**. On a
 phone the menu is a strip that scrolls sideways. One Save bar at the bottom covers every section. It only
 appears when something is unsaved, lists each change, and puts a count on the section it belongs to. Reset
 puts that draft back. Nothing on the site changes until Save, and Save applies all of it or none of it.
@@ -189,9 +191,9 @@ Admin it is a draft on the Save bar; nothing changes until Save.
 | **Name** | admins | Shown at the top of its pages and in emails. |
 | **Icon** | admins | A square picture, dropped on the box or picked with the button, cropped to a 128px PNG. The game's own 64×64 `server-icon.png` stays sharp. It sits beside the name in the About header on Activity, and it becomes the browser tab's icon. |
 | **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description, and Admin → Layout can switch it off altogether. |
-| **Address** (`/<address>`) | owners | Moves the server: the old address stops existing (its join link too) and everyone joins again at the new one (cookies are per address). It can't be a name the site uses or may come to use (`RESERVED` in `src/directory.js`). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
-| **Private or public** | owners | A public server can only be made private once it has a join password. |
-| **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
+| **Address** (`/<address>`) | owners and admins | Moves the server: the old address stops existing (its join link too) and everyone joins again at the new one (cookies are per address). It can't be a name the site uses or may come to use (`RESERVED` in `src/directory.js`). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
+| **Private or public** | owners and admins | A public server can only be made private once it has a join password. |
+| **Join password** | owners and admins | 8 characters or more. A new one makes everyone who joined with the old one join again. |
 | **Join link** | admins | One address (`/<server>/join/<token>`) that lets in whoever opens it, with no name or password to type: made, copied, replaced and turned off here, at once (not with the Save bar). A new link stops the old one working; people it already let in stay in until the join password changes. Not offered while the server is public. |
 | **Accent color** | admins | Green (the default), blue, or any color (`#rrggbb`). |
 | **Tab style** | admins | Line (the default: the current tab is greyer with a line in the accent color under it) or Frame (set in, framed, no color). |

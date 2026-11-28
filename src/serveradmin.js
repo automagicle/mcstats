@@ -20,7 +20,7 @@
 // Path=/<old>), so everyone joins again at the new one. Whoever changed it gets cookies for the new address
 // with the answer. A new password ends every viewer session made with the old one; the same goes for them.
 import { json } from './util.js';
-import { loadPerms } from './roles.js';
+import { canManage, loadPerms } from './roles.js';
 import { forgetSlug, serverById, slugProblem } from './directory.js';
 import {
   clearCookie, cookie, DAY, hashPassword, joinLinkPath, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
@@ -59,8 +59,9 @@ function state(t, row, perms) {
     // which /mcstats commands are switched off, and whether the Activity page's commands box starts closed
     commands: commandsOf(t.settings),
     addons: addonList(t.settings),
-    // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
-    can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
+    // what this sign-in may change: everyone here has the admin permission; owner (an owner or admin, src/roles.js
+    // canManage) adds the address, password and visibility
+    can: { owner: canManage(perms), super: !!perms.super },
     slug_locked: slugLock(t),
     // the mod this site offers (src/modinfo.gen.js, read from mod/)
     mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built, downloads: MOD.downloads },
@@ -89,7 +90,7 @@ export async function handleServerAdmin(t, request, url, who) {
   }
   if (!b || typeof b !== 'object') return json({ error: 'bad json' }, 400);
   const bad = (error, field) => json({ error, field }, 400);
-  const owner = perms.owner || perms.super;
+  const owner = canManage(perms);
   const has = (k) => b[k] !== undefined && b[k] !== null;
 
   // ---- check everything first, so a refused change leaves nothing half done ----
@@ -126,7 +127,7 @@ export async function handleServerAdmin(t, request, url, who) {
   }
 
   const ownerOnly = ['slug', 'public', 'password', 'banner'].filter((k) => has(k) && b[k] !== '');
-  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owner can change its address, password, who can see it, or whether the header shows.' }, 403);
+  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owners and admins can change its address, password, who can see it, or whether the header shows.' }, 403);
   if (has('addons') && !perms.super) return json({ error: 'forbidden' }, 403);
 
   const password = typeof b.password === 'string' ? b.password : '';

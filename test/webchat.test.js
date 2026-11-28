@@ -71,11 +71,11 @@ describe('web chat identity', () => {
     expect((await addMember(s, 'mod@example.org')).status).toBe(200);
     expect(await row(await roles({ email: 'mod@example.org', chat_as: 'admin' }), 'mod@example.org')).toMatchObject({ chat_as: '@admin' });
     expect((await roles({ email: s.owner, chat_as: 'admin' })).status).toBe(200);
-    // not for someone who isn't a member, and not by an admin
+    // not for someone who isn't a member; an admin can set it too
     expect((await roles({ email: 'stranger@example.org', chat_as: 'admin' })).status).toBe(400);
     expect((await roles({ email: 'alex@example.org', chat_as: 'everyone' })).status).toBe(400);
     expect((await addMember(s, 'helper@example.org', 'admin')).status).toBe(200);
-    expect((await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(403);
+    expect((await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: await accountCookie('helper@example.org'), body: { email: 'alex@example.org', chat_as: 'admin' } })).status).toBe(200);
   });
   it('connects a player from in game once that account says yes (/mcstats connect)', async () => {
     const s = await makeServer('chat-connect');
@@ -157,16 +157,20 @@ describe('making an owner', () => {
     const wrong = await roles({ email: 'second@example.org', role: 'owner', password: 'not-the-password' });
     expect(wrong.status).toBe(403);
     expect(await wrong.json()).toMatchObject({ field: 'password' });
-    // an admin can't make owners, themselves included
-    expect((await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' }, second)).status).toBe(403);
-    expect((await call(`/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(403);
+    // an admin has the Roles tab, but can't make owners, themselves included, or change one
+    expect((await call(`/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(200);
+    const self = await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' }, second);
+    expect(self.status).toBe(403);
+    expect(await self.json()).toMatchObject({ error: 'Only an owner can make someone an owner.' });
+    expect((await roles({ email: s.owner, role: 'member' }, second)).status).toBe(400);
+    expect((await roles({ email: s.owner, remove: true }, second)).status).toBe(400);
+    expect((await (await call(`/${s.slug}/api/me`, { cookie: second })).json())).toMatchObject({ super: true, owner: false });
 
     const ok = await roles({ email: 'second@example.org', role: 'owner', password: 'the-owners-password' });
     expect(ok.status, await ok.clone().text()).toBe(200);
     expect((await ok.json()).users.find((u) => u.email === 'second@example.org')).toMatchObject({ role: 'owner', custom: false });
-    // the new owner has Roles, and the owner's settings
-    expect((await call(`/${s.slug}/api/admin/roles`, { cookie: second })).status).toBe(200);
-    expect((await (await call(`/${s.slug}/api/admin/server`, { cookie: second })).json()).can.owner).toBe(true);
+    // the new owner can make owners too
+    expect((await (await call(`/${s.slug}/api/me`, { cookie: second })).json())).toMatchObject({ super: true, owner: true });
     // and stays one
     expect((await roles({ email: 'second@example.org', role: 'admin' })).status).toBe(400);
     expect((await roles({ email: 'second@example.org', remove: true })).status).toBe(400);

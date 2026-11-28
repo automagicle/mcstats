@@ -100,7 +100,7 @@ Discord sends the browser back to `/api/discord/oauth?code&state&guild_id&permis
 1. reads `s` from the state's body, then checks the signature and expiry with
    `verifyToken(env, state, 'discord', s)` (`src/session.js`);
 2. checks that the mcstats account signed in now (the site-wide account cookie) is the one in `e`, and that
-   it's still an owner of server `s`;
+   it's still an owner or admin of server `s` (`canManage` in `src/roles.js`);
 3. exchanges `code` at `POST https://discord.com/api/oauth2/token` (with `DISCORD_CLIENT_SECRET`). The answer
    includes the guild the app was added to. That proves the install really happened, so it isn't taken from the
    query string alone;
@@ -289,9 +289,9 @@ its other settings, because only the bot reads them:
 
 | Setting | Value | Set by |
 | --- | --- | --- |
-| `share` | what may go to Discord at all: `{ online, stats, deaths, advancements, chat, joinlink }` (`online` is always on) | owners only |
+| `share` | what may go to Discord at all: `{ online, stats, deaths, advancements, chat, joinlink }` (`online` is always on) | owners and admins |
 | `commands` | `{ on, ephemeral }`: commands on or off, and whether answers are seen only by whoever asked | admins |
-| `bridge` | `{ say: 'off' \| 'linked' \| 'anyone' }`: who may `/say` | owners only |
+| `bridge` | `{ say: 'off' \| 'linked' \| 'anyone' }`: who may `/say` | owners and admins |
 
 `share` is the most a guild can ever get. Feeds and presets (on the dashboard or in Discord) can only
 choose within it. On a public server everything defaults to on except `chat`. On a private server everything
@@ -666,7 +666,7 @@ Discord straight away.
 │ [icon] Egg SMP Community        linked Nov 26 by you            [ Unlink ]   │
 │ ✓ Bot can post in all feed channels · mod connected (2.4.0)                   │
 │                                                                               │
-│ Shared with Discord (owners)                                                  │
+│ Shared with Discord (owners, admins)                                          │
 │   [✓] Who's online   [✓] Stats   [✓] Deaths   [✓] Advancements                │
 │   [ ] Chat           [ ] Join link in /dashboard                              │
 │                                                                               │
@@ -690,12 +690,13 @@ Discord straight away.
   channel makes its webhook ("mcstats · Egg SMP") when Save is pressed.
 - Health is the relay's per-feed last success and last error, in plain words ("Missing Manage Webhooks in
   #mc-chat", "Discord rate limited us; caught up 2 min ago").
-- Admins (not only owners) can change feeds, channels and commands. Only owners can change what's shared, and
-  `/say`, and unlink.
+- Owners and admins (`canManage` in `src/roles.js`) can do everything here: add the bot, make a code, change
+  what's shared, `/say`, feeds, channels and commands, and unlink. A member with the admin permission switched
+  on but neither role can change feeds, channels and commands only.
 
 ## Privacy and security
 
-- **The owner sets the ceiling.** `share` is the most a guild can get, and Discord-side admins only choose
+- **The owners and admins set the ceiling.** `share` is the most a guild can get, and Discord-side admins only choose
   within it. Turning something off stops it at once: queued posts are dropped, and commands refuse.
 - **A guild is a viewer, never a member.** It can read what the password lets you read, minus what isn't shared.
   It never reaches admin actions, Liveview, whispers, emails or real names. Real names stay off unless

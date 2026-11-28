@@ -155,13 +155,14 @@ describe('admins and members', () => {
     expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: onB })).status).toBe(403);
   });
 
-  it('only the server’s owner can change roles, and an admin invited to A gets nowhere on B', async () => {
+  it('an admin invited to A can use its Roles tab, and gets nowhere on B', async () => {
     const a = await makeServer('inv-a');
     const b = await makeServer('inv-b');
     expect((await call(`/api/site/servers/${a.slug}/invite`, { method: 'POST', cookie: a.cookie, body: { email: 'helper@example.org', role: 'admin' } })).status).toBe(200);
     const helperA = await idCookie(a, 'helper@example.org');
     expect((await call(`/${a.slug}/api/admin?season=1`, { cookie: helperA })).status).toBe(200);
-    expect((await call(`/${a.slug}/api/admin/roles`, { cookie: helperA })).status).toBe(403);
+    expect((await call(`/${a.slug}/api/admin/roles`, { cookie: helperA })).status).toBe(200);
+    expect((await call(`/${b.slug}/api/admin/roles`, { cookie: helperA })).status).not.toBe(200);
     const helperOnB = both(await viewerCookie(b), await idCookie(b, 'helper@example.org'));
     expect((await call(`/${b.slug}/api/admin?season=1`, { cookie: helperOnB })).status).toBe(403);
     // someone else's server can't be set up from /new either

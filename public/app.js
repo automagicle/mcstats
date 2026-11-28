@@ -6415,13 +6415,15 @@ syncNameToggle();
 /* ---------- admin: the admin page, and right-click on chat and deaths ---------- */
 
 // Whether the signed-in email is an admin (the ADMIN_EMAIL secret). /api/me needs no database.
-// What the signed-in email may do (src/roles.js): admin (the admin page), super (it can also set
-// everyone's permissions, on Admin → Roles) and perms (view, chat, admin, liveview, liveview_op).
+// What the signed-in email may do (src/roles.js): admin (the admin page), super (an owner or admin: it can also
+// set everyone's permissions, on Admin → Roles), owner (it can make owners) and perms (view, chat, admin,
+// liveview, liveview_op).
 // /api/me needs no database.
-const site = { admin: false, super: false, perms: null };
+const site = { admin: false, super: false, owner: false, perms: null };
 function setMe(r) {
   site.admin = !!r?.admin;
   site.super = !!r?.super;
+  site.owner = !!r?.owner;
   site.perms = r?.perms ?? null;
   site.modUpdate = site.admin ? r?.mod_update ?? null : null;
   syncLiveTab();
@@ -7126,7 +7128,7 @@ function renderServerAdmin(focusKey) {
     box.addEventListener('keydown', (e) => { if (e.key === 'Enter') srvSave(); });
     return box;
   };
-  const ownerOnly = owner ? null : 'Only the server’s owner can change this.';
+  const ownerOnly = owner ? null : 'Only the server’s owners and admins can change this.';
   const card = (title, sub, ...kids) => el('section', { class: 'card adm-card' },
     el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null),
     el('div', { class: 'srv-fields' }, ...kids));
@@ -7330,13 +7332,13 @@ function joinLinkField(d, field) {
   renew.addEventListener('click', () => joinLinkDialog({
     title: 'Make a new join link', go: 'Make a new link', action: 'new', done: 'New join link made. The old one no longer works.',
     lines: ['The link you have now stops working at once, for everyone you sent it to. Send players the new one.',
-      'People who already got in stay in. To make everyone join again, the owner changes the join password.'],
+      'People who already got in stay in. To make everyone join again, an owner or admin changes the join password.'],
   }));
   const off = el('button', { type: 'button', class: 'btn btn-quiet', text: 'Turn off…' });
   off.addEventListener('click', () => joinLinkDialog({
     title: 'Turn off the join link', go: 'Turn off', action: 'off', done: 'Join link turned off',
     lines: ['The link stops working at once. Players then need the server’s name and join password, until you create a link again.',
-      'People who already got in stay in. To make everyone join again, the owner changes the join password.'],
+      'People who already got in stay in. To make everyone join again, an owner or admin changes the join password.'],
   }));
   return field('Join link', el('div', { class: 'srv-row srv-link-row' }, box, copy, renew, off),
     'Opening it lets anyone straight in to see the stats, with nothing to type, so send it only to players. If it gets out, make a new link.');
@@ -7766,7 +7768,7 @@ async function showRoles() {
   }
   adminTab('roles');
   if (!site.super) {
-    root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for the server’s owners.' }));
+    root.replaceChildren(el('div', { class: 'card empty', text: 'This page is only for the server’s owners and admins.' }));
     return;
   }
   if (!roles.data) root.replaceChildren(el('div', { class: 'card empty', text: 'Loading…' }));
@@ -7805,7 +7807,7 @@ function renderRoles() {
     if (u.role === 'owner') return el('span', { class: 'an-tag', text: 'Owner' });
     const pick = el('select', { class: 'adm-input', 'aria-label': `Role for ${u.email}` },
       el('option', { value: '', text: 'Not a member' }), el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }),
-      el('option', { value: 'owner', text: 'Owner…' }));
+      site.owner ? el('option', { value: 'owner', text: 'Owner…' }) : null);
     pick.value = u.role || '';
     pick.addEventListener('change', () => {
       // an owner is made in its own dialog, with a password; closing it puts the dropdown back
@@ -7870,7 +7872,7 @@ function renderRoles() {
   });
   const email = el('input', { class: 'adm-input', type: 'email', placeholder: 'someone@example.org', 'aria-label': 'Email to add', autocomplete: 'off' });
   const role = el('select', { class: 'adm-input', 'aria-label': 'Role' }, el('option', { value: 'member', text: 'Member' }), el('option', { value: 'admin', text: 'Admin' }),
-    el('option', { value: 'owner', text: 'Owner…' }));
+    site.owner ? el('option', { value: 'owner', text: 'Owner…' }) : null);
   const add = el('form', { class: 'adm-form role-add' }, email, role, el('button', { type: 'submit', class: 'btn', text: 'Add' }));
   add.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -7884,7 +7886,7 @@ function renderRoles() {
   root.replaceChildren(
     el('section', { class: 'card adm-card' },
       el('div', { class: 'card-head' }, el('h2', { text: 'Roles' }), el('span', { class: 'card-sub', text: 'who belongs to this server, and what they may do; a change is saved at once' })),
-      el('p', { class: 'adm-note', text: 'Members are people who signed in here with their email, or were added below. A role sets the ticks: Owner gets everything, Admin everything but this tab, Member gets View and Chat; “Changed” means someone’s ticks differ from their role’s. Making someone an owner asks for your account password, and can’t be undone here. “Chats as” is who their messages from the Chat log come from: their player (the one their email is linked to on Players) or Admin, with the yellow Admin tag instead of a name. Being a member here means nothing on any other server. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
+      el('p', { class: 'adm-note', text: 'Members are people who signed in here with their email, or were added below. A role sets the ticks: Owner and Admin get everything, Member gets View and Chat. The difference: only an owner can make owners, and no one here can change or remove an owner; “Changed” means someone’s ticks differ from their role’s. Making someone an owner (owners only) asks for your account password, and can’t be undone here. “Chats as” is who their messages from the Chat log come from: their player (the one their email is linked to on Players) or Admin, with the yellow Admin tag instead of a name. Being a member here means nothing on any other server. For Liveview a tick here is half of it: the Minecraft server keeps its own list of who it lets in, and only the server can change that (the viewer and control keys, or /liveview access in game).' }),
       el('div', { class: 'adm-table-wrap' }, el('table', { class: 'adm-table role-table' },
         el('thead', {}, el('tr', {},
           el('th', { text: 'Sign-in' }),
@@ -9045,7 +9047,7 @@ const DSC_SHARE = [
 ];
 const DSC_NOTICES = {
   linked: 'Linked. Now pick a setup below.', cancelled: 'Not added: nothing changed.', expired: 'That took too long. Try Add to Discord again.',
-  not_owner: 'Only the server’s owner can add the bot.', taken: 'That Discord server is already linked to another mcstats server. Unlink it there first.',
+  not_owner: 'Only the server’s owners and admins can add the bot.', taken: 'That Discord server is already linked to another mcstats server. Unlink it there first.',
   failed: 'Discord didn’t confirm the bot was added. Try again.', not_set_up: 'The Discord bot isn’t set up on this site yet.',
 };
 
@@ -9123,7 +9125,7 @@ function renderDiscordAdmin() {
   if (!d.link) {
     const kids = [
       note('Bring this server into your Discord: commands like /online, /player and /top, a live status message, joins, deaths and '
-        + 'advancements as they happen, and the game’s chat in a channel if you like. What Discord sees is up to the owner, below once linked.'),
+        + 'advancements as they happen, and the game’s chat in a channel if you like. Once it’s linked, owners and admins choose below what Discord may see.'),
     ];
     if (d.owner) {
       const add = el('a', { class: 'btn btn-primary', href: d.install_url, text: 'Add to Discord' });
@@ -9137,7 +9139,7 @@ function renderDiscordAdmin() {
           el('div', { class: 'dsc-actions' }, btn('Copy', () => navigator.clipboard?.writeText(dsc.code.command).then(() => toast('Copied.'))))));
       }
     } else {
-      kids.push(note('Only the server’s owner can add the bot to a Discord server.'));
+      kids.push(note('Only the server’s owners and admins can add the bot to a Discord server.'));
     }
     cards.push(card('Discord', 'Not linked', ...kids));
     root.replaceChildren(...cards);
@@ -9165,14 +9167,14 @@ function renderDiscordAdmin() {
       }),
       d.owner ? btn('Unlink', () => { if (confirm('Unlink this Discord server? Its feeds stop and the bot’s webhooks and status message are deleted.')) dscPost({ action: 'unlink' }); }) : null)));
 
-  /* ---- what may be shared (owners) ---- */
+  /* ---- what may be shared (owners and admins) ---- */
   const shareRows = DSC_SHARE.filter(([k]) => k !== 'joinlink' || (!d.public && d.has_join_link)).map(([k, label, hint]) => {
     const box = el('input', { type: 'checkbox', disabled: !d.owner || k === 'online' ? '' : null });
     box.checked = !!d.config.share[k];
     box.addEventListener('change', () => dscPost({ action: 'share', share: { [k]: box.checked } }));
     return el('label', { class: 'dsc-check' }, box, el('span', {}, el('b', { text: label }), ' ', el('span', { class: 'site-hint', text: hint })));
   });
-  cards.push(card('Shared with Discord', d.owner ? 'The most Discord ever gets' : 'Only the owner can change this', ...shareRows));
+  cards.push(card('Shared with Discord', d.owner ? 'The most Discord ever gets' : 'Only owners and admins can change this', ...shareRows));
 
   /* ---- setup: a preset and channels ---- */
   const pick = (feed, value) => {

@@ -25,20 +25,23 @@ describe('who can change what', () => {
     expect((await settings(a, null)).status).toBe(401);
   });
 
-  it('an admin sets the name and the look; the address, password and visibility are the owner’s', async () => {
+  it('an admin sets the name and the look, and the password and visibility too; add-ons are the operators’', async () => {
     const a = await makeServer('sa-admin');
     const admin = await invite(a, 'helper@example.org', 'admin');
     const got = await (await settings(a, admin)).json();
     expect(got).toMatchObject({ slug: a.slug, accent: 'green', tab_style: 'line', public: false, has_password: true, addons: [] });
-    expect(got.can).toEqual({ owner: false, super: false });
+    expect(got.can).toEqual({ owner: true, super: false });
     expect(got.known_addons).toBeUndefined();
 
     const ok = await settings(a, admin, { name: 'Renamed', accent: 'blue', tab_style: 'frame' });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ name: 'Renamed', accent: 'blue', tab_style: 'frame' });
-    for (const body of [{ slug: 'sa-admin-moved' }, { password: 'another-password', confirm: 'another-password' }, { public: true }, { addons: ['eggsmp'] }]) {
-      expect((await settings(a, admin, body)).status, JSON.stringify(body)).toBe(403);
+    for (const body of [{ password: 'another-password', confirm: 'another-password' }, { public: true }]) {
+      const r = await settings(a, admin, body);
+      expect(r.status, await r.clone().text()).toBe(200);
     }
+    expect((await settings(a, admin, { public: false })).status).toBe(200);
+    expect((await settings(a, admin, { addons: ['eggsmp'] })).status).toBe(403);
     // the banner at the top of Activity (icon, description, and whether Layout shows it) is an admin's too
     const png = new Uint8Array(40);
     png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);

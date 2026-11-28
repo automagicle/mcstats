@@ -13,12 +13,14 @@
 // it lets in (src/liveview.js), and an account needs both.
 //
 // Roles are where the permissions start from:
-//   owner   everything, and the Roles tab (who's a member, and with what). Made with the server (/new), or by
-//           another owner on the Roles tab, who types their own account password to do it.
-//   admin   everything but Roles.
+//   owner   everything. Made with the server (/new), or by another owner on the Roles tab, who types their own
+//           account password to do it. Only an owner (or a super admin) makes owners, and an owner can't be
+//           changed or removed by anyone but a super admin.
+//   admin   everything an owner can do but make owners: the Roles tab (who's a member, and with what), the
+//           server's address, password and visibility, and Admin → Discord's linking and sharing too.
 //   member  look and chat. Anyone who can see the server (its password, or it's public) becomes one by
 //           choosing to use their mcstats account on it (src/tenant.js, /api/auth/enter).
-// Owners can switch single permissions on or off for anyone but an owner, and remove members.
+// Owners and admins can switch single permissions on or off for anyone but an owner, and remove members.
 //
 // Super admins (the SUPER_ADMIN_EMAIL secret) run the site: signed in to that account, they can do
 // everything there, owners' things included, and can't be locked out.
@@ -49,6 +51,9 @@ const cache = new Map();
 
 const list = (v) => String(v || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 export const isSuper = (env, who) => !!who?.email && list(env.SUPER_ADMIN_EMAIL).includes(who.email.toLowerCase());
+// Whether someone runs this server: an owner or admin who still has the admin permission, or a super admin.
+// They get the Roles tab and everything once only owners had (all but making owners).
+export const canManage = (perms) => !!(perms?.super || (perms?.admin && (perms.role === 'owner' || perms.role === 'admin')));
 
 const ALL = Object.fromEntries(PERMS.map((p) => [p, true]));
 export const PRESETS = {
@@ -161,9 +166,9 @@ async function confirmPassword(env, who, password) {
   return ok ? { ok: true } : { error: 'That isn’t your account password.', status: 403 };
 }
 
-// Everything under /api/admin/roles. Owners and super admins only.
+// Everything under /api/admin/roles. Owners, admins and super admins (canManage); making an owner is owners' only.
 export async function handleRoles(request, env, url, who, serverAccess) {
-  if (!(who.perms?.owner || who.perms?.super)) return json({ error: 'forbidden' }, 403);
+  if (!canManage(who.perms)) return json({ error: 'forbidden' }, 403);
   if (request.method === 'GET') return rolesState(env, await serverAccess());
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
   const origin = request.headers.get('Origin');
@@ -197,6 +202,7 @@ export async function handleRoles(request, env, url, who, serverAccess) {
   } else if (b.role === 'owner') {
     // an owner can do everything here and can't be changed back from this page: it's asked for with the
     // password of whoever is doing it
+    if (!(who.perms.owner || who.perms.super)) return json({ error: 'Only an owner can make someone an owner.' }, 403);
     if (current?.role === 'owner') return json({ error: 'They’re already an owner.' }, 400);
     const sure = await confirmPassword(env, who, b.password);
     if (sure.response) return sure.response;
