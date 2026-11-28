@@ -89,8 +89,8 @@ function formatter(opts) {
 
 const fmt = (ts, opts) => formatter(opts).format(ts * 1000);
 
-// Local date/hour/weekday for an hour. Pacific offsets are whole hours, so a UTC hour
-// is also exactly one local hour.
+// Local date/hour/weekday for an hour. Most zones are a whole number of hours from UTC, so a UTC hour is
+// also exactly one local hour; in the few that aren't (India, Nepal, …) hours and days sit up to 45 minutes off.
 function hourInfo(ts) {
   const h = Math.floor(ts / 3600) * 3600;
   let v = hourCache.get(h);
@@ -225,6 +225,9 @@ const teamVar = (id) => `var(--team-${id})`;
 // The teams with a series of their own in the Activity page's charts, and the one a team's playtime
 // counts in there: itself, the team it's grouped with, or none (left out of those charts).
 const activityTeams = () => teams.filter((t) => t.activity && !t.activity_with);
+// Splitting the activity charts by team only says something with two teams or more: with one, "by team"
+// and "share" would just repeat everyone (or that one team) in its color, so the charts stay whole.
+const teamViews = () => roster.size > 0 && activityTeams().length > 1;
 function activityTeam(id) {
   const t = teamById.get(id);
   if (!t) return null;
@@ -380,13 +383,22 @@ $('#name-toggle').addEventListener('click', (e) => {
 //   rosterColumn()         -> { key, title, plural, none, options: [[value, label]], label(value) }
 //                             a column on Admin → Teams' roster and in Players, kept in the roster row's `key`
 //   sampleData()           -> options for the sample data's generator (public/dummy.js)
+//   page()                 -> { id, title, show(root, { refresh }), names?(root) }  a page of its own, at
+//                             #/<id>, with a tab after Chat log. show draws it into root (a promise; called
+//                             again with refresh: true each minute while it's open), names redraws it when
+//                             the IGN / Name switch is used
 // With no add-ons, every one of those places is simply empty.
 const ADDONS = Array.isArray(window.MCS_ADDONS) ? window.MCS_ADDONS : [];
 let addonsSetUp = false;
 function addons(hook, ...args) {
   if (!addonsSetUp) {
     addonsSetUp = true;
-    for (const a of ADDONS) a.setup?.({ el, $, icon, recall, remember, ago, rosterOf, BASE });
+    for (const a of ADDONS) a.setup?.({
+      el, $, icon, recall, remember, ago, rosterOf, BASE,
+      // for an add-on's page: the server's data, players as the rest of the site shows them, teams, tooltips
+      api, fmt, headImg, shownName, teamName, playerLink, showTip, hideTip, setItemIcon, advTexture,
+      rosterLoad, activityTeams, activityTeam, archived,
+    });
   }
   const out = [];
   for (const a of ADDONS) {
@@ -398,6 +410,28 @@ function addons(hook, ...args) {
     }
   }
   return out;
+}
+
+// The add-ons' own pages: [{ id, title, show, names?, root }]. The first time this is asked, each gets its
+// tab (after Chat log) and an empty view to draw in.
+let addonPageList = null;
+function addonPages() {
+  if (addonPageList) return addonPageList;
+  addonPageList = [];
+  for (const p of addons('page')) {
+    if (!p || !/^[a-z][a-z0-9-]{0,23}$/.test(p.id || '') || typeof p.show !== 'function' || document.getElementById(`view-${p.id}`)) continue;
+    $('#tab-live').before(el('a', { href: `#/${p.id}`, id: `tab-${p.id}`, text: p.title || p.id }), '\n        ');
+    const root = el('section', { id: `view-${p.id}`, class: 'addon-view', hidden: '' });
+    $('#view-chat').after(root);
+    addonPageList.push({ ...p, root });
+  }
+  return addonPageList;
+}
+const addonPageAt = (hash = location.hash) => addonPages().find((p) => hash === `#/${p.id}`) || null;
+async function showAddonPage(page, opts = {}) {
+  showView(page.id);
+  document.title = `${page.title} · ${SITE}`;
+  await page.show(page.root, opts);
 }
 
 /* ---------- layout: how each page's sections and number tiles are arranged (Admin → Layout) ---------- */
@@ -2446,7 +2480,7 @@ async function renderServerDaily(animate = false, slide = 0) {
 // { team id: [hours] } for the teams the Activity page shows (a team grouped with another counts in
 // that one's); null when there are none.
 async function teamHoursPerBucket(buckets) {
-  if (!roster.size || !buckets.length || !activityTeams().length) return null;
+  if (!teamViews() || !buckets.length) return null;
   const from = buckets[0].start, to = buckets[buckets.length - 1].end;
   // (kept between redraws, and as the chart is scrolled along; see timeCache)
   await dailySessions.ensure(from, to);
@@ -2477,8 +2511,8 @@ const heatModes = () => {
 function syncHeatToggle() {
   const t = $('#heat-team');
   const shown = activityTeams();
-  t.hidden = !roster.size || !shown.length;
-  if (!heatModes().includes(heatTeam)) heatTeam = 'all';
+  t.hidden = !teamViews();
+  if (t.hidden || !heatModes().includes(heatTeam)) heatTeam = 'all';
   const button = (v, text, title) => el('button', { type: 'button', 'data-v': v, title, text, 'aria-pressed': String(v === heatTeam) });
   t.replaceChildren(button('all', 'All', 'Everyone'), ...shown.map((x) => button(x.id, x.short, `${x.name} only`)),
     ...(shown.length > 1 ? [button('mix', 'Mix', 'The teams, blended by their share')] : []));
@@ -2600,7 +2634,7 @@ const TL_MODES = ['all', 'teams', 'share'];
 let tlTeams = TL_MODES.includes(recall('tlTeams')) ? recall('tlTeams') : 'all';
 function syncTlTeamToggle() {
   const t = $('#tl-team');
-  t.hidden = !roster.size || !activityTeams().length;
+  t.hidden = !teamViews();
   for (const b of t.children) b.setAttribute('aria-pressed', String(b.dataset.v === tlTeams));
 }
 $('#tl-team').addEventListener('click', (e) => {
@@ -2613,7 +2647,7 @@ $('#tl-team').addEventListener('click', (e) => {
 });
 rosterLoad.then(() => {
   syncTlTeamToggle();
-  if (roster.size && tlTeams !== 'all' && !$('#view-home').hidden) loadTimeline().catch(() => {});
+  if (teamViews() && tlTeams !== 'all' && !$('#view-home').hidden) loadTimeline().catch(() => {});
 });
 
 // How many of each team were on at each point (minute data), or on average through the hour starting
@@ -2714,8 +2748,8 @@ async function loadTimeline(slide = 0) {
   };
 
   const shownTeams = activityTeams();
-  const teams = tlTeams === 'teams' && roster.size > 0 && shownTeams.length > 0;
-  const share = tlTeams === 'share' && roster.size > 0 && shownTeams.length > 0;
+  const teams = tlTeams === 'teams' && teamViews();
+  const share = tlTeams === 'share' && teamViews();
   const cm = 'var(--muted)';
   const band = (color, text) => el('span', {}, el('span', { class: 'key key-band', style: `background:${color}` }), text);
   if (minuteData) {
@@ -3017,7 +3051,7 @@ const preloadTimeline = () => {
   preloadAround(r, r.to - r.from <= 8 * 86400 ? [tlSnaps, tlSessions] : [tlSessions]);
 };
 const preloadDaily = () => {
-  if (roster.size && activityTeams().length) preloadAround(resolveWindow(dailyCtl.get()), [dailySessions]);
+  if (teamViews()) preloadAround(resolveWindow(dailyCtl.get()), [dailySessions]);
 };
 
 // Hourly rows in [from, to): from the cache when it covers them, otherwise fetched.
@@ -3038,9 +3072,10 @@ async function loadSnapshots(from) {
   return state.snaps.rows.filter((r) => r[0] >= from);
 }
 
-// Shows one of the views ('home', 'player', 'chat', 'combat', 'admin', 'live') and marks its tab.
+// Shows one of the views ('home', 'player', 'chat', 'combat', 'admin', 'live', or an add-on's page) and marks its tab.
 function showView(name) {
-  for (const v of ['home', 'player', 'chat', 'combat', 'admin', 'live']) $(`#view-${v}`).hidden = v !== name;
+  const extra = addonPages().map((p) => p.id);
+  for (const v of ['home', 'player', 'chat', 'combat', 'admin', 'live', ...extra]) $(`#view-${v}`).hidden = v !== name;
   if (name !== 'player') clearPlayerModel();
   if (name !== 'live') liveMod?.hide(); // Liveview stops drawing, and lets go of its connection after a while
   document.body.classList.toggle('chat-mode', name === 'chat');
@@ -3048,8 +3083,8 @@ function showView(name) {
   if (name !== 'chat') closeSearch();
   if (state.status) renderSeasonNote();
   renderLayoutNote(name);
-  const tab = name === 'chat' || name === 'combat' || name === 'live' || name === 'admin' ? name : 'activity';
-  for (const t of ['activity', 'chat', 'combat', 'live', 'admin']) {
+  const tab = name === 'chat' || name === 'combat' || name === 'live' || name === 'admin' || extra.includes(name) ? name : 'activity';
+  for (const t of ['activity', 'chat', 'combat', 'live', 'admin', ...extra]) {
     if (t === tab) $(`#tab-${t}`).setAttribute('aria-current', 'page');
     else $(`#tab-${t}`).removeAttribute('aria-current');
   }
@@ -4356,7 +4391,11 @@ function renderComposer() {
   // without the server, whispers can still reach people who have the dashboard open
   const can = !!(me.ign || me.admin);
   chatInput.disabled = !can;
-  chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
+  // why this account can't send, when something stops it (src/link.js, chatRefusal)
+  const refused = me.refused ?? (me.blocked ? 'blocked' : null);
+  chatInput.placeholder = refused === 'signed_out' ? 'Sign in to send messages'
+    : refused === 'not_member' ? `${me.account} isn’t a member of this server, so it can’t send messages`
+    : refused ? 'This account isn’t allowed to send messages here · an admin can change that'
     : !me.ign && !me.admin
     ? (me.email ? `${me.email} isn’t linked to a player yet · connect it in game with /mcstats connect` : 'Sign in to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"
@@ -6407,6 +6446,9 @@ function rerenderNames() {
     renderOnlineThen(true);
     renderComposer();
     renderChatOnline();
+  } else {
+    const page = addonPages().find((p) => !p.root.hidden);
+    try { page?.names?.(page.root); } catch (err) { console.error(`add-on page ${page.id}:`, err); }
   }
 }
 
@@ -6809,9 +6851,45 @@ function applyLook(accent, tabs) {
     else root.style.removeProperty(k);
   }
 }
+/* ---------- Admin → Server: the time zone, picked by place ---------- */
+
+// "America/Argentina/Buenos_Aires" reads "America / Argentina / Buenos Aires".
+const tzLabel = (tz) => tz.replace(/_/g, ' ').replace(/\//g, ' / ');
+const tzRegion = (tz) => (tz.includes('/') ? tz.slice(0, tz.indexOf('/')) : 'UTC');
+// Every zone the browser knows, by region: { America: ['America/Adak', …], …, UTC: ['UTC'] }. `also` (the
+// server's own, and this browser's) are added in case the browser lists them under another name.
+function tzRegions(...also) {
+  let all = [];
+  try { all = Intl.supportedValuesOf('timeZone'); } catch { /* an old browser: just the ones given */ }
+  const out = {};
+  for (const tz of [...new Set([...all, ...also])].sort()) {
+    if (tz !== 'UTC' && !tz.includes('/')) continue;
+    (out[tzRegion(tz)] ||= []).push(tz);
+  }
+  out.UTC = ['UTC'];
+  return out;
+}
+// The time there now and how far it is from UTC: { time: 'Fri 4:19 PM', offset: 'UTC−8', odd } (odd: not a whole
+// number of hours from UTC). null for a zone this browser doesn't know.
+function tzNow(tz) {
+  try {
+    const now = new Date();
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(now);
+    const gmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(now).find((x) => x.type === 'timeZoneName')?.value || 'GMT';
+    return { time, offset: gmt.replace('GMT', 'UTC').replace('-', '−'), odd: gmt.includes(':') };
+  } catch {
+    return null;
+  }
+}
+const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
+
 // icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
 const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
+  tz: d.tz || 'UTC',
+  addon_opts: Object.fromEntries((d.addon_options || []).map((o) => [`${o.addon}.${o.key}`, o.on])),
   about: d.about || '', banner: d.banner || '', icon: undefined, layout: fullLayout(d.layout) });
+// The add-ons' options (src/addons.js) that are set differently from what's saved, on add-ons the server keeps.
+const srvOptChanges = () => (srv.data.addon_options || []).filter((o) => srv.draft.addons.includes(o.addon) && srv.draft.addon_opts[`${o.addon}.${o.key}`] !== o.on);
 // What Save would change, one line each.
 function srvChanges() {
   const d = srv.data, f = srv.draft;
@@ -6822,6 +6900,7 @@ function srvChanges() {
   if (f.slug.trim().toLowerCase() !== d.slug) out.push(`Address: /${d.slug} → /${f.slug.trim().toLowerCase()} (old links stop working, the join link included, and everyone joins again)`);
   if (f.public !== d.public) out.push(f.public ? 'Public: anyone with the address can look' : 'Private: looking needs the join password');
   if (f.password) out.push(d.has_password ? 'A new join password (everyone who joined with the old one joins again)' : 'A join password');
+  if (f.tz !== (d.tz || 'UTC')) out.push(`Time zone: ${tzLabel(d.tz || 'UTC')} → ${tzLabel(f.tz)} (how times read; nothing recorded changes)`);
   if (f.accent !== d.accent) out.push(`Accent: ${accentName(d.accent)} → ${accentName(f.accent)}`);
   if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
   if (f.about.trim() !== (d.about || '')) out.push(f.about.trim() ? (d.about ? 'A new description' : 'A description') : 'No description');
@@ -6831,6 +6910,7 @@ function srvChanges() {
   for (const a of d.known_addons || []) {
     if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
   }
+  for (const o of srvOptChanges()) out.push(`${o.name}: ${f.addon_opts[`${o.addon}.${o.key}`] ? 'on' : 'off'}`);
   return out;
 }
 // Leaving the tab with a look that wasn't saved: the page goes back to the saved one.
@@ -6872,9 +6952,11 @@ async function srvSave() {
   if (f.slug.trim().toLowerCase() !== d.slug) body.slug = f.slug.trim().toLowerCase();
   if (f.public !== d.public) body.public = f.public;
   if (f.password) Object.assign(body, { password: f.password, confirm: f.confirm });
+  if (f.tz !== (d.tz || 'UTC')) body.tz = f.tz;
   if (f.accent !== d.accent) body.accent = f.accent;
   if (f.tab_style !== d.tab_style) body.tab_style = f.tab_style;
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
+  for (const o of srvOptChanges()) ((body.addon_options ??= {})[o.addon] ??= {})[o.key] = f.addon_opts[`${o.addon}.${o.key}`];
   if (f.about.trim() !== (d.about || '')) body.about = f.about.trim();
   if (f.icon !== undefined) body.icon = f.icon;
   if (f.banner !== (d.banner || '')) body.banner = f.banner === '1';
@@ -6900,9 +6982,9 @@ async function srvSave() {
     MCS.banner = r.banner || '';
     MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
     layoutSaved = fullLayout(r.layout);
-    // a new address is a new page; a new name is on every page's title: load it afresh
+    // a new address is a new page; a new name is on every page's title; a new time zone moves every day and hour shown: load it afresh
     if (r.moved) { srv.draft = null; location.href = `${r.moved}#/admin/server`; return; }
-    if (body.name || body.addons) { srv.draft = null; location.reload(); return; }
+    if (body.name || body.addons || body.tz) { srv.draft = null; location.reload(); return; }
     srv.data = r;
     srv.draft = srvDraftFrom(r);
     toast('Saved');
@@ -7133,6 +7215,32 @@ function renderServerAdmin(focusKey) {
     el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null),
     el('div', { class: 'srv-fields' }, ...kids));
 
+  /* ---- the time zone: a region, then a place in it ---- */
+  const mine = browserTz();
+  const regions = tzRegions(f.tz, ...(mine ? [mine] : []));
+  const select = (key, label, options, value, pick) => {
+    const box = el('select', { class: 'adm-input srv-tz-select', 'aria-label': label, 'data-fk': key },
+      ...options.map(([v, text]) => el('option', { value: v, text })));
+    box.value = value;
+    box.addEventListener('change', () => pick(box.value));
+    return box;
+  };
+  const region = tzRegion(f.tz);
+  const regionBox = select('srv:tz-region', 'Region', Object.keys(regions).map((r) => [r, r]), region, (r) => {
+    // a new region starts at this browser's own place when it's in there, else its first
+    f.tz = mine && tzRegion(mine) === r ? mine : regions[r][0];
+    redraw('srv:tz-place');
+  });
+  const placeBox = region === 'UTC' ? null : select('srv:tz-place', 'Place', regions[region].map((z) => [z, tzLabel(z.slice(region.length + 1))]), f.tz, (z) => {
+    f.tz = z;
+    redraw('srv:tz-place');
+  });
+  const there = tzNow(f.tz);
+  const useMine = mine && mine !== f.tz ? el('button', { type: 'button', class: 'btn btn-quiet', text: `Use mine (${tzLabel(mine)})`, 'data-fk': 'srv:tz-mine' }) : null;
+  useMine?.addEventListener('click', () => { f.tz = mine; redraw('srv:tz-place'); });
+  const tzField = field('Time zone', el('div', { class: 'srv-row srv-tz' }, regionBox, placeBox, useMine),
+    `${there ? `It’s ${there.time} there now (${there.offset}). ` : ''}Times and days on every page are shown in it. Changing it loses nothing.${there?.odd ? ' This zone isn’t a whole number of hours from UTC, so hours and days on the charts sit up to 45 minutes off.' : ''}`, 'tz');
+
   /* ---- name and address ---- */
   const slugBox = text('slug', { type: 'text', maxlength: '32', spellcheck: 'false', autocapitalize: 'none', autocomplete: 'off', 'aria-label': 'Address',
     disabled: owner && !d.slug_locked ? null : '' });
@@ -7176,6 +7284,7 @@ function renderServerAdmin(focusKey) {
     iconField,
     field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
     bannerField,
+    tzField,
     field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 
@@ -7251,9 +7360,20 @@ function renderServerAdmin(focusKey) {
       return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: a.name }), el('span', { class: 'site-hint', text: a.about })));
     })) : null;
 
+  /* ---- the options of the add-ons this server has: its admins ---- */
+  const optRows = (d.addon_options || []).filter((o) => f.addons.includes(o.addon));
+  const addonOpts = optRows.length ? card('Add-on options', 'for the add-ons this server has',
+    ...optRows.map((o) => {
+      const fk = `${o.addon}.${o.key}`;
+      const box = el('input', { type: 'checkbox', 'data-fk': `srv:opt:${fk}` });
+      box.checked = !!f.addon_opts[fk];
+      box.addEventListener('change', () => { f.addon_opts[fk] = box.checked; redraw(`srv:opt:${fk}`); });
+      return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: o.name }), el('span', { class: 'site-hint', text: o.about })));
+    })) : null;
+
   const seasonsCard = srv.seasons ? renderSeasons(card, redraw) : null;
   const formErr = srv.errors.form ? el('div', { class: 'notice notice-error', role: 'alert', text: srv.errors.form }) : null;
-  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(extras ? [extras] : []));
+  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(addonOpts ? [addonOpts] : []), ...(extras ? [extras] : []));
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   renderAdminBar();
 }
@@ -7664,7 +7784,7 @@ const analyticsPage = () => {
   if (m) return `player:${m[1].toLowerCase()}`;
   if (onLive()) return 'live';
   if (location.hash.startsWith('#/admin')) return 'admin';
-  return { '#/chat': 'chat', '#/combat': 'combat' }[location.hash] || 'home';
+  return { '#/chat': 'chat', '#/combat': 'combat' }[location.hash] || addonPageAt()?.id || 'home';
 };
 const onPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
 function sendHit(beat) {
@@ -7924,7 +8044,7 @@ function renderAnalytics() {
   const root = $('#analytics');
   const rows = d.rows.filter((r) => !(stats.noAdmins && d.visitors[r.visitor]?.admin));
   const who = (v) => d.visitors[v]?.name || v;
-  const pageName = (p) => (p.startsWith('player:') ? `Player · ${d.players[p.slice(7)] || 'unknown'}` : { home: 'Activity', chat: 'Chat log', combat: 'Combat', admin: 'Admin' }[p] || p);
+  const pageName = (p) => (p.startsWith('player:') ? `Player · ${d.players[p.slice(7)] || 'unknown'}` : { home: 'Activity', chat: 'Chat log', combat: 'Combat', admin: 'Admin', live: 'Liveview', advancements: 'Advancements' }[p] || p);
   const time = (min) => (min < 60 ? `${min} min` : `${fmtHours(min / 60)} h`);
   const dayTs = (day) => Date.parse(`${day}T00:00:00Z`) / 1000;
 
@@ -9292,6 +9412,7 @@ async function route() {
     else if (location.hash === '#/admin/roles') await showRoles();
     else if (location.hash === '#/admin/discord') await showDiscordAdmin();
     else if (onLive()) await showLive();
+    else if (addonPageAt()) await showAddonPage(addonPageAt());
     else await showHome();
     renderUnread();
     countView();
@@ -9635,6 +9756,7 @@ async function refresh() {
     else if (location.hash === '#/admin/analytics') await showAnalytics({ refresh: true });
     else if (location.hash.startsWith('#/admin')) { /* the admin page reloads only on a change */ }
     else if (onLive()) { /* Liveview keeps itself up to date over its own connection */ }
+    else if (addonPageAt()) await showAddonPage(addonPageAt(), { refresh: true });
     else await showHome();
     renderUnread();
     showError('');

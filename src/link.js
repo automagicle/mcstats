@@ -172,17 +172,33 @@ async function gameName(env, ign) {
   }
 }
 
+// Why this account can't send chat from the dashboard, or null if nothing stops it here:
+//   'signed_out'  no account (only the server's password, or a public server)
+//   'not_member'  signed in, but the account isn't one of this server's members
+//   'blocked'     a member whose permissions leave chat off (Admin → Roles, src/roles.js)
+export function chatRefusal(who) {
+  if (!who.perms || who.perms.chat) return null;
+  if (!who.email) return who.account ? 'not_member' : 'signed_out';
+  return who.perms.role || who.perms.super ? 'blocked' : 'not_member';
+}
+const REFUSALS = {
+  signed_out: 'Sign in to send messages.',
+  not_member: (email) => `${email} isn’t a member of this server, so it can’t send messages.`,
+  blocked: 'This account isn’t allowed to send messages from the dashboard. An admin can change that on Admin → Roles.',
+};
+
 // GET /api/chat/me: who you'd be sending as, and whether the server is connected.
 export async function webChatMe(env, who) {
-  // someone a super admin has stopped from chatting (src/roles.js) is told so, rather than "not on the roster"
-  const blocked = who.perms ? !who.perms.chat : false;
+  // someone who can't chat here is told why, rather than "not on the roster"
+  const refused = chatRefusal(who);
+  const blocked = !!refused;
   const player = blocked ? null : await playerFor(env, who.email, who.perms);
   const linked = player ? (await linkUp(env)) === true : false;
   // a player who asked in game to connect this account, waiting for its yes (src/connect.js)
   const ask = who.email ? await pendingFor(env.DB, who.email) : null;
   return json({
-    email: who.email, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, connected: !!player?.connected,
-    linked, max: MAX_WEB_CHAT, blocked, connect: ask ? { name: ask.name, at: ask.requested_at } : null,
+    email: who.email, account: who.email ?? who.account ?? null, ign: player?.ign ?? null, team: player?.team ?? null, admin: !!player?.admin, connected: !!player?.connected,
+    linked, max: MAX_WEB_CHAT, blocked, refused, connect: ask ? { name: ask.name, at: ask.requested_at } : null,
   });
 }
 
@@ -193,7 +209,11 @@ export async function sendWebChat(request, env, url, who) {
   if (origin && origin !== url.origin) return json({ error: 'wrong origin' }, 403);
   if (!(request.headers.get('Content-Type') || '').startsWith('application/json')) return json({ error: 'expected JSON' }, 415);
 
-  if (who.perms && !who.perms.chat) return json({ error: 'This account isn’t allowed to send chat from the dashboard.' }, 403);
+  const refused = chatRefusal(who);
+  if (refused) {
+    const why = REFUSALS[refused];
+    return json({ error: typeof why === 'function' ? why(who.account) : why, reason: refused }, 403);
+  }
   const player = await playerFor(env, who.email, who.perms);
   if (!player) {
     return json({ error: who.email ? `${who.email} isn’t linked to a player yet (connect it in game with /mcstats connect, or an admin links it on Admin → Players), so it can’t send chat` : 'not signed in with an email' }, 403);

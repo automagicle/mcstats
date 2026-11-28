@@ -4,7 +4,8 @@ import { chatPlayers, ingestChat, playerChat, readChat, searchChat } from './cha
 import { combatData, combatLog } from './combat.js';
 import { chatSeason, clampRange, seasonFor } from './seasons.js';
 import { gearFor, gearStyles, ingestGear } from './gear.js';
-import { advancementsFor, ingestAdvancements } from './advancements.js';
+import { advancementsFor, advancementsSummary, ingestAdvancements } from './advancements.js';
+import { hasAddon } from './addons.js';
 import { ingestOnline } from './online.js';
 import { serveItem, serveSkin, serveTexture } from './mcassets.js';
 import { connectLink, playerFor, sendWebChat, webChatMe } from './link.js';
@@ -274,6 +275,8 @@ export async function handleApi(request, env, url, ctx) {
   if (path === '/api/chat/players') return chatPlayers(env, chat);
   if (path === '/api/chat/player') return playerChat(env, url, chat);
   if (path === '/api/advancements') return advancementsFor(env, url, season);
+  // the Advancements add-on's page (src/addons.js): only on a server that has it
+  if (path === '/api/advancements/summary') return hasAddon(env, 'advancements') ? advancementsSummary(env, season) : json({ error: 'not found' }, 404);
   if (path === '/api/combat') return combatData(env, url, season);
   if (path === '/api/combat/log') return combatLog(env, url, season);
 

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The site's own numbers, for its operators only: src/siteanalytics.js serves this page to nobody else, and nothing links here. -->
+  <meta name="robots" content="noindex, nofollow">
+  <title>Site analytics · mcstats</title>
+  <meta name="theme-color" content="#5fae4c">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%238a5a33'/%3E%3Crect width='8' height='3' fill='%235fae4c'/%3E%3Cpath fill='%235fae4c' d='M1 3h1v1H1zM4 3h2v1H4zM7 3h1v1H7z'/%3E%3Cpath fill='%2386cf6f' d='M0 0h2v1H0zM5 0h1v1H5zM3 1h1v1H3zM6 1h2v1H6z'/%3E%3Cpath fill='%236b4324' d='M2 5h1v1H2zM6 4h1v1H6zM4 6h2v1H4zM0 7h1v1H0z'/%3E%3Cpath fill='%23a47148' d='M0 4h1v1H0zM3 5h1v1H3zM6 6h1v1H6zM2 7h1v1H2z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..800;1,400..800&family=Jersey+10&family=Jersey+15&family=Jersey+20&family=Jersey+25&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script>
+    // Dark by default; a theme picked with the switch is saved and wins. Set before first paint, so there's no flash.
+    document.documentElement.dataset.theme = 'dark';
+    try { const t = localStorage.getItem('theme'); if (t === 'light') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <style>
+    /* Only this page uses these (DESIGN.md's tokens and shapes; the site's own green accent). */
+    body.sa { --sa-2: var(--accent-blue); }
+    .sa-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; margin: 4px 0 14px; }
+    .sa-head .page-title { text-shadow: 3px 3px 0 var(--title-shadow); }
+    .sa-head-sub { font-size: 13px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+    .sa-head-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .sa-section { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 26px 0 8px; }
+    .sa-section:first-of-type { margin-top: 0; }
+    .tiles.sa-tiles { margin: 0 0 14px; }
+    .sa-tiles .tile-sub b { color: var(--ink-2); font-weight: 600; }
+    .sa-tiles.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tile[title] { cursor: help; }
+    .sa-note { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
+    .sa-note b { color: var(--ink-2); font-weight: 600; }
+    .sa-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); margin: 0 0 6px; }
+    .sa-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .sa-key { width: 10px; height: 10px; flex: none; }
+    .sa-key.line { width: 14px; height: 2px; }
+    .sa-key.dash { width: 14px; height: 0; border-top: 2px dashed var(--ink-2); background: none !important; }
+    .sa-chart { position: relative; height: 200px; }
+    .sa-chart.short { height: 130px; }
+    .sa-chart svg { display: block; overflow: visible; }
+    .sa-chart text { font: 11px var(--font); fill: var(--muted); font-variant-numeric: tabular-nums; }
+    .sa-empty { position: absolute; inset: 0 0 22px 40px; display: grid; place-items: center; font-size: 13px; color: var(--muted); pointer-events: none; }
+    .sa-hbars { display: grid; grid-template-columns: minmax(84px, max-content) minmax(40px, 1fr) auto auto; gap: 7px 10px; align-items: center; font-size: 13px; }
+    .sa-hbars .l { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sa-hbars .l small { color: var(--muted); font-size: 11.5px; margin-left: 5px; }
+    .sa-hbars .t { height: 8px; position: relative; }
+    .sa-hbars .t i { position: absolute; inset: 0 auto 0 0; background: var(--series-1); min-width: 2px; }
+    .sa-hbars .t i.zero { min-width: 0; }
+    .sa-hbars .t i.alt { background: var(--sa-2); }
+    .sa-hbars .v { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+    .sa-hbars .p { font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; min-width: 3.4em; font-size: 12px; }
+    .sa-hbars .d { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin-top: -4px; }
+    .sa-sub-h { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 16px 0 8px; }
+    .sa-sub-h:first-child { margin-top: 0; }
+    .sa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sa-table th, .sa-table td { padding: 5px 6px; border-top: 1px solid var(--grid); text-align: left; }
+    .sa-table thead th { border-top: 0; font-size: 12px; font-weight: 600; color: var(--ink-2); vertical-align: bottom; }
+    .sa-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sa-table tr.sa-cur td { font-weight: 650; }
+    .sa-table .est { color: var(--series-1); font-weight: 700; }
+    .sa-mark { color: var(--warning); font-weight: 700; cursor: help; }
+    .sa-scroll { overflow-x: auto; }
+    .sa-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 10px 0 0; }
+    .sa-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+    .sa-form .adm-input { min-width: 0; }
+    .sa-err { color: var(--critical); font-size: 13px; margin: 8px 0 0; }
+    .sa-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+    .sa-list li { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--grid); }
+    .sa-list li:first-child { border-top: 0; }
+    .sa-list .grow { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+    .sa-list .meta { color: var(--muted); font-size: 12px; }
+    .sa-tag { display: inline-block; padding: 0 5px; font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); }
+    .sa-tag.ok { background: color-mix(in srgb, var(--series-1) 22%, var(--surface-2)); color: var(--ink); }
+    .sa-big { font: 400 30px/1.1 var(--px-30); }
+    .sa-progress { font-size: 13px; color: var(--ink-2); }
+    .sa-tip-day { font-weight: 650; margin-bottom: 4px; }
+    .sa-tip-row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+    .sa-tip-row span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+    .sa-tip-row b { font-variant-numeric: tabular-nums; font-weight: 650; }
+    .sa-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+    .sa-priv p { margin: 0 0 8px; font-size: 13px; color: var(--ink-2); line-height: 1.55; max-width: 90ch; }
+    .sa-priv p:last-child { margin-bottom: 0; }
+    @media (max-width: 800px) {
+      .sa-tiles.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .sa-cols { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    }
+    @media (max-width: 640px) {
+      .grid2 { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+  <script src="/ui.js" defer></script>
+  <script src="/site-analytics.js" defer></script>
+  <!-- counted like any other page, so an operator's own account and device add up the same way -->
+  <script src="/visit.js" defer></script>
+</head>
+<body class="site sa" data-page="site-analytics">
+  <header class="top">
+    <div class="top-left">
+      <a class="brand" href="/">
+        <span class="logo" aria-hidden="true"></span>
+        <span>mcstats</span>
+      </a>
+    </div>
+    <div class="top-right">
+      <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
+        <span class="theme-knob"></span>
+        <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg>
+        <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="sa-main">
+    <section class="card"><p class="card-sub">Loading…</p></section>
+  </main>
+</body>
+</html>

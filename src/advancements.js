@@ -2,7 +2,9 @@
 // player's page: the tree as the game lays it out, and each player's progress in it.
 // Only the fields the dashboard uses are kept; everything is re-checked here.
 
-import { marks, playerGroup } from './aliases.js';
+import { canonName, canonUuid, marks, playerGroup } from './aliases.js';
+import { notHidden } from './hidden.js';
+import { addonOption } from './addons.js';
 import { json, UUID_RE, ingestDenied } from './util.js';
 
 const MAX_BODY = 1024 * 1024;
@@ -147,6 +149,56 @@ export async function advancementsFor(env, url, season) {
     for (const id of Object.keys(body.done)) delete body.part[id];
   } catch {
     // unreadable rows: show nothing rather than fail
+  }
+  return json(body);
+}
+
+// GET /api/advancements/summary — everyone's advancements at once, for the Advancements add-on's page
+// (public/addons/advancements/): the tree, and what each player has earned in it:
+//   { tree: [...], ts, shared, players: [{ name, uuid, ts, done: { id: unix seconds }, part: { id: { n, of } } }] }
+// A player is all of their accounts together (src/aliases.js), under the main one's name: each advancement
+// counts once, from the first time any of them got it, and part (how far along they are in one they don't
+// have yet, for "who's closest") is their newest account's. Hidden players are left out (src/hidden.js), as is
+// progress reported in another season (a season is a new world), and anything that isn't in the tree
+// (recipes and the like, which the game doesn't show either). ts is the newest report (null if none).
+// The page does the counting, so it can count one team as easily as everyone.
+export async function advancementsSummary(env, season) {
+  const main = canonName('a.name');
+  // shared: the server says everyone gets an advancement when anyone does (the add-on's option, Admin → Server),
+  // so the page leaves out who earned what
+  const body = { tree: [], ts: null, players: [], shared: addonOption(env, 'advancements', 'shared') };
+  try {
+    const [t, p] = await env.DB.batch([
+      env.DB.prepare('SELECT ts, data FROM advancement_tree WHERE id = 1'),
+      env.DB.prepare(
+        `SELECT ${main} AS main, ${canonUuid('a.name', 'a.uuid')} AS uuid, a.ts, a.data FROM advancements a
+         WHERE a.ts >= ?1 AND a.ts < ?2 AND ${notHidden(main)} ORDER BY a.ts DESC LIMIT 1000`
+      ).bind(season.lo, season.hi),
+    ]);
+    const tree = t.results[0];
+    if (tree && tree.ts >= season.lo && tree.ts < season.hi) body.tree = JSON.parse(tree.data);
+    const known = new Set(body.tree.map((a) => a.id));
+    const byName = new Map();
+    for (const row of p.results) {
+      let data;
+      try { data = JSON.parse(row.data); } catch { continue; } // an unreadable row: skip that player's report
+      const key = String(row.main).toLowerCase();
+      let player = byName.get(key);
+      if (!player) { // newest first
+        player = { name: row.main, uuid: row.uuid || null, ts: row.ts, done: {}, part: {} };
+        byName.set(key, player);
+        for (const [id, v] of Object.entries(data.part || {})) if (known.has(id) && v?.n > 0) player.part[id] = { n: v.n, of: v.of };
+      }
+      for (const [id, at] of Object.entries(data.done || {})) {
+        if (!known.has(id)) continue;
+        if (!(id in player.done) || at < player.done[id]) player.done[id] = at;
+      }
+    }
+    body.players = [...byName.values()];
+    for (const pl of body.players) for (const id of Object.keys(pl.done)) delete pl.part[id];
+    body.ts = body.players[0]?.ts ?? null;
+  } catch {
+    // tables not there, or an unreadable tree: show nothing rather than fail
   }
   return json(body);
 }

@@ -1953,6 +1953,9 @@ a.pcb-who:hover { text-decoration: underline; }
 .srv-url { max-width: 440px; }
 .srv-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .srv-row .srv-input { flex: 1 1 180px; max-width: 220px; }
+/* the time zone: region, then place */
+.srv-tz { align-items: center; }
+.srv-tz .srv-tz-select { flex: 0 1 auto; max-width: 100%; padding: 6px 8px; }
 /* the join link: the whole address in view where there's room, in the code face like the mod's key */
 .srv-link-row { align-items: center; }
 .srv-row .srv-input.srv-link { flex: 1 1 320px; max-width: 460px; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -2825,6 +2828,9 @@ html:has(body.home) { overflow-x: clip; } /* the sky is as wide as the window */
 
 /* the example chat log */
 .home-chat { height: 540px; }
+/* On the dashboard a list that scrolls keeps the wheel to itself. Here the examples sit in the middle of a
+   page that's being read from top to bottom: once one has scrolled as far as it goes, the page carries on. */
+.home-main * { overscroll-behavior: auto; }
 
 /* smaller things, side by side */
 .home-more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; --gap: 90px; }
