@@ -67,7 +67,29 @@ describe('the Advancements add-on', () => {
     await settings(a, await idCookie(a, 'operator@example.org'), { addons: ['advancements'] });
     const res = await summary(a, await idCookie(a, a.owner));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ tree: [], ts: null, players: [] });
+    expect(await res.json()).toEqual({ tree: [], ts: null, players: [], shared: false });
+  });
+
+  it('its admins say advancements are shared, and the page is told', async () => {
+    const a = await makeServer('adv-shared');
+    const owner = await idCookie(a, a.owner);
+    // no add-on, no option: it isn't offered, and can't be set
+    expect((await (await settings(a, owner)).json()).addon_options).toEqual([]);
+    expect((await settings(a, owner, { addon_options: { advancements: { shared: true } } })).status).toBe(400);
+    await settings(a, await idCookie(a, 'operator@example.org'), { addons: ['advancements'] });
+
+    const state = await (await settings(a, owner)).json();
+    expect(state.addon_options).toMatchObject([{ addon: 'advancements', key: 'shared', on: false, name: expect.any(String), about: expect.any(String) }]);
+    expect((await (await summary(a, owner)).json()).shared).toBe(false);
+    for (const bad of [{ advancements: { nope: true } }, { advancements: { shared: 'yes' } }, { eggsmp: { shared: true } }, []]) {
+      expect((await settings(a, owner, { addon_options: bad })).status).toBe(400);
+    }
+    // the server's own admin sets it (it isn't the operators' alone, as switching the add-on on is)
+    const set = await (await settings(a, owner, { addon_options: { advancements: { shared: true } } })).json();
+    expect(set.addon_options[0].on).toBe(true);
+    expect((await (await summary(a, owner)).json()).shared).toBe(true);
+    expect((await (await settings(a, owner, { addon_options: { advancements: { shared: false } } })).json()).addon_options[0].on).toBe(false);
+    expect((await (await summary(a, owner)).json()).shared).toBe(false);
   });
 
   it('counts a player’s accounts together, and leaves hidden players out', async () => {

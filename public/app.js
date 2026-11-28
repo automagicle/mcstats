@@ -6877,7 +6877,10 @@ const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().t
 // icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
 const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
   tz: d.tz || 'UTC',
+  addon_opts: Object.fromEntries((d.addon_options || []).map((o) => [`${o.addon}.${o.key}`, o.on])),
   about: d.about || '', banner: d.banner || '', icon: undefined, layout: fullLayout(d.layout) });
+// The add-ons' options (src/addons.js) that are set differently from what's saved, on add-ons the server keeps.
+const srvOptChanges = () => (srv.data.addon_options || []).filter((o) => srv.draft.addons.includes(o.addon) && srv.draft.addon_opts[`${o.addon}.${o.key}`] !== o.on);
 // What Save would change, one line each.
 function srvChanges() {
   const d = srv.data, f = srv.draft;
@@ -6898,6 +6901,7 @@ function srvChanges() {
   for (const a of d.known_addons || []) {
     if (f.addons.includes(a.id) !== d.addons.includes(a.id)) out.push(`${f.addons.includes(a.id) ? 'Switch on' : 'Switch off'} the add-on ${a.name}`);
   }
+  for (const o of srvOptChanges()) out.push(`${o.name}: ${f.addon_opts[`${o.addon}.${o.key}`] ? 'on' : 'off'}`);
   return out;
 }
 // Leaving the tab with a look that wasn't saved: the page goes back to the saved one.
@@ -6943,6 +6947,7 @@ async function srvSave() {
   if (f.accent !== d.accent) body.accent = f.accent;
   if (f.tab_style !== d.tab_style) body.tab_style = f.tab_style;
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
+  for (const o of srvOptChanges()) ((body.addon_options ??= {})[o.addon] ??= {})[o.key] = f.addon_opts[`${o.addon}.${o.key}`];
   if (f.about.trim() !== (d.about || '')) body.about = f.about.trim();
   if (f.icon !== undefined) body.icon = f.icon;
   if (f.banner !== (d.banner || '')) body.banner = f.banner === '1';
@@ -7346,9 +7351,20 @@ function renderServerAdmin(focusKey) {
       return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: a.name }), el('span', { class: 'site-hint', text: a.about })));
     })) : null;
 
+  /* ---- the options of the add-ons this server has: its admins ---- */
+  const optRows = (d.addon_options || []).filter((o) => f.addons.includes(o.addon));
+  const addonOpts = optRows.length ? card('Add-on options', 'for the add-ons this server has',
+    ...optRows.map((o) => {
+      const fk = `${o.addon}.${o.key}`;
+      const box = el('input', { type: 'checkbox', 'data-fk': `srv:opt:${fk}` });
+      box.checked = !!f.addon_opts[fk];
+      box.addEventListener('change', () => { f.addon_opts[fk] = box.checked; redraw(`srv:opt:${fk}`); });
+      return el('label', { class: 'srv-addon' }, box, el('span', {}, el('strong', { text: o.name }), el('span', { class: 'site-hint', text: o.about })));
+    })) : null;
+
   const seasonsCard = srv.seasons ? renderSeasons(card, redraw) : null;
   const formErr = srv.errors.form ? el('div', { class: 'notice notice-error', role: 'alert', text: srv.errors.form }) : null;
-  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(extras ? [extras] : []));
+  root.replaceChildren(...(formErr ? [formErr] : []), details, access, look, ...(seasonsCard ? [seasonsCard] : []), ...(addonOpts ? [addonOpts] : []), ...(extras ? [extras] : []));
   if (focusKey) root.querySelector(`[data-fk="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   renderAdminBar();
 }

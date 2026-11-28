@@ -4,12 +4,18 @@
 // advancement in the game between them: an advancement counts as earned once anyone has it. With this
 // add-on switched on for a server (src/addons.js, Admin → Server), its dashboard gets an Advancements tab:
 //   - how far along the run is: earned out of all of them, how many are left, the latest one
+//   - the game's advancements screen for everyone at once: an advancement lights up once anyone has it,
+//     with a bar under it for how many of the players do
 //   - the same for each of the game's tabs (Minecraft, Nether, The End, Adventure, Husbandry)
 //   - with teams, each team's own count side by side, and the whole page for one team at a time
 //   - every advancement: who earned it first and who else has it, or, while it's still left, who's closest
 //   - who has earned the most, and how many of those they were first to
 //   - the latest ones, as they come in
 // Everything is counted for the whole server unless a team is picked.
+//
+// On some servers everyone gets an advancement the moment anyone earns it, so who earned it means nothing.
+// Their admins say so on Admin → Server ("Advancements are shared", this add-on's option), and the page
+// then leaves players out: no names, no first-to-earn, no bars for how many have it, no Players list.
 //
 // The data is what the server mod already reports for the tree on each player's page
 // (GET /api/advancements/summary, src/advancements.js); the counting is done here.
@@ -28,14 +34,20 @@
   // the game's own tabs first, in the game's order; then any a data pack adds
   const ORDER = ['story/root', 'nether/root', 'end/root', 'adventure/root', 'husbandry/root'];
   const st = {
-    data: null, // the last answer: { tree, ts, players }
+    data: null, // the last answer: { tree, ts, players, shared }
     key: '', // …as text, to tell whether a refresh brought anything new
     scope: 'all', // everyone, or a team's id
-    tab: 'all', // every tab of the game's, or one (its root's id)
+    tab: 'all', // the list: every tab of the game's, or one (its root's id)
+    treeTab: null, // the tab the tree shows
+    drawn: '', // which tree is on screen, to keep its place when it's drawn again
     list: 'left',
     more: false, // the whole list rather than its first rows
   };
   const ROWS = 40;
+  // The tree, as on a player's page (public/app.js, "a player's advancements"): twice the game's size, a
+  // 26-pixel frame every 28 pixels across and 27 down.
+  const TREE = { scale: 2, dx: 28, dy: 27, box: 26, pad: 9 };
+  const treeView = { view: null, tree: null };
 
   const teamOf = (name) => activityTeam(rosterOf(name)?.team);
   const shownTeams = () => (st.data ? activityTeams().filter((t) => st.data.players.some((p) => teamOf(p.name) === t.id)) : []);
@@ -78,7 +90,8 @@
         // a time of 0 is one the game didn't keep: it goes after the ones that are known
         holders.sort((x, y) => (x.at || Infinity) - (y.at || Infinity));
         if (holders.length) firsts.set(holders[0].p, (firsts.get(holders[0].p) || 0) + 1);
-        holders.forEach((h, i) => { if (h.at) recent.push({ a, p: h.p, at: h.at, first: i === 0 }); });
+        // shared: everyone got it at the same moment, so it's one thing that happened, not one per player
+        holders.forEach((h, i) => { if (h.at && (i === 0 || !st.data.shared)) recent.push({ a, p: h.p, at: h.at, first: i === 0 }); });
         rows.push({ a, tab, holders, close: holders.length ? null : close });
       }
     }
@@ -87,7 +100,7 @@
       const ats = Object.values(p.done);
       return { p, n: ats.length, firsts: firsts.get(p) || 0, last: Math.max(0, ...ats) };
     }).filter((x) => x.n).sort((x, y) => y.n - x.n || y.firsts - x.firsts || x.p.name.localeCompare(y.p.name));
-    return { tabs, rows, people, recent };
+    return { tabs, rows, people, recent, players: players.length };
   }
   const earnedIn = (rows) => rows.filter((r) => r.holders.length).length;
 
@@ -102,6 +115,7 @@
   const person = (p, size = 22) => el('span', { class: 'av-who' }, headImg(p.name, size, { width: size, height: size }),
     teamName(playerLink(el('a', { text: shownName(p.name) }), p.uuid, p.name), p.name));
 
+  const tabIcon = (a) => { const i = el('img', { class: 'adv-tab-icon', alt: '', width: 16, height: 16 }); setItemIcon(i, a.icon); return i; };
   // An advancement as the game draws it: its frame (gold once earned) around its icon.
   function badge(a, done) {
     const b = el('span', { class: 'av-badge' },
@@ -111,19 +125,28 @@
     b.append(icon);
     return b;
   }
-  // …and its tooltip, as the game's advancements screen shows it.
-  function tipFor(node, row) {
-    const { a, holders } = row;
-    const body = () => {
-      const kind = a.frame === 'task' ? '' : `${a.frame === 'goal' ? 'Goal' : 'Challenge'} · `;
-      const state = holders.length ? `Earned by ${holders.length}` : row.close ? `Closest: ${row.close.n}/${row.close.of}` : 'Not earned yet';
-      return [{ adv: true, node: el('div', { class: `adv-tip${holders.length ? ' done' : ''} adv-${a.frame}` },
-        el('div', { class: 'adv-tip-title', text: a.title }),
-        el('div', { class: 'adv-tip-body' },
-          a.desc ? el('div', { class: 'adv-tip-desc', text: a.desc }) : null,
-          el('div', { class: 'adv-tip-when', text: kind + state }))) }];
-    };
-    const show = (e) => showTip(e.clientX, e.clientY, body());
+  // …and its tooltip, as the game's advancements screen shows it: how many of the players (n) have it and who
+  // was first, or who's closest. With shared advancements, only when it was earned or how far along it is.
+  function tipRows(row, n) {
+    const { a, holders, close } = row;
+    const shared = st.data.shared;
+    const kind = a.frame === 'task' ? '' : `${a.frame === 'goal' ? 'Goal' : 'Challenge'} · `;
+    const first = holders[0];
+    const lines = [];
+    if (first && shared) lines.push(first.at ? `Earned ${when(first.at)}` : 'Earned');
+    else if (first) {
+      lines.push(n > 1 ? `Earned by ${holders.length} of ${n} players` : 'Earned');
+      lines.push(`First: ${shownName(first.p.name)}${first.at ? ` · ${when(first.at)}` : ''}`);
+    } else if (close) lines.push(shared ? `In progress: ${close.n}/${close.of}` : `Closest: ${shownName(close.p.name)}, ${close.n}/${close.of}`);
+    else lines.push('Not earned yet');
+    return [{ adv: true, node: el('div', { class: `adv-tip${first ? ' done' : ''} adv-${a.frame}` },
+      el('div', { class: 'adv-tip-title', text: a.title }),
+      el('div', { class: 'adv-tip-body' },
+        a.desc ? el('div', { class: 'adv-tip-desc', text: a.desc }) : null,
+        ...lines.map((text, i) => el('div', { class: 'adv-tip-when', text: i ? text : kind + text })))) }];
+  }
+  function tipFor(node, row, n) {
+    const show = (e) => showTip(e.clientX, e.clientY, tipRows(row, n));
     node.addEventListener('pointerenter', show);
     node.addEventListener('pointermove', show);
     node.addEventListener('pointerleave', hideTip);
@@ -137,6 +160,94 @@
     box.addEventListener('pointermove', show);
     box.addEventListener('pointerleave', hideTip);
     return box;
+  }
+
+  /* ---------- the tree: the game's advancements screen, for everyone at once ---------- */
+
+  // One of the game's tabs, laid out as the game does. An advancement is lit once anyone (of the n players
+  // counted) has it; the bar under a lit one is how many of them do. The view is kept between drawings, so
+  // a refresh leaves it where it was scrolled to.
+  function drawTree(tab, rows, n, team) {
+    if (!treeView.view) {
+      const tree = el('div', { class: 'adv-tree' });
+      const view = el('div', { class: 'adv-view', tabindex: '-1' }, tree);
+      Object.assign(treeView, { view, tree });
+      // dragging with a mouse moves it around, like in the game (touch already scrolls it)
+      let drag = null;
+      view.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && !e.button) drag = { x: e.clientX, y: e.clientY, left: view.scrollLeft, top: view.scrollTop, moved: false };
+      });
+      addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+        drag.moved = true;
+        view.classList.add('dragging');
+        hideTip();
+        view.scrollLeft = drag.left - dx;
+        view.scrollTop = drag.top - dy;
+      });
+      const end = () => { drag = null; view.classList.remove('dragging'); };
+      addEventListener('pointerup', end);
+      addEventListener('pointercancel', end);
+    }
+    const { view, tree } = treeView;
+    const { scale: S, dx, dy, box, pad } = TREE;
+    const list = rows.map((r) => r.a);
+    const byId = new Map(rows.map((r) => [r.a.id, r]));
+    const minX = Math.min(...list.map((a) => a.x)), minY = Math.min(...list.map((a) => a.y));
+    const at = (a) => [Math.floor((a.x - minX) * dx) + pad, Math.floor((a.y - minY) * dy) + pad]; // in game pixels
+    const w = Math.max(...list.map((a) => at(a)[0])) + box + pad, h = Math.max(...list.map((a) => at(a)[1])) + box + pad;
+    tree.style.width = `${w * S}px`;
+    tree.style.height = `${h * S}px`;
+    view.style.backgroundImage = tab.root.bg ? `url("${advTexture(tab.root.bg)}")` : '';
+
+    // the lines: from the parent's middle to just past its frame, up or down, then to the child's middle
+    const NS = 'http://www.w3.org/2000/svg';
+    const lines = document.createElementNS(NS, 'svg');
+    for (const [k, v] of Object.entries({ class: 'adv-lines', width: w * S, height: h * S, viewBox: `0 0 ${w} ${h}`, 'aria-hidden': 'true' })) lines.setAttribute(k, v);
+    let d = '';
+    for (const a of list) {
+      const p = a.parent && byId.get(a.parent)?.a;
+      if (!p) continue;
+      const [px, py] = at(p), [cx, cy] = at(a);
+      d += `M${px + 13} ${py + 13.5}H${px + box + 4.5}V${cy + 13.5}H${cx + 13}`;
+    }
+    for (const cls of ['adv-line-edge', 'adv-line']) {
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('class', cls);
+      path.setAttribute('d', d);
+      lines.append(path);
+    }
+
+    const nodes = rows.map((r) => {
+      const { a, holders } = r;
+      const [x, y] = at(a);
+      const done = holders.length > 0;
+      const state = !done ? 'Not earned' : st.data.shared || n < 2 ? 'Earned' : `Earned by ${holders.length} of ${n} players`;
+      const node = el('button', { type: 'button', class: `adv-node${done ? ' done' : ''}`, style: `left:${x * S}px;top:${y * S}px`, 'aria-label': `${a.title}: ${a.desc}. ${state}` },
+        el('img', { class: 'adv-frame', alt: '', src: advTexture(`gui/sprites/advancements/${a.frame}_frame_${done ? 'obtained' : 'unobtained'}`) }));
+      const icon = el('img', { class: 'adv-icon', alt: '' });
+      setItemIcon(icon, a.icon);
+      node.append(icon);
+      // how many of the players have it (not when it's shared, or there's only one of them: it's all or none)
+      if (done && !st.data.shared && n > 1) {
+        node.append(el('span', { class: `av-share${team ? ` team-${team}` : ''}${holders.length === n ? ' full' : ''}` }, el('i', { style: `width:${(holders.length / n) * 100}%` })));
+      }
+      tipFor(node, r, n);
+      node.addEventListener('focus', () => {
+        const b = node.getBoundingClientRect();
+        showTip(b.right - 14, b.top + 6, tipRows(r, n));
+      });
+      node.addEventListener('blur', hideTip);
+      return node;
+    });
+    const key = `${st.scope}/${tab.id}`;
+    const keep = st.drawn === key && view.isConnected ? [view.scrollLeft, view.scrollTop] : null;
+    st.drawn = key;
+    tree.replaceChildren(lines, ...nodes);
+    // once it's on the page: where it was, or like the game, on its root: at the left, halfway down
+    return () => (keep ? view.scrollTo(...keep) : view.scrollTo(0, Math.max(0, (at(tab.root)[1] + box / 2) * S - view.clientHeight / 2)));
   }
 
   /* ---------- the page ---------- */
@@ -156,6 +267,8 @@
     const team = teams.find((t) => t.id === st.scope) || null;
     const c = count(team ? data.players.filter((p) => teamOf(p.name) === team.id) : data.players);
     if (st.tab !== 'all' && !c.tabs.some((t) => t.id === st.tab)) st.tab = 'all';
+    if (!c.tabs.some((t) => t.id === st.treeTab)) st.treeTab = c.tabs[0].id;
+    const shared = data.shared;
     const total = c.rows.length, got = earnedIn(c.rows), left = total - got;
     const pick = (fn) => () => { fn(); st.more = false; render(root); };
 
@@ -180,8 +293,27 @@
     const tiles = el('div', { class: 'tiles' },
       tile('Earned', `${got}/${total}`, `${Math.floor((got / total) * 100)}% of all advancements`),
       tile('Left', done ? 'Done' : String(left), done ? `finished ${when(latest.at)}` : left ? `${started} started` : 'every one earned'),
-      tile('Latest', latest ? ago(latest.at) : '–', latest ? `${latest.a.title} · ${shownName(latest.p.name)}` : 'nothing earned yet', true),
-      tile('Players', String(c.people.length), c.people.length === 1 ? 'has earned one' : 'have earned one'));
+      tile('Latest', latest ? ago(latest.at) : '–', latest ? (shared ? latest.a.title : `${latest.a.title} · ${shownName(latest.p.name)}`) : 'nothing earned yet', true),
+      shared
+        ? tile('Last 24 hours', String(c.recent.filter((r) => r.first && r.at > Date.now() / 1000 - 86400).length), 'earned')
+        : tile('Players', String(c.people.length), c.people.length === 1 ? 'has earned one' : 'have earned one'));
+
+    /* the game's advancements screen, one of its tabs at a time */
+    const treeTab = c.tabs.find((t) => t.id === st.treeTab);
+    const treeRows = c.rows.filter((r) => r.tab === treeTab);
+    const placeTree = drawTree(treeTab, treeRows, c.players, team?.id);
+    const treeCard = el('section', { class: 'card adv-card av-tree-card' },
+      el('div', { class: 'card-head' },
+        el('div', { class: 'card-title' }, el('h2', { text: 'Advancements' }),
+          el('span', { class: 'card-sub', text: shared || c.players < 2 ? 'lit once earned' : 'lit once anyone has it · the bar is how many players do' })),
+        el('div', { class: 'adv-tabs', role: 'tablist', 'aria-label': 'Advancement tabs' }, ...c.tabs.map((t) => {
+          const rows = c.rows.filter((r) => r.tab === t);
+          const b = el('button', { type: 'button', role: 'tab', 'aria-selected': String(t === treeTab), title: t.root.desc || null },
+            tabIcon(t.root), el('span', { text: t.root.title }), el('span', { class: 'adv-tab-n', text: `${earnedIn(rows)}/${rows.length}` }));
+          b.addEventListener('click', () => { if (st.treeTab !== t.id) { st.treeTab = t.id; render(root); } });
+          return b;
+        }))),
+      treeView.view);
 
     /* progress: the whole run, then each of the game's tabs (click one to see just its advancements) */
     const tabRow = (id, name, icon, rows) => {
@@ -190,10 +322,9 @@
         el('span', { class: 'av-prog-name' }, icon, el('span', { text: name })),
         meter(n, rows.length, team?.id),
         el('span', { class: 'av-prog-n', text: `${n}/${rows.length}` }));
-      b.addEventListener('click', pick(() => { st.tab = st.tab === id ? 'all' : id; }));
+      b.addEventListener('click', pick(() => { st.tab = st.tab === id ? 'all' : id; if (id !== 'all') st.treeTab = id; }));
       return b;
     };
-    const tabIcon = (a) => { const i = el('img', { class: 'adv-tab-icon', alt: '', width: 16, height: 16 }); setItemIcon(i, a.icon); return i; };
     const progress = el('section', { class: 'card', style: `--span:${teams.length > 1 && !team ? 4 : 6}` },
       el('div', { class: 'card-head' }, el('div', { class: 'card-title' }, el('h2', { text: 'Progress' }),
         el('span', { class: 'card-sub', text: left ? `${left} to go` : 'all done' }))),
@@ -237,16 +368,16 @@
       const { a, holders, close } = r;
       const line = el('li', { class: `av-row${holders.length ? ' done' : ''}` });
       const b = badge(a, holders.length > 0);
-      tipFor(b, r);
+      tipFor(b, r, c.players);
       let state;
       if (holders.length) {
         const first = holders[0];
         state = el('div', { class: 'av-state' },
-          el('div', { class: 'av-first' }, person(first.p, 18), first.at ? el('span', { class: 'muted', text: when(first.at) }) : null),
-          holders.length > 1 ? heads(holders.slice(1)) : null);
+          el('div', { class: 'av-first' }, shared ? null : person(first.p, 18), first.at ? el('span', { class: 'muted', text: when(first.at) }) : shared ? el('span', { class: 'muted', text: 'Earned' }) : null),
+          holders.length > 1 && !shared ? heads(holders.slice(1)) : null);
       } else if (close) {
         state = el('div', { class: 'av-state' },
-          el('div', { class: 'av-first' }, person(close.p, 18), el('span', { class: 'av-close-n', text: `${close.n}/${close.of}` })),
+          el('div', { class: 'av-first' }, shared ? null : person(close.p, 18), el('span', { class: 'av-close-n', text: `${close.n}/${close.of}` })),
           meter(close.n, close.of, team?.id));
       } else state = el('div', { class: 'av-state muted', text: 'Not started' });
       line.append(b, el('div', { class: 'av-text' },
@@ -256,7 +387,7 @@
       return line;
     };
     const cut = st.more ? shown : shown.slice(0, ROWS);
-    const listCard = el('section', { class: 'card' },
+    const listCard = el('section', { class: 'card', style: `--span:${shared ? 4 : 6}` },
       el('div', { class: 'card-head' },
         el('div', { class: 'card-title' }, el('h2', { text: tabName || 'All advancements' }),
           tabName ? (() => { const x = el('button', { type: 'button', class: 'av-clear', text: 'Show every tab' }); x.addEventListener('click', pick(() => { st.tab = 'all'; })); return x; })() : null),
@@ -284,7 +415,7 @@
         el('td', { class: 'num', text: String(x.firsts) }),
         el('td', { class: 'num muted hide-sm', text: x.last ? ago(x.last) : '–' })));
     });
-    const playersCard = el('section', { class: 'card', style: '--span:4' },
+    const playersCard = shared ? null : el('section', { class: 'card', style: '--span:4' },
       el('div', { class: 'card-head' }, el('div', { class: 'card-title card-title-stacked' }, el('h2', { text: 'Players' }),
         el('span', { class: 'card-sub', text: 'First: the ones they earned before anyone else' }))),
       c.people.length
@@ -295,20 +426,20 @@
     /* the latest */
     const recentCard = el('section', { class: 'card', style: '--span:2' },
       el('div', { class: 'card-head' }, el('div', { class: 'card-title card-title-stacked' }, el('h2', { text: 'Recent' }),
-        el('span', { class: 'card-sub', text: 'New: nobody had it before' }))),
+        shared ? null : el('span', { class: 'card-sub', text: 'New: nobody had it before' }))),
       c.recent.length
         ? el('ul', { class: 'av-recent' }, ...c.recent.slice(0, 12).map((r) => {
-          const row = { a: r.a, holders: [r], close: null };
           const b = badge(r.a, true);
-          tipFor(b, row);
+          tipFor(b, c.rows.find((x) => x.a === r.a), c.players);
           return el('li', {}, b, el('div', { class: 'av-text' },
-            el('div', { class: 'av-title' }, el('span', { text: r.a.title }), r.first ? el('span', { class: 'av-kind av-new', text: 'New' }) : null),
-            el('div', { class: 'av-desc' }, person(r.p, 14), el('span', { text: ` · ${ago(r.at)}` }))));
+            el('div', { class: 'av-title' }, el('span', { text: r.a.title }), r.first && !shared ? el('span', { class: 'av-kind av-new', text: 'New' }) : null),
+            shared ? el('div', { class: 'av-desc', text: ago(r.at) }) : el('div', { class: 'av-desc' }, person(r.p, 14), el('span', { text: ` · ${ago(r.at)}` }))));
         }))
         : el('div', { class: 'empty', text: 'Nothing earned yet.' }));
 
     root.replaceChildren(bar, tiles,
-      el('div', { class: 'lay av-lay' }, progress, race, listCard, playersCard, recentCard));
+      el('div', { class: 'lay av-lay' }, treeCard, progress, race, listCard, playersCard, recentCard));
+    placeTree();
   }
 
   async function show(root, { refresh = false } = {}) {
@@ -320,7 +451,7 @@
     const key = JSON.stringify(data);
     if (key === st.key && root.childElementCount && !root.querySelector('.av-loading')) return; // nothing new: leave it as it is
     st.key = key;
-    st.data = { tree: Array.isArray(data.tree) ? data.tree : [], ts: data.ts || null, players: Array.isArray(data.players) ? data.players : [] };
+    st.data = { tree: Array.isArray(data.tree) ? data.tree : [], ts: data.ts || null, players: Array.isArray(data.players) ? data.players : [], shared: data.shared === true };
     render(root);
   }
 

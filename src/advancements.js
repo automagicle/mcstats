@@ -4,6 +4,7 @@
 
 import { canonName, canonUuid, marks, playerGroup } from './aliases.js';
 import { notHidden } from './hidden.js';
+import { addonOption } from './addons.js';
 import { json, UUID_RE, ingestDenied } from './util.js';
 
 const MAX_BODY = 1024 * 1024;
@@ -154,7 +155,7 @@ export async function advancementsFor(env, url, season) {
 
 // GET /api/advancements/summary — everyone's advancements at once, for the Advancements add-on's page
 // (public/addons/advancements/): the tree, and what each player has earned in it:
-//   { tree: [...], ts, players: [{ name, uuid, ts, done: { id: unix seconds }, part: { id: { n, of } } }] }
+//   { tree: [...], ts, shared, players: [{ name, uuid, ts, done: { id: unix seconds }, part: { id: { n, of } } }] }
 // A player is all of their accounts together (src/aliases.js), under the main one's name: each advancement
 // counts once, from the first time any of them got it, and part (how far along they are in one they don't
 // have yet, for "who's closest") is their newest account's. Hidden players are left out (src/hidden.js), as is
@@ -163,7 +164,9 @@ export async function advancementsFor(env, url, season) {
 // The page does the counting, so it can count one team as easily as everyone.
 export async function advancementsSummary(env, season) {
   const main = canonName('a.name');
-  const body = { tree: [], ts: null, players: [] };
+  // shared: the server says everyone gets an advancement when anyone does (the add-on's option, Admin → Server),
+  // so the page leaves out who earned what
+  const body = { tree: [], ts: null, players: [], shared: addonOption(env, 'advancements', 'shared') };
   try {
     const [t, p] = await env.DB.batch([
       env.DB.prepare('SELECT ts, data FROM advancement_tree WHERE id = 1'),

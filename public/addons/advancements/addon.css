@@ -9,6 +9,16 @@
 .av-meter > i { display: block; height: 100%; background: var(--series-1); }
 .av-meter[class*="team-"] > i { background: currentColor; }
 
+/* ---------- the tree: the game's advancements screen (the site's own .adv-view and .adv-node) ---------- */
+
+.av-tree-card .adv-view { max-height: min(440px, 60vh); }
+/* under a lit advancement, how many of the players have it: the accent (a team's colour for a team) on the
+   game's black; gold once everyone does */
+.av-share { position: absolute; left: 8px; right: 8px; bottom: 0; height: 6px; background: #000; padding: 1px; box-sizing: border-box; pointer-events: none; }
+.av-share > i { display: block; height: 100%; min-width: 2px; background: var(--series-1); }
+.av-share[class*="team-"] > i { background: currentColor; }
+.av-share.full > i { background: #ffd83d; }
+
 /* ---------- progress: the whole run and each of the game's tabs; teams side by side ---------- */
 
 .av-progs { display: grid; gap: 2px; }

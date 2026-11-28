@@ -23,7 +23,7 @@ import { cleanTz, json } from './util.js';
 import { parseStart } from './seasons.js';
 import { cleanAccent, TAB_STYLES } from './look.js';
 import { cleanAbout, cleanLayout, layoutSetting, MAX_ABOUT } from './layout.js';
-import { ADDONS, addonList } from './addons.js';
+import { ADDONS, addonList, addonOptions } from './addons.js';
 import { handleServerAdmin } from './serveradmin.js';
 import { handleSeasons } from './seasonadmin.js';
 import { modOnline } from './online.js';
@@ -189,7 +189,7 @@ export class Tenant extends DurableObject {
       if (k === 'NAME') {
         if (!v || v.length > 60) return { error: 'The name is 1 to 60 characters.' };
         clean.NAME = v;
-      } else if (!SETTING_RE.test(k)) {
+      } else if (!SETTING_RE.test(k) || k === 'ADDONS' || k === 'ADDON_OPTS') { // add-ons have their own ways in (setAddons, setAddonOptions)
         return { error: `unknown setting ${k}` };
       } else if (k === 'MC_SERVER') {
         if (v && !ADDRESS_RE.test(v)) return { error: 'The server address is a host name or IP, with :port if it isn’t 25565.' };
@@ -275,6 +275,22 @@ export class Tenant extends DurableObject {
 
   // The server's icon (src/layout.js iconFromDataUrl made sure it's a square PNG), or null to remove it.
   // ICON_AT is when it last changed: the page asks for /api/icon?v=<ICON_AT>, so a new one is fetched at once.
+  // The options of its add-ons (src/addons.js), as { addonId: { key: true|false } }: only the ones named change.
+  // Its admins set these. Returns them all as they are now.
+  async setAddonOptions(changes) {
+    let saved = {};
+    try { saved = JSON.parse(this.settings.ADDON_OPTS || '{}') || {}; } catch { /* start again */ }
+    for (const [id, opts] of Object.entries(changes || {})) {
+      for (const [key, on] of Object.entries(opts || {})) {
+        if (!ADDONS[id]?.options?.[key]) continue;
+        saved[id] = { ...saved[id], [key]: on === true };
+      }
+    }
+    this.put('ADDON_OPTS', JSON.stringify(saved));
+    this.load();
+    return addonOptions(this.settings);
+  }
+
   async setIcon(bytes) {
     this.ctx.storage.transactionSync(() => {
       if (bytes) {

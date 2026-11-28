@@ -11,6 +11,8 @@
 //                                                                               page's commands box starts closed
 //                                                                               (src/commands.js)
 //                            and { slug, public, password + confirm }           owners
+//                            and { addon_options: { addon: { key: bool } } }   admins: the options of the add-ons it
+//                                                                               has (src/addons.js)
 //                            and { addons: [ids] }                              the site's operators
 //
 // It runs inside the server's Tenant object (src/tenant.js hands it over before the rest of the API), because
@@ -27,7 +29,7 @@ import {
   clearCookie, cookie, DAY, hashPassword, joinLinkPath, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
 } from './session.js';
 import { limit, tooMany } from './limiter.js';
-import { ADDONS, addonList } from './addons.js';
+import { ADDONS, addonList, addonOptions } from './addons.js';
 import { lookOf } from './look.js';
 import { MOD } from './modinfo.gen.js';
 import { iconFromDataUrl, layoutOf } from './layout.js';
@@ -62,6 +64,9 @@ function state(t, row, perms) {
     // which /mcstats commands are switched off, and whether the Activity page's commands box starts closed
     commands: commandsOf(t.settings),
     addons: addonList(t.settings),
+    // the options of the add-ons it has, for its admins: [{ addon, key, name, about, on }]
+    addon_options: Object.entries(addonOptions(t.settings)).flatMap(([addon, opts]) =>
+      Object.entries(opts).map(([key, on]) => ({ addon, key, name: ADDONS[addon].options[key].name, about: ADDONS[addon].options[key].about, on }))),
     // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
     can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
     slug_locked: slugLock(t),
@@ -160,6 +165,14 @@ export async function handleServerAdmin(t, request, url, who) {
     if (!lim.ok) return tooMany(lim.retry);
   }
   if (has('addons') && (!Array.isArray(b.addons) || b.addons.some((id) => !ADDONS[id]))) return bad('unknown add-on');
+  // an add-on's options: only of an add-on the server has (or is being given in this same change)
+  if (has('addon_options')) {
+    const o = b.addon_options;
+    const on = new Set(has('addons') ? b.addons : addonList(t.settings));
+    const ok = o && typeof o === 'object' && !Array.isArray(o) && Object.entries(o).every(([id, opts]) => on.has(id) && opts && typeof opts === 'object'
+      && Object.entries(opts).every(([key, v]) => ADDONS[id]?.options?.[key] && typeof v === 'boolean'));
+    if (!ok) return bad('unknown add-on option', 'addon_options');
+  }
   if (has('join_link') && b.join_link !== 'new' && b.join_link !== 'off') return bad('expected join_link: "new" or "off"', 'join_link');
 
   // ---- then change it ----
@@ -182,6 +195,7 @@ export async function handleServerAdmin(t, request, url, who) {
     console.log(`server: ${who.email} ${b.join_link === 'new' ? 'made a new join link for' : 'turned off the join link of'} ${row.slug}`);
   }
   if (has('addons')) await t.setAddons(b.addons);
+  if (has('addon_options')) await t.setAddonOptions(b.addon_options);
   const sets = [];
   if (patch.NAME) sets.push(t.env.DIRECTORY.prepare('UPDATE servers SET name = ? WHERE id = ?').bind(patch.NAME, t.id));
   if (password) {
