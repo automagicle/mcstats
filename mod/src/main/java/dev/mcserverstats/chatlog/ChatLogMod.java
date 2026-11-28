@@ -12,16 +12,11 @@ import com.google.gson.JsonObject;
 import dev.mcserverstats.liveview.LiveSettings;
 import dev.mcserverstats.liveview.LiveviewMod;
 import dev.mcserverstats.liveview.relay.RelayLink;
-import net.fabricmc.api.DedicatedServerModInitializer;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.fabricmc.loader.api.FabricLoader;
+import com.mojang.brigadier.CommandDispatcher;
+import dev.mcserverstats.compat.Platform;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.network.chat.ChatType;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -49,31 +44,39 @@ import org.slf4j.LoggerFactory;
 // (/msg, /tell, /teammsg) are never recorded. Also reports what each player is wearing and
 // carrying (GearReporter) and their advancements (AdvancementReporter), for their dashboard page,
 // shows chat sent from the dashboard in game (WebChatLink), and reports who's online (OnlineReporter).
-public final class ChatLogMod implements DedicatedServerModInitializer {
-	static final Logger LOG = LoggerFactory.getLogger("mcstats-chat");
+//
+// Nothing here knows which loader it runs on: the Fabric mod (dev.mcserverstats.fabric.FabricEntry) and the
+// Paper plugin (dev.mcserverstats.paper.PaperPlugin) each make one of these and call its methods from their
+// own events, in the order each method's comment gives.
+public final class ChatLogMod {
+	public static final Logger LOG = LoggerFactory.getLogger("mcstats-chat");
 
 	// Player names (Java, or Bedrock through Floodgate's "." prefix); mobs' insertions are UUIDs.
 	private static final Pattern PLAYER_NAME = Pattern.compile("[A-Za-z0-9_.]{1,20}");
 
-	private Uploader uploader;
-	private WebChatLink link;
+	private final Path dir;
+	private final Uploader uploader;
+	private final WebChatLink link;
+	private final LiveviewMod liveview;
+	private final OnlineReporter online;
+	private final GearReporter gear;
+	private final McstatsMenus menus;
+	private final AdvancementReporter advancements;
 	private volatile MinecraftServer server;
 	private static volatile MinecraftServer current; // the same, for the static helpers
-	private static volatile ChatLogMod instance; // for CommandsMixin
+	private static volatile ChatLogMod instance; // for the whisper and system-message hooks
 	// "msg Name text", "tell Name text" or "w Name text", as the command arrives (no slash)
 	private static final Pattern WHISPER_COMMAND = Pattern.compile("(?i)/?(?:msg|tell|w)\\s+([A-Za-z0-9_.]{1,20})\\s+(\\S.*)", Pattern.DOTALL);
 	// set while this mod posts a web message itself, so the system-message logger doesn't log it again
 	private boolean postingWeb;
 
-	@Override
-	public void onInitializeServer() {
-		Path dir = FabricLoader.getInstance().getConfigDir();
-		String version = FabricLoader.getInstance().getModContainer("mcstats_chat")
-				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("dev");
-		// The game's version goes in the User-Agent too (2.3.0), so the dashboard can offer the jar built for it.
-		String minecraft = FabricLoader.getInstance().getModContainer("minecraft")
-				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
-		String agent = "mcstats-chat/" + version + " (Minecraft " + minecraft + ")";
+	// dir: the folder the mod's files go in (config/ on Fabric, plugins/mcstats/ on Paper). version: this mod's.
+	// minecraft: the game's, which goes in the User-Agent too (2.3.0), so the dashboard can offer the jar built
+	// for it; so does the platform when it isn't Fabric ("… (Minecraft 26.2) Paper"), for the same reason.
+	public ChatLogMod(Path dir, String version, String minecraft) {
+		this.dir = dir;
+		String agent = "mcstats-chat/" + version + " (Minecraft " + minecraft + ")"
+				+ (Platform.name().equals("Fabric") ? "" : " " + Platform.name());
 		uploader = new Uploader(dir.resolve("mcstats-chat.properties"), dir.resolve("mcstats-chat-pending.json"), version);
 		link = new WebChatLink(uploader::config, uploader::linkDownFor, agent, new WebChatLink.Handler() {
 			@Override
@@ -106,7 +109,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		// Liveview (dev.mcserverstats.liveview): the dashboard's admins watching the world. It has its own
 		// connection for the view, opened only while someone watches; what it needs from this side is the
 		// settings, where the dashboard is, and the web chat connection for the handshake.
-		LiveviewMod liveview = new LiveviewMod(
+		liveview = new LiveviewMod(
 				() -> {
 					Config c = uploader.config();
 					// the dashboard asks for the view over the web chat connection, so without it nobody could
@@ -130,70 +133,145 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				liveview.verify(level, key, who, r -> done.accept(r.ok() ? null : r.error(), r.keyId()));
 			}
 		});
-		liveview.init();
 
-		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			this.server = server;
-			current = server;
-			uploader.start();
-			uploader.add("server", null, null, null, null, "Server started");
-			link.start();
-		});
-		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-			link.stop();
-			uploader.add("server", null, null, null, null, "Server stopped");
-		});
-		ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-			uploader.stop();
-			this.server = null;
-			current = null;
-		});
-
-		// operators hear about a newer mod each time they join (UpdateNotice)
-		ServerPlayConnectionEvents.JOIN.register((handler, sender, s) -> tellUpdate(handler.player));
-
-		OnlineReporter online = new OnlineReporter(uploader);
-		ServerTickEvents.END_SERVER_TICK.register(online::tick);
-		ServerLifecycleEvents.SERVER_STOPPING.register(online::stopping);
-
+		online = new OnlineReporter(uploader);
 		// /mcstats: menus for stats, and for players to choose how they look on the dashboard (sent with the gear)
 		ProfileStore profiles = new ProfileStore(dir.resolve("mcstats-profiles.json"));
-		GearReporter gear = new GearReporter(uploader, profiles);
-		ServerTickEvents.END_SERVER_TICK.register(gear::tick);
+		gear = new GearReporter(uploader, profiles);
 		// players connect their mcstats account in game (2.3.0), to chat as themselves from the website
 		McstatsCommands.load(dir.resolve("mcstats-commands-off.txt")); // the ones switched off on the dashboard (2.4.0)
-		McstatsMenus menus = new McstatsMenus(profiles, link::page, new Accounts(link));
-		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-				McstatsCommands.register(dispatcher, menus));
-		ServerTickEvents.END_SERVER_TICK.register(ChestGui::runQueued);
+		menus = new McstatsMenus(profiles, link::page, new Accounts(link));
+		advancements = new AdvancementReporter(uploader);
+	}
 
-		AdvancementReporter advancements = new AdvancementReporter(uploader);
-		ServerLifecycleEvents.SERVER_STARTED.register(advancements::sendTree);
-		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resources, success) -> {
-			if (success) advancements.sendTree(server);
-		});
-		ServerTickEvents.END_SERVER_TICK.register(advancements::tick);
+	public LiveviewMod liveview() {
+		return liveview;
+	}
 
-		ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) ->
-				uploader.add("chat", sender.getUUID(), sender.getScoreboardName(), styled(params.name(), 8), null,
-						message.decoratedContent().getString()));
+	/* ---------- what the entry points call ---------- */
 
-		// /say and /me. Other command messages (like /teammsg) only go to some players, so they're skipped.
-		ServerMessageEvents.COMMAND_MESSAGE.register((message, source, params) -> {
-			String kind = params.chatType().is(ChatType.EMOTE_COMMAND) ? "emote"
-					: params.chatType().is(ChatType.SAY_COMMAND) ? "say" : null;
-			if (kind == null) return;
-			ServerPlayer player = source.getPlayer();
-			uploader.add(kind, player == null ? null : player.getUUID(), source.getTextName(), styled(params.name(), 8), null,
-					message.decoratedContent().getString());
-		});
+	// Before the worlds load (Fabric SERVER_STARTING; Paper: onEnable).
+	public void starting(MinecraftServer s) {
+		liveview.starting(s);
+	}
 
-		ServerMessageEvents.GAME_MESSAGE.register((server, message, overlay) -> {
-			if (overlay) return;
-			broadcastThisTick.add(message.getString()); // so playerMessage doesn't log it a second time
-			if (!postingWeb && uploader.systemMessages()) systemMessage(server, message);
-		});
-		ServerTickEvents.END_SERVER_TICK.register(this::logSentToEveryone);
+	// Once the server is up (Fabric SERVER_STARTED; Paper: its first tick).
+	public void started(MinecraftServer s) {
+		liveview.started(s, dir);
+		this.server = s;
+		current = s;
+		uploader.start();
+		uploader.add("server", null, null, null, null, "Server started");
+		link.start();
+		advancements.sendTree(s);
+	}
+
+	// When it starts to stop (Fabric SERVER_STOPPING; Paper: onDisable).
+	public void stopping(MinecraftServer s) {
+		liveview.stopping(s);
+		link.stop();
+		uploader.add("server", null, null, null, null, "Server stopped");
+		online.stopping(s);
+	}
+
+	// Once it has stopped (Fabric SERVER_STOPPED; Paper: onDisable, after stopping).
+	public void stopped(MinecraftServer s) {
+		uploader.stop();
+		this.server = null;
+		current = null;
+	}
+
+	// The commands are being built (at start and on /reload).
+	public void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+		liveview.registerCommands(dispatcher);
+		McstatsCommands.register(dispatcher, menus);
+	}
+
+	// A player joined: operators hear about a newer mod each time they join (UpdateNotice).
+	public void joined(ServerPlayer player) {
+		tellUpdate(player);
+	}
+
+	// The end of every server tick.
+	public void tick(MinecraftServer s) {
+		liveview.tick(s);
+		online.tick(s);
+		gear.tick(s);
+		ChestGui.runQueued(s);
+		advancements.tick(s);
+		logSentToEveryone(s);
+	}
+
+	// Data packs were reloaded (/reload), which can change the advancements.
+	public void dataPacksReloaded(MinecraftServer s) {
+		advancements.sendTree(s);
+	}
+
+	// A player's chat message. name: their name as chat shows it (team prefix, colors, click-to-insert).
+	public void chat(ServerPlayer sender, Component name, String text) {
+		recentChat(sender.getScoreboardName(), text);
+		uploader.add("chat", sender.getUUID(), sender.getScoreboardName(), styled(name, 8), null, text);
+	}
+
+	// /say ("say") and /me ("emote"). Other command messages (like /teammsg) only go to some players, so they're
+	// not passed here. player: who ran it, if a player did; who: the source's name (Server, a command block's).
+	public void sayCommand(String kind, ServerPlayer player, String who, Component name, String text) {
+		recentChat(who, text);
+		uploader.add(kind, player == null ? null : player.getUUID(), who, styled(name, 8), null, text);
+	}
+
+	// A system message broadcast to everyone (joins, leaves, deaths, advancements, …).
+	public void gameMessage(MinecraftServer s, Component message, boolean overlay) {
+		if (overlay) return;
+		broadcastThisTick.add(message.getString()); // so playerMessage doesn't log it a second time
+		recent(message.getString());
+		if (!postingWeb && uploader.systemMessages()) systemMessage(s, message, null, null);
+	}
+
+	// The same for a message the platform says is a join, leave, death or advancement (Paper's events), so it's
+	// logged as that kind about that player even when a plugin has worded it its own way.
+	public void announced(MinecraftServer s, Component message, String kind, ServerPlayer about) {
+		recent(message.getString());
+		if (uploader.systemMessages()) systemMessage(s, message, kind, about);
+	}
+
+	/* ---------- messages players were sent one by one, as seen on the network (Paper) ---------- */
+
+	// Texts this mod sent itself or logged already in the last few seconds, so a copy seen going out to each
+	// player isn't logged again; and chat lines (name, text), which a chat plugin may send on as system messages
+	// ("<Name> text"). Only the Paper plugin reads these; Fabric sees its own sends on the server thread.
+	private static final java.util.Map<String, Long> RECENT = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final java.util.Map<java.util.Map.Entry<String, String>, Long> RECENT_CHAT = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final long RECENT_NANOS = 5_000_000_000L;
+
+	private static <K> void remember(java.util.Map<K, Long> map, K key) {
+		long now = System.nanoTime();
+		if (map.size() > 500) map.values().removeIf(t -> now - t > RECENT_NANOS);
+		map.put(key, now);
+	}
+
+	private static void recent(String text) {
+		if (text != null && !text.isBlank()) remember(RECENT, text);
+	}
+
+	private static void recentChat(String name, String text) {
+		if (name != null && text != null && !text.isBlank()) remember(RECENT_CHAT, java.util.Map.entry(name, text));
+	}
+
+	// Whether `text` is one of those: this mod's own, already logged, or a chat line passed on.
+	public static boolean recentlySeen(String text) {
+		long now = System.nanoTime();
+		Long at = RECENT.get(text);
+		if (at != null && now - at <= RECENT_NANOS) return true;
+		for (java.util.Map.Entry<java.util.Map.Entry<String, String>, Long> e : RECENT_CHAT.entrySet()) {
+			if (now - e.getValue() <= RECENT_NANOS && text.contains(e.getKey().getKey()) && text.contains(e.getKey().getValue())) return true;
+		}
+		return false;
+	}
+
+	// A system message every player on got, one by one: logged as a server message (unless system messages are off).
+	public void sentToEveryone(MinecraftServer s, Component message) {
+		if (uploader.systemMessages()) systemMessage(s, message, null, null);
 	}
 
 	// Where Liveview connects: /api/ingest/liveview next to the chat url, with the same token. Null until
@@ -231,6 +309,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 					line.append(Component.translatable("chat.type.text", who, Component.literal(text)));
 				}
 				postingWeb = true;
+				recent(line.getString());
 				try {
 					s.getPlayerList().broadcastSystemMessage(line, false);
 				} finally {
@@ -273,6 +352,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 						.append(Component.literal("[Discord] ").withStyle(st -> st.withColor(DISCORD)))
 						.append(Component.translatable("chat.type.text", who, Component.literal(text)));
 				postingWeb = true;
+				recent(line.getString());
 				try {
 					s.getPlayerList().broadcastSystemMessage(line, false);
 				} finally {
@@ -308,7 +388,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				Component line = webTag().append(Component.translatable("commands.message.display.incoming",
 						from == null ? Component.literal("[Admin]").withStyle(ChatFormatting.YELLOW) : teamName(s, from), Component.literal(text))
 						.withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
-				unlogged(() -> target.sendSystemMessage(line));
+				unlogged(line, () -> target.sendSystemMessage(line));
 				done.complete("");
 			} catch (RuntimeException e) {
 				LOG.error("Couldn't show a web whisper", e);
@@ -362,8 +442,8 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 					.withStyle(st -> st.withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(dev.mcserverstats.compat.Compat.openUrl(java.net.URI.create(jar)))));
 			msg.append(Component.literal(" ").withStyle(ChatFormatting.GRAY));
 		}
-		msg.append(Component.literal("swap the jar in mods/ and restart. The whole changelog is on the dashboard's Admin page.").withStyle(ChatFormatting.GRAY));
-		unlogged(() -> p.sendSystemMessage(msg));
+		msg.append(Component.literal("swap the jar in " + Platform.jarFolder() + " and restart. The whole changelog is on the dashboard's Admin page.").withStyle(ChatFormatting.GRAY));
+		unlogged(msg, () -> p.sendSystemMessage(msg));
 	}
 
 	private static String str(JsonObject m, String key) {
@@ -394,7 +474,8 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 	}
 
 	// Sends something of this mod's own (a whisper, say) without the chat log picking it up.
-	private void unlogged(Runnable send) {
+	private void unlogged(Component message, Runnable send) {
+		recent(message.getString());
 		boolean was = postingWeb;
 		postingWeb = true;
 		try {
@@ -445,11 +526,14 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 		if (text.isEmpty()) return false;
 		boolean sent = mod.link.whisperUp(from, webName, text, why -> s.execute(() -> {
 			ServerPlayer p = s.getPlayerList().getPlayer(player.getUUID());
-			if (p != null) mod.unlogged(() -> p.sendSystemMessage(webTag().append(Component.literal("Couldn't reach " + webName + " on the website: " + why).withStyle(ChatFormatting.RED))));
+			if (p == null) return;
+			Component failed = webTag().append(Component.literal("Couldn't reach " + webName + " on the website: " + why).withStyle(ChatFormatting.RED));
+			mod.unlogged(failed, () -> p.sendSystemMessage(failed));
 		}));
 		if (!sent) return false;
-		mod.unlogged(() -> source.sendSystemMessage(webTag().append(Component.translatable("commands.message.display.outgoing", teamName(s, webName), Component.literal(text))
-				.withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC))));
+		Component outgoing = webTag().append(Component.translatable("commands.message.display.outgoing", teamName(s, webName), Component.literal(text))
+				.withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC));
+		mod.unlogged(outgoing, () -> source.sendSystemMessage(outgoing));
 		return true;
 	}
 
@@ -509,7 +593,7 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				Sent sent = e.getValue();
 				if (broadcastThisTick.contains(e.getKey())) continue;
 				boolean everyone = sent.to.size() >= 2 && online.stream().allMatch(p -> sent.to.contains(p.getUUID()));
-				if (everyone || (sent.onlyOneOnline && !sent.answer)) systemMessage(server, sent.message);
+				if (everyone || (sent.onlyOneOnline && !sent.answer)) systemMessage(server, sent.message, null, null);
 			}
 		} finally {
 			sentThisTick.clear();
@@ -528,8 +612,9 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 	}
 
 	// Broadcast server messages, sorted by their translation key. The first argument of a
-	// join/leave/death/advancement message is the player it's about.
-	private void systemMessage(MinecraftServer server, Component message) {
+	// join/leave/death/advancement message is the player it's about. forced and about, when given (Paper's join,
+	// leave, death and advancement events), say what it is and who it's about whatever its wording.
+	private void systemMessage(MinecraftServer server, Component message, String forced, ServerPlayer about) {
 		String kind = "system";
 		String name = null;
 		JsonArray display = null;
@@ -546,6 +631,11 @@ public final class ChatLogMod implements DedicatedServerModInitializer {
 				display = styled(who, 8);
 			}
 			if (kind.equals("death")) death = deathDetails(key, args);
+		}
+		if (forced != null && about != null && (!kind.equals(forced) || name == null)) {
+			kind = forced;
+			name = about.getScoreboardName();
+			display = styled(about.getDisplayName(), 8);
 		}
 		UUID uuid = null;
 		if (name != null) {

@@ -7,7 +7,8 @@ It runs on Cloudflare (Workers, Durable Objects, D1), so nothing needs to stay o
 
 - **Collector**: each server's Durable Object sets its own alarm to ask [mcstatus.io](https://mcstatus.io) about its Minecraft server every minute, and records the player count plus each named player's session in its own SQLite. The server mod's own list of who's online is added to it, and a server with no address set (it's optional) is checked from the mod's list alone, from its first upload on.
 - **Dashboard**: static files in `public/`, served by the same Worker. It shows players online over time, a GitHub-style daily heatmap, a leaderboard, busiest hours, and a page for each player.
-- **Chat log, combat, gear and advancements** (optional): a Fabric server mod in `mod/` posts public chat, every death
+- **Chat log, combat, gear and advancements** (optional): a server mod in `mod/`, as a Fabric mod and as a Paper plugin
+  built from the same source, posts public chat, every death
   (who died, who or what did it, and how), what each player wears and carries, and their advancements, to the Worker,
   which stores them in D1. It also shows chat typed on the dashboard in game (web chat).
   See [mod/README.md](mod/README.md) for setup, and [mod/CHANGELOG.md](mod/CHANGELOG.md) for what each of its
@@ -37,7 +38,7 @@ npm run dir:migrate:remote
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
 npx wrangler secret put RESEND_API_KEY        # sends account codes; EMAIL_FROM's domain must be verified in Resend
 npx wrangler secret put SUPER_ADMIN_EMAIL     # you: can do everything on any server you sign in to
-npm run build:mod                             # the mod jar that /new offers (needs Java 25)
+npm run build:mod                             # the Fabric and Paper jars that /new offers (needs Java 25; Java 21 is fetched for the 1.21.x Paper jars)
 npm run deploy
 ```
 
@@ -485,8 +486,13 @@ commands** box on the Activity page starts closed (it does unless switched off; 
 
 ## Getting the mod
 
-The jar is in `public/downloads/` (kept in git, so a deploy from a push serves it). People find it at **`/mod`**: the
-download, what the server needs (read from the mod itself) and where the key comes from. `/mod` is linked from the home
+The jars are in `public/downloads/` (kept in git, so a deploy from a push serves them): `mcstats-chat-*.jar` is the
+Fabric mod, `mcstats-paper-*.jar` the Paper plugin. People find them at **`/mod`**: first "What does your Minecraft
+server run?" (Fabric or Paper, two cards; the pick is remembered in the browser), then that edition's download, what
+the server needs (read from the mod itself) and where the key comes from. /new asks the same on its install step and
+shows the config file's path for the edition picked. On **Admin → Mod and commands** the edition starts on the one the
+server's mod said it is when it last connected (the plugin's User-Agent ends in `Paper`), and update notices (on the page
+and in game) offer that edition's jar. `/mod` is linked from the home
 page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Mod and commands** (for its admins)
 and a small "Server owners: get the mod" link in the footer. Players never need it, and nothing else points them at it.
 The Worker serves `/downloads/` itself so it can count jar downloads for the [site analytics](#site-analytics).

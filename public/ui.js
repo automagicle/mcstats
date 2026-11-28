@@ -4,8 +4,10 @@
 //              a list in its pixel style. The <select> stays in the page, hidden, and stays what everything else
 //              reads and writes: .value, its options and its "change" event work as before, so code that makes
 //              or changes a select needs nothing new. A select with data-native, multiple or size > 1 is left be.
-//   Mod jars   mcstatsUI.modDownload(downloads, { suggested, latest }): the mod's download, as on /mod, with a
-//              Minecraft version and a mod version to pick (used by /mod, /new and the admin pages).
+//   Mod jars   mcstatsUI.modDownload(downloads, { suggested, latest, edition }): the mod's download, as on /mod,
+//              with a Minecraft version and a mod version to pick (used by /mod, /new and the admin pages).
+//              mcstatsUI.editionChoice(initial, onChange): Fabric or Paper, the two editions of the mod, as two
+//              cards to pick from; the pick is remembered in this browser (mcstatsUI.savedEdition()).
 (() => {
   const SKIP = (sel) => sel.multiple || sel.size > 1 || sel.hasAttribute('data-native');
   const buttons = new WeakMap(); // select → its button
@@ -237,11 +239,39 @@
     n.append(...kids.filter((k) => k != null));
     return n;
   }
+  // ---------- the two editions: the Fabric mod and the Paper plugin ----------
+  const EDITIONS = {
+    fabric: { name: 'Fabric', title: 'Fabric', text: 'A modded server. Its mods go in a mods folder.' },
+    paper: { name: 'Paper', title: 'Paper', text: 'A plugin server (Paper, or a fork of it like Purpur). Its plugins go in a plugins folder.' },
+  };
+  const EDITION_KEY = 'mcstats-edition';
+  const editionOf = (d) => (d?.edition === 'paper' ? 'paper' : 'fabric');
+  function savedEdition() {
+    try { const e = localStorage.getItem(EDITION_KEY); return EDITIONS[e] ? e : null; } catch { return null; }
+  }
+  // initial: 'fabric', 'paper', or null for nothing picked yet. onChange(edition) runs on each pick.
+  function editionChoice(initial, onChange) {
+    const group = make('div', { class: 'wiz-vis mod-edition', role: 'radiogroup', 'aria-label': 'What the Minecraft server runs' });
+    const name = `edition-${Math.random().toString(36).slice(2, 8)}`;
+    for (const [value, e] of Object.entries(EDITIONS)) {
+      const radio = make('input', { type: 'radio', name, value, class: 'wiz-vis-radio' });
+      radio.checked = value === initial;
+      radio.addEventListener('change', () => {
+        try { localStorage.setItem(EDITION_KEY, value); } catch {}
+        onChange(value);
+      });
+      group.append(make('label', { class: 'wiz-vis-opt' }, radio, make('span', { class: 'wiz-vis-title', text: e.title }), make('span', { class: 'wiz-vis-text', text: e.text })));
+    }
+    return group;
+  }
+
   // downloads: every jar the site has (scripts/mod-info.mjs), newest mod first. suggested: the file to start on.
-  function modDownload(downloads, { suggested = null, latest = null, fallback = null } = {}) {
-    const list = downloads || [];
+  // edition: only that edition's jars ('fabric' or 'paper'); the jars from before Paper are Fabric's.
+  function modDownload(downloads, { suggested = null, latest = null, fallback = null, edition = 'fabric' } = {}) {
+    const list = (downloads || []).filter((d) => editionOf(d) === edition);
+    const ed = EDITIONS[edition] || EDITIONS.fabric;
     if (!list.length) {
-      return fallback ? make('div', { class: 'mod-get' }, make('a', { class: 'btn btn-primary site-go', href: fallback.url, download: fallback.file, text: 'Download the mod' })) : make('p', { class: 'site-hint', text: 'No jars are on this site yet.' });
+      return fallback ? make('div', { class: 'mod-get' }, make('a', { class: 'btn btn-primary site-go', href: fallback.url, download: fallback.file, text: `Download mcstats for ${ed.name}` })) : make('p', { class: 'site-hint', text: 'No jars are on this site yet.' });
     }
     const labels = [...new Set(list.map((d) => d.label))];
     const start = list.find((d) => d.file === suggested) || list[0];
@@ -259,8 +289,8 @@
       const d = list.find((x) => x.file === ver.value);
       link.href = `/downloads/${encodeURIComponent(d.file)}`;
       link.setAttribute('download', d.file);
-      link.textContent = `Download mcstats ${d.version}`;
-      hint.textContent = [d.file, `Minecraft ${d.label}`, 'Fabric', 'server side', d.java && `Java ${d.java.replace('>=', '')}+`].filter(Boolean).join(' · ');
+      link.textContent = `Download mcstats ${d.version} for ${ed.name}`;
+      hint.textContent = [d.file, `Minecraft ${d.label}`, edition === 'paper' ? 'Paper plugin' : 'Fabric mod', 'server side', d.java && `Java ${d.java.replace('>=', '')}+`].filter(Boolean).join(' · ');
     };
     game.addEventListener('change', () => { fill(null); show(); });
     ver.addEventListener('change', show);
@@ -273,5 +303,5 @@
       make('div', { class: 'mod-get' }, link, hint));
   }
 
-  window.mcstatsUI = { modDownload, enhance, sync };
+  window.mcstatsUI = { modDownload, editionChoice, savedEdition, EDITIONS, enhance, sync };
 })();

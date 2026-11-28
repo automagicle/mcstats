@@ -125,3 +125,32 @@ describe('what the mod hears', () => {
     mod.sock.close();
   });
 });
+
+// The Fabric mod and the Paper plugin connect the same way; the plugin's User-Agent ends in "Paper".
+describe('which edition the server runs', () => {
+  it('remembers the Paper plugin and offers Paper jars for it', async () => {
+    const a = await makeServer('ed-paper');
+    const owner = await accountCookie(a.owner);
+    const mod = await modSocket(a, 'mcstats-chat/2.3.0 (Minecraft 1.21.11) Paper');
+    // an older version than the newest, so it's told about the update: with the Paper jar for its Minecraft
+    const update = await mod.next('update');
+    expect(update.jar).toMatch(/^\/downloads\/mcstats-paper-[\d.]+\+mc1\.21\.11\.jar$/);
+    const state = await (await call(`/${a.slug}/api/admin?season=1`, { cookie: owner })).json();
+    expect(state.link.edition).toBe('paper');
+    expect(state.mod).toMatchObject({ server_edition: 'paper', server_minecraft: '1.21.11' });
+    expect(state.mod.suggested).toMatch(/^mcstats-paper-/);
+    expect(state.mod_update).toMatchObject({ edition: 'paper', jar: expect.stringMatching(/^mcstats-paper-/) });
+    mod.sock.close();
+  });
+
+  it('takes a mod that says nothing more for the Fabric mod', async () => {
+    const a = await makeServer('ed-fabric');
+    const owner = await accountCookie(a.owner);
+    const mod = await modSocket(a, 'mcstats-chat/2.3.0 (Minecraft 1.21.11)');
+    expect((await mod.next('update')).jar).toMatch(/^\/downloads\/mcstats-chat-[\d.]+\+mc1\.21\.11\.jar$/);
+    const state = await (await call(`/${a.slug}/api/admin?season=1`, { cookie: owner })).json();
+    expect(state.link.edition).toBe('fabric');
+    expect(state.mod.suggested).toMatch(/^mcstats-chat-/);
+    mod.sock.close();
+  });
+});

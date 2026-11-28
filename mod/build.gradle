@@ -1,22 +1,26 @@
-// One build per Minecraft version group: each target in versions/<mc>/ compiles the same source
-// (src/main), run through the preprocessor in target.gradle for that version. See versions/README.md.
-//   ./gradlew build            every version's jar, collected in build/libs/
-//   ./gradlew :26.2:build      one version
+// One Fabric jar per Minecraft version group (versions/<mc>/, target.gradle) and one Paper plugin jar per
+// Minecraft version (paper/<mc>/, paper.gradle), all from the same shared source (src/main) plus each
+// platform's own (src/fabric, src/paper), run through the preprocessor (preprocess.gradle) for that version.
+//   ./gradlew build              every jar, collected in build/libs/
+//   ./gradlew :26.2:build        one Fabric version
+//   ./gradlew :paper-26.2:build  one Paper version
 plugins {
 	// 26.x is unobfuscated (Mojang's names, no remapping); 1.21.x is obfuscated and remapped to
 	// intermediary names, with Mojang's names used while compiling.
 	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}" apply false
+	// Paper: compiled against the server itself, in Mojang's names
+	id 'io.papermc.paperweight.userdev' version "${paperweight_version}" apply false
 }
 
 subprojects {
-	apply from: rootProject.file('target.gradle')
+	apply from: rootProject.file(name.startsWith('paper-') ? 'paper.gradle' : 'target.gradle')
 }
 
 // Every target's jar, in build/libs/ (what npm run build:mod copies to the website).
 tasks.register('build') {
 	group = 'build'
-	description = 'Builds the mod for every Minecraft version.'
+	description = 'Builds the Fabric mod and the Paper plugin for every Minecraft version.'
 	dependsOn subprojects.collect { "${it.path}:build" }
 	doLast {
 		def out = layout.buildDirectory.dir('libs').get().asFile

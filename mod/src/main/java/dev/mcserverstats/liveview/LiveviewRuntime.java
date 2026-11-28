@@ -319,7 +319,7 @@ public final class LiveviewRuntime implements KeyController {
 					}
 				} catch (Throwable thrown) {
 					LogOnce.logger().warn("Liveview could not change who has access", thrown);
-					answer = "Liveview could not write config/" + KeyStore.FILE_NAME + ". See the server log.";
+					answer = "Liveview could not write " + dev.mcserverstats.compat.Platform.configFolder() + KeyStore.FILE_NAME + ". See the server log.";
 				}
 				done.accept(answer);
 			});
@@ -550,7 +550,7 @@ public final class LiveviewRuntime implements KeyController {
 					}
 				} catch (Throwable thrown) {
 					LogOnce.logger().warn("Liveview could not make a new key", thrown);
-					result = Result.failed("Liveview could not write config/" + KeyStore.FILE_NAME + ". See the server log.");
+					result = Result.failed("Liveview could not write " + dev.mcserverstats.compat.Platform.configFolder() + KeyStore.FILE_NAME + ". See the server log.");
 				}
 				done.accept(result);
 			});

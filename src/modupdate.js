@@ -49,27 +49,39 @@ export function gameLabel(range) {
   return r || 'unknown';
 }
 
-// The jar to hand a server: the given mod version (the newest when not given) built for its Minecraft version,
-// or, when that isn't known or nothing matches, the one built for the version the site calls default.
-export function modJar(minecraft, version = null, mod = MOD) {
-  const list = (mod.downloads || []).filter((d) => !version || d.version === version);
+// The two editions: the Fabric mod and the Paper plugin. A jar listed before Paper existed is Fabric's.
+export const EDITIONS = ['fabric', 'paper'];
+export const editionOf = (d) => (d?.edition === 'paper' ? 'paper' : 'fabric');
+// Which one a server runs, from what its mod said when it connected: the plugin's User-Agent ends in "Paper"
+// ("mcstats-chat/2.5.0 (Minecraft 26.2) Paper"); the Fabric mod's says nothing more.
+export const editionFromAgent = (ua) => (/\)\s*Paper\b/.test(String(ua ?? '')) ? 'paper' : 'fabric');
+
+// The jar to hand a server: the given mod version (the newest when not given) of its edition, built for its
+// Minecraft version, or, when that isn't known or nothing matches, the one built for the version the site
+// calls default.
+export function modJar(minecraft, version = null, mod = MOD, edition = 'fabric') {
+  const list = (mod.downloads || []).filter((d) => (!version || d.version === version) && editionOf(d) === (edition === 'paper' ? 'paper' : 'fabric'));
   const pick = (minecraft && list.find((d) => inRange(minecraft, d.minecraft)))
     || list.find((d) => inRange(mod.minecraft_built, d.minecraft)) || list[0] || null;
-  return pick ? { ...pick, url: `/downloads/${pick.file}` } : { file: mod.jar, version: mod.version, url: `/downloads/${mod.jar}` };
+  if (pick) return { ...pick, url: `/downloads/${pick.file}` };
+  const file = edition === 'paper' && mod.paper?.jar ? mod.paper.jar : mod.jar;
+  return { file, edition: edition === 'paper' ? 'paper' : 'fabric', version: mod.version, url: `/downloads/${file}` };
 }
 
 // What's newer than `version`, or null if nothing is (or the version can't be told):
-//   { current, latest, urgent, urgent_why: [why, one per urgent release], behind (releases),
-//     jar, jar_url (built for `minecraft` when it's known), releases: [{ version, date, urgent, urgent_why, summary, changes }] newest first }
-export function modUpdate(version, mod = MOD, minecraft = null) {
+//   { current, latest, edition, urgent, urgent_why: [why, one per urgent release], behind (releases),
+//     jar, jar_url (the server's edition, built for `minecraft` when it's known),
+//     releases: [{ version, date, urgent, urgent_why, summary, changes }] newest first }
+export function modUpdate(version, mod = MOD, minecraft = null, edition = 'fabric') {
   if (compareVersions(version, mod.version) !== -1) return null;
   const newer = (mod.releases || []).filter((r) => compareVersions(r.version, version) === 1
     && compareVersions(r.version, mod.version) <= 0);
   const urgent = newer.filter((r) => r.urgent);
-  const jar = modJar(minecraft, mod.version, mod);
+  const jar = modJar(minecraft, mod.version, mod, edition);
   return {
     current: version,
     latest: mod.version,
+    edition: jar.edition ?? 'fabric',
     urgent: urgent.length > 0,
     urgent_why: urgent.map((r) => `${r.version}: ${r.urgent_why}`),
     behind: newer.length,
@@ -82,8 +94,8 @@ export function modUpdate(version, mod = MOD, minecraft = null) {
 
 // The same, made small for the mod's web chat connection (it takes messages up to 8 KB): the headline of
 // each change, newest release first, at most `max` of them.
-export function modUpdateMessage(version, max = 8, minecraft = null) {
-  const u = modUpdate(version, MOD, minecraft);
+export function modUpdateMessage(version, max = 8, minecraft = null, edition = 'fabric') {
+  const u = modUpdate(version, MOD, minecraft, edition);
   if (!u) return null;
   const changes = [];
   for (const r of u.releases) {

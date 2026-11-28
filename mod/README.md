@@ -1,13 +1,15 @@
 # mcstats (server mod)
 
-A server-side Fabric mod that sends the server's public chat to the dashboard's **Chat log** page, every death
+A server-side mod, as a Fabric mod and as a Paper plugin (see [Paper](#paper)), that sends the server's public chat to the dashboard's **Chat log** page, every death
 to its **Combat** page, what each player wears and carries to the **3D model** on their player page, shows chat
 sent from the dashboard in game, and (from 2.0.0) lets the dashboard's admins watch the world live in its
 **Liveview** tab.
 It's one jar with no other dependencies (the bits of Fabric API it uses are bundled inside), for
 Minecraft **26.2** on Fabric Loader 0.18.4 or newer. Players don't install anything.
 
-What each version added is in [CHANGELOG.md](CHANGELOG.md).
+What each version added is in [CHANGELOG.md](CHANGELOG.md). Everything below is true of both editions unless the
+[Paper](#paper) section says otherwise; on Paper, read `plugins/mcstats/` wherever it says `config/` and `plugins/`
+wherever it says `mods/`.
 
 **Recorded:** public chat, `/say`, `/me`, joins, leaves, deaths, advancements, and server start/stop.
 Names are sent as chat shows them (team prefix and colors), so the dashboard can match. Deaths and
@@ -210,13 +212,50 @@ Liveview uses two more mixins (`mcstats_liveview.mixins.json`): one watches the 
 sends to players, so the page can show them; the other keeps mobs near a viewer's camera from despawning. Like
 the others, if one can't apply, only that part stops working.
 
+## Paper
+
+The same mod as a Paper plugin, `mcstats-paper-<version>+mc<minecraft>.jar`, built from the same source (from 2.4.0).
+It goes in the server's `plugins/` folder and keeps its files in `plugins/mcstats/` (the same files the Fabric mod keeps
+in `config/`: `mcstats-chat.properties`, the pending messages, profiles, the commands switched off, Liveview's keys and
+texture cache). It needs nothing else installed. Paper runs on Mojang's own names, so the plugin calls the game directly,
+as the Fabric mod does; that ties each jar to one Minecraft version. On any other it logs which jar to download and stays
+off; on an older Paper than it's built for, Paper itself refuses it with "Unsupported API version". It runs on Paper, and
+usually on forks of Paper such as Purpur (untested); not on Spigot, Bukkit or Folia.
+
+Built for Paper 1.21.5, 1.21.8, 1.21.10, 1.21.11, 26.1.2, 26.2 and 26.3. Each jar was booted on its Paper version against
+a stand-in dashboard; on every version but 26.2 and 26.3 (newer than the test client could join) two test players also
+went through chat, /me, /say, joins, leaves, a death, advancements, an announcement sent to each player, web chat and a
+web whisper, a whisper to a player who's only on the website, its tab completion, the /mcstats menu and gear. Liveview
+(a viewer, terrain, textures and entity models, particles, an explosion, and commands from the dashboard) was tried on
+26.1.2.
+
+The Fabric mod's four mixins are replaced like this:
+
+| Fabric | Paper |
+| --- | --- |
+| Whispers to a player who's only on the website (`CommandsMixin`) | Bukkit's command event, before other plugins see it |
+| /msg suggesting website players (`CommandsMixin`) | the same change to the game's /msg, made once the server is up and after each /minecraft:reload |
+| Messages sent to everyone one by one (`ServerPlayerMixin`) | the plugin watches the system messages the server sends each player. A message every player on got is logged, as on Fabric, but only with **two or more** players on: with one, there's no telling a message to everyone from an answer to them |
+| Liveview's particles and effects (`ServerLevelMixin`) | explosions, block breaks, death poofs, snowballs and eggs breaking and splash potions come from Bukkit's events and show anywhere; other particles (hearts, crits, smoke…) are read from what's sent to players, so they show **only near a player** |
+| Mobs near a Liveview camera don't despawn (`MobMixin`) | **left out**: Paper has no way to do it without changing the world. Mobs near a camera far from every player can despawn as usual |
+
+Chat, /say and /me are read from Bukkit's events; joins, leaves, deaths and advancements from Paper's, as Paper finally
+words them, so one a plugin rewords is still logged as a join (or leave, death, advancement) of that player. Commands run
+from Liveview's control key go through the game's own command system, so other plugins' commands work too, and their
+answers come back to the dashboard.
+
+The plugin's User-Agent ends in `Paper` (`mcstats-chat/2.4.0 (Minecraft 26.2) Paper`), so the dashboard offers Paper
+jars in its update notices and on Admin → Mod and commands.
+
 ## Troubleshooting
 
 Search the server console (latest.log) for `mcstats-chat`:
 
 | Console says | Meaning |
 | --- | --- |
-| nothing at all | The mod didn't load. Check that the jar is in `mods/`, that the server runs Fabric (not Paper/Forge), and look for a Fabric error naming `mcstats_chat` near the top of the log. |
+| nothing at all | The mod didn't load. Fabric: check that the jar is in `mods/`, that the server runs Fabric, and look for a Fabric error naming `mcstats_chat` near the top of the log. Paper: check that the Paper jar (`mcstats-paper-…`) is in `plugins/`, and look for `mcstats` near the top of the log. |
+| `This mcstats jar is for Paper …, but this server runs …` | Paper: the jar is for another Minecraft version. Download the one for the server's version; if there isn't one, update Paper to a version there is. |
+| `Unsupported API version …` (naming `mcstats-paper-…`) | Paper: the jar is for a newer Minecraft than the server runs. Download the one for the server's version. |
 | `Created …/mcstats-chat.properties` on every start | The filled-in file isn't where the mod looks, or has a different name. It must be exactly `config/mcstats-chat.properties`. |
 | `Not sending chat: url is blank` (or `token`) | The file was found but that value is empty. Check spelling of the keys (`url=`, `token=`). |
 | `Sending chat to …` then `Chat log connected` | Working. |
@@ -255,12 +294,23 @@ are read when the server starts.
 
 ## Building
 
-Needs JDK 25.
+Needs JDK 25. The Paper jars are built on Java 21 (1.21.x) and 25 (26.x), which Gradle downloads if they aren't
+installed (`-Porg.gradle.java.installations.paths=<jdk>` points it at one you have); Paper's own tools for some
+versions can't run on a newer JDK.
 
 ```bash
 cd mod
-./gradlew build      # → versions/<mc>/build/libs/mcstats-chat-2.4.0+mc<mc>.jar
+./gradlew build                  # → versions/<mc>/build/libs/mcstats-chat-2.4.0+mc<mc>.jar (Fabric)
+                                 #   paper/<mc>/build/libs/mcstats-paper-2.4.0+mc<mc>.jar (Paper)
+./gradlew :26.2:build            # one Fabric version
+./gradlew :paper-26.2:build      # one Paper version
 ```
+
+The source is in three parts: `src/main` is shared, `src/fabric` is the Fabric entry point (`FabricEntry`), the mixins
+and `fabric.mod.json`, and `src/paper` is the plugin (`PaperPlugin`, Bukkit's events in `PaperEvents`, the network
+watcher in `NetworkTap`) and its `plugin.yml`. All of it goes through the preprocessor (`preprocess.gradle`), which also
+takes `//#if PAPER` and `//#if FABRIC` for the odd line in shared code that differs. A Paper version is a folder in
+`paper/` with its dev bundle in `gradle.properties`.
 
 For another Minecraft version, update `minecraft_version` and `fabric_api_version` in `gradle.properties`
 (see https://fabricmc.net/develop) and the `minecraft` range in `src/main/resources/fabric.mod.json`, then rebuild.

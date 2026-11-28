@@ -34,7 +34,7 @@ import { currentSeason } from './seasons.js';
 import { json, ingestDenied } from './util.js';
 import { tellPresence } from './presence.js';
 import { ADMIN_SENDER, deliverWhisper, parseCommand } from './whisper.js';
-import { modUpdateMessage } from './modupdate.js';
+import { editionFromAgent, modUpdateMessage } from './modupdate.js';
 import { uploadOrigin } from './site.js';
 import { accountRequest, connectedPlayer, pendingFor } from './connect.js';
 import { cleanCommandsOff, commandsOff } from './commands.js';
@@ -374,20 +374,23 @@ export class ServerLink extends DurableObject {
       const ua = (request.headers.get('User-Agent') || '').match(/mcstats-chat\/([\w.+-]{1,20})/);
       // and the game's ("mcstats-chat/2.3.0 (Minecraft 1.21.11)", from 2.3.0), for offering the right jar
       const mc = (request.headers.get('User-Agent') || '').match(/\(Minecraft ([\w.+-]{1,24})\)/);
+      // and whether it's the Fabric mod or the Paper plugin ("… (Minecraft 26.2) Paper"), for the same reason
+      const edition = editionFromAgent(request.headers.get('User-Agent'));
       server.serializeAttachment({
         whispers: !!version && (Number(version[1]) > 1 || (Number(version[1]) === 1 && Number(version[2]) >= 8)),
-        version: ua ? ua[1] : null, minecraft: mc ? mc[1] : null, at: Date.now(), heard: Date.now(), page,
+        version: ua ? ua[1] : null, minecraft: mc ? mc[1] : null, edition, at: Date.now(), heard: Date.now(), page,
       });
-      this.note(`mod ${ua ? ua[1] : '(unknown version)'} connected${mc ? ` (Minecraft ${mc[1]})` : ''}`);
+      this.note(`${edition === 'paper' ? 'Paper plugin' : 'mod'} ${ua ? ua[1] : '(unknown version)'} connected${mc ? ` (Minecraft ${mc[1]})` : ''}`);
       // kept for the admin page while the mod isn't connected (it still needs updating then)
       if (ua) this.ctx.waitUntil(this.ctx.storage.put('version', ua[1]));
       if (mc) this.ctx.waitUntil(this.ctx.storage.put('minecraft', mc[1]));
+      if (ua) this.ctx.waitUntil(this.ctx.storage.put('edition', edition));
       this.ctx.acceptWebSocket(server);
       // commands_off: the /mcstats commands this server's admins switched off (mod 2.4.0 takes them away; older ones ignore it)
       const off = (cleanCommandsOff(reqUrl.searchParams.get('off') || '') || '').split(',').filter(Boolean);
       server.send(JSON.stringify({ type: 'hello', max: MAX_WEB_CHAT, ...(page && { page }), commands_off: off }));
       // a newer mod than this one is out (src/modupdate.js): 2.1.0 and newer tell operators in game; older ones ignore it
-      const update = ua ? modUpdateMessage(ua[1], 8, mc ? mc[1] : null) : null;
+      const update = ua ? modUpdateMessage(ua[1], 8, mc ? mc[1] : null, edition) : null;
       if (update) server.send(JSON.stringify(update));
       server.send(JSON.stringify({ type: 'web', names: await this.webList() }));
       this.ctx.waitUntil(tellPresence(this.env, '/link', { up: true }));
@@ -484,6 +487,8 @@ export class ServerLink extends DurableObject {
         last_version: a.version ?? (await this.ctx.storage.get('version')) ?? null,
         // the Minecraft version it last said it runs on (mods from 2.3.0 say), or null
         minecraft: a.minecraft ?? (await this.ctx.storage.get('minecraft')) ?? null,
+        // 'fabric' (the mod) or 'paper' (the plugin), as it last said; null before it ever connected
+        edition: a.edition ?? (await this.ctx.storage.get('edition')) ?? (a.version ? 'fabric' : null),
         // what the mod said about Liveview: { enabled, control, viewer_key, control_key, access: { email: 'viewer' | 'control' } }
         liveview: a.live ? { ...a.live, access: await this.liveAccess() } : null,
         connected_ago: ago(a.at), heard_ago: ago(a.heard), started_ago: ago(this.started),

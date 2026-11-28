@@ -8,7 +8,7 @@
 	"environment": "server",
 	"mixins": ["mcstats_chat.mixins.json", "mcstats_liveview.mixins.json"],
 	"entrypoints": {
-		"server": ["dev.mcserverstats.chatlog.ChatLogMod"]
+		"server": ["dev.mcserverstats.fabric.FabricEntry"]
 	},
 	"depends": {
 		"fabricloader": "${loader}",

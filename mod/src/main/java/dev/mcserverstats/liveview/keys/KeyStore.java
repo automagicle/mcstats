@@ -88,7 +88,7 @@ public final class KeyStore {
 				}
 			}
 		} catch (RuntimeException | Json.JsonException e) {
-			throw new IOException("config/" + FILE_NAME + " could not be read (" + e.getMessage() + ")", e);
+			throw new IOException(dev.mcserverstats.compat.Platform.configFolder() + FILE_NAME + " could not be read (" + e.getMessage() + ")", e);
 		}
 		return store;
 	}

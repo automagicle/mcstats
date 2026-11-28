@@ -1,0 +1,80 @@
+// The Paper plugin for one Minecraft version, applied to each project in paper/ (build.gradle). Its
+// gradle.properties says:
+//   minecraft_version   the Paper version it's built for, and the only one it starts on (PaperPlugin checks)
+//   paper_dev_bundle    Paper's dev bundle for that version (https://repo.papermc.io, io.papermc.paper:dev-bundle)
+//   java_version        21 for 1.21.x, 25 for 26.x
+//
+// Paper runs on Mojang's names from 1.20.5, so the plugin is compiled against the server itself (paperweight
+// userdev) and shares src/main/java with the Fabric mod. src/paper/java has what's Paper's own: the plugin,
+// Bukkit's events passed on to the shared code, and what replaces the Fabric mixins. The source goes through the
+// same preprocessor (preprocess.gradle).
+
+def mc = project.property('minecraft_version') as String
+def javaVersion = (project.property('java_version') as String).toInteger()
+
+apply plugin: 'java'
+apply plugin: 'io.papermc.paperweight.userdev'
+
+base {
+	archivesName = 'mcstats-paper'
+}
+version = "${rootProject.property('version')}+mc${mc}"
+group = rootProject.property('group')
+
+repositories {
+	mavenCentral()
+	maven {
+		name = 'PaperMC'
+		url = 'https://repo.papermc.io/repository/maven-public/'
+	}
+}
+
+dependencies {
+	paperweight.paperDevBundle(project.property('paper_dev_bundle') as String)
+}
+
+// The jar keeps Mojang's names, which is what Paper runs on: nothing to remap at build or at load.
+// (An applied script can't name the plugin's classes, so it's looked up through the plugin's own class loader.)
+def reobf = paperweight.getClass().classLoader.loadClass('io.papermc.paperweight.userdev.ReobfArtifactConfiguration')
+paperweight.reobfArtifactConfiguration = reobf.getField('Companion').get(null).getMOJANG_PRODUCTION()
+
+ext.preprocessMc = mc
+ext.preprocessPlatform = 'paper'
+ext.preprocessRoots = [rootProject.file('src/main/java'), rootProject.file('src/paper/java')]
+apply from: rootProject.file('preprocess.gradle')
+
+sourceSets {
+	main {
+		java.srcDirs = [preprocessedJava]
+		resources.srcDirs = [rootProject.file('src/paper/resources')]
+	}
+}
+tasks.named('compileJava') { dependsOn 'preprocessJava' }
+tasks.matching { it.name == 'sourcesJar' }.configureEach { dependsOn 'preprocessJava' }
+
+processResources {
+	// plugin.yml for Paper; mcstats.json says what the jar is, for PaperPlugin's version check and for the
+	// dashboard's list of jars (scripts/mod-info.mjs), the way fabric.mod.json does for the Fabric jars.
+	def props = [
+			version   : rootProject.property('version'),
+			minecraft : mc,
+			apiVersion: mc,
+			java      : ">=${javaVersion}",
+	]
+	inputs.properties(props)
+	filesMatching(['plugin.yml', 'mcstats.json']) {
+		expand props
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = 'UTF-8'
+}
+
+// Compiled, and paperweight's setup run, on that Java: Paper's tools for some versions can't read a newer JDK's
+// classes ("Unsupported class file major version"). Gradle downloads it if it isn't installed (settings.gradle).
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(javaVersion)
+	}
+}

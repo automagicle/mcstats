@@ -9,3 +9,7 @@ mod/.gradle
 .DS_Store
 roster-*.json
 *-backup.sql
+
+# the Paper plugin builds (mod/paper/<mc>/, mod/paper.gradle)
+mod/paper/*/build/
+mod/paper/*/.gradle/

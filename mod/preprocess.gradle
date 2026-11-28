@@ -1,0 +1,149 @@
+// The preprocessor every target uses (target.gradle for Fabric, paper.gradle for Paper). Before applying it, a
+// target sets
+//   ext.preprocessMc     the Minecraft version it compiles against
+//   ext.preprocessRoots  the source folders to compile (src/main/java plus the platform's own)
+//   ext.preprocessPlatform  'fabric' or 'paper'
+// and gets build/preprocessed/java, which it compiles instead of the source folders themselves.
+//
+// The source is written for the newest version. Lines that differ by version sit in
+//   //#if MC >= 26.1
+//   ...lines for 26.1 and newer...
+//   //#elseif MC >= 1.21.5
+//   //$$ ...lines for 1.21.5 up to 26.1, commented out with //$$ ...
+//   //#else
+//   //$$ ...older...
+//   //#endif
+// Before compiling, each line in a branch that applies is un-commented and each line in a branch that
+// doesn't is commented out, into build/preprocessed. src/ itself is never changed.
+// Conditions: MC compared with a version by >=, >, <=, <, == or !=, or PAPER / FABRIC (with ! for not), joined
+// with && or ||. Shared code that differs on Paper (a method Paper adds to a game interface, say) uses PAPER.
+// Names Mojang only renamed (a class, a method) go in versions/renames.txt instead: outside the
+// //#if blocks, every whole-word match is replaced for the versions its condition holds.
+
+def mc = project.ext.preprocessMc as String
+def platform = project.ext.preprocessPlatform as String
+def javaRoots = project.ext.preprocessRoots as List<File>
+
+// "1.21.11" -> [1, 21, 11]; compared part by part, so 26.1 > 1.21.11.
+def parts = { String v -> v.tokenize('.').collect { it.replaceAll(/\D.*/, '') ?: '0' }.collect { it.toInteger() } }
+def compare = { String a, String b ->
+	def x = parts(a), y = parts(b)
+	for (int i = 0; i < Math.max(x.size(), y.size()); i++) {
+		int d = (i < x.size() ? x[i] : 0) <=> (i < y.size() ? y[i] : 0)
+		if (d != 0) return d
+	}
+	return 0
+}
+def holds = { String cond, String file, int line ->
+	cond.split(/\|\|/).any { alt ->
+		alt.split(/&&/).every { term ->
+			def p = term.trim() =~ /^(!?)(PAPER|FABRIC)$/
+			if (p.matches()) return (p.group(2) == platform.toUpperCase()) != (p.group(1) == '!')
+			def m = term.trim() =~ /^MC\s*(>=|<=|==|!=|>|<)\s*([0-9][0-9.]*)$/
+			if (!m.matches()) throw new GradleException("$file:$line: can't read the condition '${term.trim()}'")
+			int c = compare(mc, m.group(2))
+			switch (m.group(1)) {
+				case '>=': return c >= 0
+				case '<=': return c <= 0
+				case '>': return c > 0
+				case '<': return c < 0
+				case '==': return c == 0
+				default: return c != 0
+			}
+		}
+	}
+}
+// One file's lines for this version. Every line keeps its place, so errors point at the right line in src/.
+def preprocess = { List<String> lines, String file ->
+	def out = []
+	// one entry per open #if: [active now, some branch already taken, enclosing active]
+	def stack = []
+	boolean active = true
+	lines.eachWithIndex { String raw, int i ->
+		def t = raw.trim()
+		if (t.startsWith('//#if ')) {
+			boolean on = active && holds(t.substring(6), file, i + 1)
+			stack.push([on, on, active])
+			active = on
+			out << raw
+		} else if (t.startsWith('//#elseif ')) {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#elseif without //#if")
+			def top = stack.pop()
+			boolean on = top[2] && !top[1] && holds(t.substring(10), file, i + 1)
+			stack.push([on, top[1] || on, top[2]])
+			active = on
+			out << raw
+		} else if (t == '//#else') {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#else without //#if")
+			def top = stack.pop()
+			boolean on = top[2] && !top[1]
+			stack.push([on, true, top[2]])
+			active = on
+			out << raw
+		} else if (t == '//#endif') {
+			if (!stack) throw new GradleException("$file:${i + 1}: //#endif without //#if")
+			active = stack.pop()[2]
+			out << raw
+		} else if (stack) {
+			def indent = raw.replaceAll(/^(\s*).*$/, '$1')
+			def body = raw.substring(indent.length())
+			boolean commented = body.startsWith('//$$')
+			if (active && commented) out << indent + body.substring(4).replaceFirst(/^ /, '')
+			else if (!active && !commented && body) out << indent + '//$$ ' + body
+			else out << raw
+		} else {
+			out << raw
+		}
+	}
+	if (stack) throw new GradleException("$file: an //#if is never closed with //#endif")
+	return out
+}
+
+// versions/renames.txt: "<condition> | <name> -> <replacement>", one per line, # for comments
+def renames = []
+def renameFile = rootProject.file('versions/renames.txt')
+if (renameFile.exists()) {
+	renameFile.readLines('UTF-8').eachWithIndex { String line, int i ->
+		def t = line.replaceFirst(/#.*$/, '').trim()
+		if (!t) return
+		def m = t =~ /^(.+?)\|\s*(\S+)\s*->\s*(\S+)$/
+		if (!m.matches()) throw new GradleException("versions/renames.txt:${i + 1}: expected '<condition> | <name> -> <replacement>'")
+		if (holds(m.group(1).trim(), 'versions/renames.txt', i + 1)) {
+			def from = m.group(2)
+			// a name is matched as a whole word; a leading "." matches a method call or field like .identifier(
+			renames << [java.util.regex.Pattern.compile((from.startsWith('.') ? '' : '(?<![\\w$])') + java.util.regex.Pattern.quote(from) + '(?![\\w$])'), java.util.regex.Matcher.quoteReplacement(m.group(3))]
+		}
+	}
+}
+def rename = { String line ->
+	for (r in renames) line = r[0].matcher(line).replaceAll(r[1])
+	return line
+}
+
+def preprocessed = layout.buildDirectory.dir('preprocessed/java')
+def preprocessJava = tasks.register('preprocessJava') {
+	javaRoots.each { inputs.dir(it) }
+	inputs.property('mc', mc)
+	inputs.property('platform', platform)
+	if (renameFile.exists()) inputs.file(renameFile)
+	outputs.dir(preprocessed)
+	def outDir = preprocessed.get().asFile
+	doLast {
+		outDir.deleteDir()
+		javaRoots.each { File src -> src.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+			def rel = src.toPath().relativize(f.toPath()).toString()
+			def target = new File(outDir, rel)
+			target.parentFile.mkdirs()
+			if (f.name.endsWith('.java')) {
+				def text = f.getText('UTF-8')
+				def lines = preprocess(text.split('\n', -1) as List, rel).collect { rename(it) }
+				target.setText(lines.join('\n'), 'UTF-8')
+			} else {
+				target.bytes = f.bytes
+			}
+		} }
+	}
+}
+ext.preprocessedJava = preprocessed
+
+

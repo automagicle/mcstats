@@ -44,7 +44,7 @@ export async function me(env, who) {
   const admin = isAdmin(env, who);
   // admins are told on every page when the server's mod has a newer version (the admin page has the details)
   const status = admin ? await linkStatus(env) : null;
-  const u = admin ? modUpdate(status?.last_version, undefined, status?.minecraft) : null;
+  const u = admin ? modUpdate(status?.last_version, undefined, status?.minecraft, status?.edition ?? 'fabric') : null;
   return json({
     email: who.email, admin, super: canManage(who.perms), owner: !!(who.perms?.super || who.perms?.owner),
     role: who.perms?.role ?? null, perms: who.perms ?? null,
@@ -87,10 +87,10 @@ export async function adminState(env, season) {
     uncounted: uncounted.results,
     deleted: deleted.results,
     link,
-    mod_update: modUpdate(link?.last_version, undefined, link?.minecraft), // a newer mod to install, with what changed (src/modupdate.js)
+    mod_update: modUpdate(link?.last_version, undefined, link?.minecraft, link?.edition ?? 'fabric'), // a newer mod to install, with what changed (src/modupdate.js)
     // every jar the site has, for the Mod and commands page's download picker
-    // suggested: the newest jar for the Minecraft version the server's mod last said it runs on
-    mod: { version: MOD.version, minecraft_built: MOD.minecraft_built, downloads: MOD.downloads, server_minecraft: link?.minecraft ?? null, suggested: modJar(link?.minecraft).file },
+    // suggested: the newest jar of the server's edition (Fabric or Paper) for the Minecraft version its mod last said it runs on
+    mod: { version: MOD.version, minecraft_built: MOD.minecraft_built, downloads: MOD.downloads, server_minecraft: link?.minecraft ?? null, server_edition: link?.edition ?? null, suggested: modJar(link?.minecraft, null, MOD, link?.edition ?? 'fabric').file },
     // which /mcstats commands are switched off and whether the Activity page's box starts closed (src/commands.js);
     // supported: whether the server's mod is new enough to take them away (null: it has never connected)
     commands: { ...commandsOf(env), needs: COMMANDS_MOD, supported: commandsSupported(link?.last_version) },

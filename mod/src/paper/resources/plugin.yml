@@ -1,0 +1,6 @@
+name: mcstats
+version: '${version}'
+main: dev.mcserverstats.paper.PaperPlugin
+api-version: '${apiVersion}'
+description: Sends chat, joins, leaves, deaths and advancements, what players wear and carry, and their advancement progress, to an mcstats dashboard, shows chat sent from the dashboard in game, passes whispers between the game and the dashboard, lets the dashboard's admins watch the world live (Liveview), and gives players /mcstats menus for stats and how they look on the dashboard.
+load: POSTWORLD

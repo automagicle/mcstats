@@ -75,6 +75,19 @@ public final class CommandRunner implements AdminCommands {
 						public boolean shouldInformAdmins() {
 							return true;
 						}
+						//#if PAPER
+						//$$ // Paper runs plugins' commands as a Bukkit sender: one with the console's permissions whose
+						//$$ // answers come back here too (Server.createCommandSender).
+						//$$ private org.bukkit.command.CommandSender bukkit;
+						//$$
+						//$$ @Override
+						//$$ public org.bukkit.command.CommandSender getBukkitSender(CommandSourceStack stack) {
+						//$$ 	if (bukkit == null) {
+						//$$ 		bukkit = org.bukkit.Bukkit.createCommandSender(c -> sendSystemMessage(io.papermc.paper.adventure.PaperAdventure.asVanilla(c)));
+						//$$ 	}
+						//$$ 	return bukkit;
+						//$$ }
+						//#endif
 					};
 					CommandSourceStack source = server.createCommandSourceStack()
 							.withSource(capture)

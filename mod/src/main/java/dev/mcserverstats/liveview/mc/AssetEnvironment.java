@@ -2,53 +2,41 @@ package dev.mcserverstats.liveview.mc;
 
 import dev.mcserverstats.liveview.LogOnce;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
+import java.util.function.Supplier;
 
 /**
- * Fabric Loader 0.20.1, VERIFIED by javap in Phase 4: {@code FabricLoader.getAllMods()},
- * {@code ModContainer.getRootPaths()}, {@code ModContainer.getMetadata()}, {@code ModContainer.getContainingMod()}.
- * {@code getAllMods()} lists nested jar-in-jar mods as their own containers, and their root paths open the nested
- * jar, so nested mod assets are scanned the same way as top-level ones.
+ * What Liveview's texture packing needs to know about the installation: the game's version (which client jar to
+ * fetch) and the jars of other installed mods (their block and item textures). The entry point sets both once at
+ * start ({@link #set}): on Fabric from Fabric Loader (FabricEntry); on Paper, which has no mods that add blocks,
+ * the version alone.
  */
 public final class AssetEnvironment {
-	private static final Set<String> SKIP = Set.of("minecraft", "java", "fabricloader", "liveview", "mixinextras");
+	private static volatile String minecraft = "26.2";
+	private static volatile Supplier<List<ModRoot>> roots = List::of;
 
 	private AssetEnvironment() {
 	}
 
-	public static String minecraftVersion() {
-		try {
-			return FabricLoader.getInstance()
-					.getModContainer("minecraft")
-					.map(container -> container.getMetadata().getVersion().getFriendlyString())
-					.orElse("26.2");
-		} catch (Throwable thrown) {
-			LogOnce.warn("mc-version", "Liveview could not read the Minecraft version; assuming 26.2", thrown);
-			return "26.2";
+	public static void set(String minecraftVersion, Supplier<List<ModRoot>> modRoots) {
+		if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+			minecraft = minecraftVersion;
 		}
+		roots = modRoots == null ? List::of : modRoots;
+	}
+
+	public static String minecraftVersion() {
+		return minecraft;
 	}
 
 	/** Root paths of every installed mod except Minecraft itself, Java, and the loader. */
 	public static List<ModRoot> modRoots() {
-		List<ModRoot> roots = new ArrayList<>();
 		try {
-			for (ModContainer container : FabricLoader.getInstance().getAllMods()) {
-				String id = container.getMetadata().getId();
-				if (SKIP.contains(id)) {
-					continue;
-				}
-				for (Path root : container.getRootPaths()) {
-					roots.add(new ModRoot(id, root));
-				}
-			}
+			return roots.get();
 		} catch (Throwable thrown) {
 			LogOnce.warn("mod-roots", "Liveview could not list mod jars; only vanilla assets will load", thrown);
+			return List.of();
 		}
-		return roots;
 	}
 
 	public record ModRoot(String modId, Path root) {

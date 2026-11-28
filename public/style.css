@@ -3331,6 +3331,13 @@ body.site { --title-shadow: color-mix(in srgb, var(--ink) 20%, transparent); }
 .mod-dl .mod-get { margin: 0; }
 .mod-dl .site-go { text-decoration: none; }
 .adm-mod-dl .site-title { font-size: 26px; }
+/* Fabric or Paper (public/ui.js editionChoice): the two-card choice from /new's visibility, asked before the
+   install steps on /mod and /new and above the download on Admin; the steps for the picked one go under it */
+.mod-edition-pick { display: grid; gap: 8px; margin: 0 0 16px; }
+.mod-edition-pick .site-hint { margin: 0; }
+.adm-mod-dl .mod-edition { margin: 4px 0 12px; }
+.mod-edition-steps { display: grid; gap: 14px; }
+.mod-edition-wait { margin: 0; }
 
 
 /* ---------- Admin → Discord (public/app.js renderDiscordAdmin) ---------- */
