@@ -17,7 +17,7 @@ import { poll } from './poll.js';
 import { fillGaps } from './gapfill.js';
 import { forgetPerms, loadPerms, ROLES, setRoleStmt } from './roles.js';
 import { clearCache } from './cache.js';
-import { cleanEmail, EMAIL_RE, newJoinToken, sameString, sha256Hex } from './session.js';
+import { cleanEmail, EMAIL_RE, emailTag, newJoinToken, sameString, sha256Hex } from './session.js';
 import { limit, tooMany } from './limiter.js';
 import { cleanTz, json } from './util.js';
 import { parseStart } from './seasons.js';
@@ -389,6 +389,51 @@ export class Tenant extends DurableObject {
     const hiddenOn = names.filter((n) => hidden.has(n.toLowerCase())).length;
     const online = recent.up ? Math.max(players.length, recent.online - hiddenOn) : 0;
     return { status: recent.up ? 'up' : 'down', online, players: recent.up ? players : [], max: recent.max ?? null };
+  }
+
+  // For the site analytics (src/census.js): what this server amounts to, in counts. Its members' emails go out
+  // as tags (session.js emailTag), so the census can tell how many servers an account belongs to, and in what
+  // role, without any address leaving this object. No names: not the server's, not its players'.
+  async census() {
+    const sql = this.ctx.storage.sql;
+    const now = Math.floor(Date.now() / 1000);
+    const count = (q, ...p) => Number(sql.exec(q, ...p).one().n) || 0;
+    const members = { owner: [], admin: [], member: [] };
+    for (const r of sql.exec('SELECT email, role FROM user_perms').toArray()) {
+      if (!r.email) continue;
+      members[ROLES.includes(r.role) ? r.role : 'member'].push(await emailTag(this.env, r.email));
+    }
+    const since = (days) => now - days * 86400;
+    const online = await this.onlineNow().catch(() => null);
+    const discord = sql.exec('SELECT guild_id FROM discord_link WHERE id = 1').toArray()[0];
+    let addons = [];
+    try { addons = addonList(this.settings); } catch { /* none */ }
+    return {
+      created_at: Number(this.settings.CREATED_AT) || null,
+      public: this.settings.PUBLIC === '1',
+      paused: this.settings.PAUSED === '1',
+      address: ADDRESS_RE.test(this.settings.MC_SERVER || ''),
+      season: Number(this.settings.CURRENT_SEASON) || 1,
+      addons,
+      first_upload_at: Number(this.settings.FIRST_UPLOAD_AT) || null,
+      last_upload_at: Number(this.settings.LAST_UPLOAD_AT) || null,
+      members,
+      // Minecraft players: everyone ever seen, and everyone with a session ending in the last 1, 7 and 30 days
+      players: {
+        total: count('SELECT COUNT(*) AS n FROM players'),
+        d1: count('SELECT COUNT(DISTINCT uuid) AS n FROM sessions WHERE end_ts >= ?', since(1)),
+        d7: count('SELECT COUNT(DISTINCT uuid) AS n FROM sessions WHERE end_ts >= ?', since(7)),
+        d30: count('SELECT COUNT(DISTINCT uuid) AS n FROM sessions WHERE end_ts >= ?', since(30)),
+      },
+      online: online ? { status: online.status, n: online.online } : null,
+      // chat lines the mod logged in the last 7 days (players talking, not joins or deaths)
+      chat_7d: count("SELECT COUNT(*) AS n FROM chat WHERE kind = 'chat' AND ts_ms >= ?", since(7) * 1000),
+      discord: {
+        linked: !!discord,
+        feeds: sql.exec('SELECT feed FROM discord_feeds').toArray().map((r) => r.feed),
+        players: count('SELECT COUNT(*) AS n FROM discord_players'),
+      },
+    };
   }
 
   // ---------- RPC: copying the old database in (scripts/copy-tenant.mjs) ----------

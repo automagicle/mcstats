@@ -32,6 +32,7 @@ import { checkAccountPassword, hashAccountPassword, passwordProblem } from './pa
 import { ipKey, limit, tooMany } from './limiter.js';
 import { accountCodeEmail, passwordChangedEmail, sendEmail, signInLink } from './email.js';
 import { json } from './util.js';
+import { noteAccountSeen } from './sitecounts.js';
 
 export const LOGIN_FAILED = 'That email and password don’t match.';
 // The pages ask for a new password twice and send both; when the second is sent, it has to be the first.
@@ -63,9 +64,11 @@ export async function accountOf(request, env) {
   const hit = cache.get(hash);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.account;
   const row = await env.DIRECTORY.prepare(
-    'SELECT a.id, a.email FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?'
+    'SELECT a.id, a.email, a.seen_day FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = ? AND s.expires_at > ?'
   ).bind(hash, now()).first();
   const account = row ? { id: row.id, email: row.email, session: hash } : null;
+  // the first time today: the account counts as active (site analytics, src/sitecounts.js). One write a day at most.
+  if (row) await noteAccountSeen(env, row.id, row.seen_day);
   cache.set(hash, { at: Date.now(), account });
   if (cache.size > 5000) cache.delete(cache.keys().next().value);
   return account;

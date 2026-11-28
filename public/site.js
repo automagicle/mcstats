@@ -32,6 +32,8 @@
       err.field = out.field;
       throw err;
     }
+    // just signed in: the site analytics counts this browser as signed in today (public/visit.js)
+    if (path === '/api/account/login' || path === '/api/account/password') window.mcstatsVisit?.signedIn();
     return out;
   }
   const errorLine = () => h('p', { class: 'site-err', role: 'alert', hidden: true });

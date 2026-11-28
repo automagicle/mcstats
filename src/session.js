@@ -56,6 +56,13 @@ export async function keyed(env, purpose, bytes) {
   return crypto.subtle.sign('HMAC', await hmacKey(env, purpose), bytes);
 }
 
+// A stand-in for an email address in the site analytics' census of each server (src/census.js): the same
+// address gives the same tag on every server, so an account's roles can be put together across servers, but the
+// tag can't be turned back into the address without SESSION_SECRET. 16 hex characters.
+export async function emailTag(env, email) {
+  return hex(await keyed(env, 'census-email', enc.encode(String(email).trim().toLowerCase()))).slice(0, 16);
+}
+
 const purposeOf = (p) => (p.k === 'site' ? 'site' : `${p.k}:${p.s}`);
 
 export async function signToken(env, payload) {

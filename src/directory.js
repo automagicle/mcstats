@@ -6,7 +6,7 @@ export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 export const ID_RE = /^[0-9a-f]{16}$/;
 // The site's own top-level paths (public/ and /api): a request for one of these is never a server's.
 // Anything added to public/ without a dot in its address belongs here too.
-export const SITE_PATHS = new Set(['api', 'new', 'join', 'account', 'servers', 'mod', 'stats', 'downloads', 'addons', 'index', 's']);
+export const SITE_PATHS = new Set(['api', 'new', 'join', 'account', 'servers', 'mod', 'stats', 'downloads', 'addons', 'index', 's', 'site-analytics']);
 // Words a server can't be called. Servers live at the top of the site (/<server>), so this is every page the
 // site has, the ones it may well grow, and names that would mislead. A server made before a word was added
 // here keeps working until the site really uses that address (only SITE_PATHS are routed away from servers).
