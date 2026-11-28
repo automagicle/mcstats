@@ -225,6 +225,9 @@ const teamVar = (id) => `var(--team-${id})`;
 // The teams with a series of their own in the Activity page's charts, and the one a team's playtime
 // counts in there: itself, the team it's grouped with, or none (left out of those charts).
 const activityTeams = () => teams.filter((t) => t.activity && !t.activity_with);
+// Splitting the activity charts by team only says something with two teams or more: with one, "by team"
+// and "share" would just repeat everyone (or that one team) in its color, so the charts stay whole.
+const teamViews = () => roster.size > 0 && activityTeams().length > 1;
 function activityTeam(id) {
   const t = teamById.get(id);
   if (!t) return null;
@@ -2477,7 +2480,7 @@ async function renderServerDaily(animate = false, slide = 0) {
 // { team id: [hours] } for the teams the Activity page shows (a team grouped with another counts in
 // that one's); null when there are none.
 async function teamHoursPerBucket(buckets) {
-  if (!roster.size || !buckets.length || !activityTeams().length) return null;
+  if (!teamViews() || !buckets.length) return null;
   const from = buckets[0].start, to = buckets[buckets.length - 1].end;
   // (kept between redraws, and as the chart is scrolled along; see timeCache)
   await dailySessions.ensure(from, to);
@@ -2508,8 +2511,8 @@ const heatModes = () => {
 function syncHeatToggle() {
   const t = $('#heat-team');
   const shown = activityTeams();
-  t.hidden = !roster.size || !shown.length;
-  if (!heatModes().includes(heatTeam)) heatTeam = 'all';
+  t.hidden = !teamViews();
+  if (t.hidden || !heatModes().includes(heatTeam)) heatTeam = 'all';
   const button = (v, text, title) => el('button', { type: 'button', 'data-v': v, title, text, 'aria-pressed': String(v === heatTeam) });
   t.replaceChildren(button('all', 'All', 'Everyone'), ...shown.map((x) => button(x.id, x.short, `${x.name} only`)),
     ...(shown.length > 1 ? [button('mix', 'Mix', 'The teams, blended by their share')] : []));
@@ -2631,7 +2634,7 @@ const TL_MODES = ['all', 'teams', 'share'];
 let tlTeams = TL_MODES.includes(recall('tlTeams')) ? recall('tlTeams') : 'all';
 function syncTlTeamToggle() {
   const t = $('#tl-team');
-  t.hidden = !roster.size || !activityTeams().length;
+  t.hidden = !teamViews();
   for (const b of t.children) b.setAttribute('aria-pressed', String(b.dataset.v === tlTeams));
 }
 $('#tl-team').addEventListener('click', (e) => {
@@ -2644,7 +2647,7 @@ $('#tl-team').addEventListener('click', (e) => {
 });
 rosterLoad.then(() => {
   syncTlTeamToggle();
-  if (roster.size && tlTeams !== 'all' && !$('#view-home').hidden) loadTimeline().catch(() => {});
+  if (teamViews() && tlTeams !== 'all' && !$('#view-home').hidden) loadTimeline().catch(() => {});
 });
 
 // How many of each team were on at each point (minute data), or on average through the hour starting
@@ -2745,8 +2748,8 @@ async function loadTimeline(slide = 0) {
   };
 
   const shownTeams = activityTeams();
-  const teams = tlTeams === 'teams' && roster.size > 0 && shownTeams.length > 0;
-  const share = tlTeams === 'share' && roster.size > 0 && shownTeams.length > 0;
+  const teams = tlTeams === 'teams' && teamViews();
+  const share = tlTeams === 'share' && teamViews();
   const cm = 'var(--muted)';
   const band = (color, text) => el('span', {}, el('span', { class: 'key key-band', style: `background:${color}` }), text);
   if (minuteData) {
@@ -3048,7 +3051,7 @@ const preloadTimeline = () => {
   preloadAround(r, r.to - r.from <= 8 * 86400 ? [tlSnaps, tlSessions] : [tlSessions]);
 };
 const preloadDaily = () => {
-  if (roster.size && activityTeams().length) preloadAround(resolveWindow(dailyCtl.get()), [dailySessions]);
+  if (teamViews()) preloadAround(resolveWindow(dailyCtl.get()), [dailySessions]);
 };
 
 // Hourly rows in [from, to): from the cache when it covers them, otherwise fetched.
