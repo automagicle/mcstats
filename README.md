@@ -598,7 +598,11 @@ on the page asks every server now; the page asks the stale ones by itself when i
 - **People, estimated** = active accounts + devices never signed in ÷ devices per account (signed-in devices ÷ active
   accounts, at least 1). Private windows and cleared storage count as new devices; Do Not Track browsers don't count.
 - **Active accounts**: the last UTC day each account used the site (`accounts.seen_day`, a day and not a time),
-  updated on the first signed-in request of the day (`src/sitecounts.js`).
+  updated on the first signed-in request of the day (`src/sitecounts.js`). The days before that were filled in once from the sign-ins
+  still on record and the days accounts were made (`directory-migrations/0007_backfill_active_accounts.sql`), so active
+  accounts reach back about 30 days further than devices, which can only be counted from the deploy on. The page marks
+  periods where device counting began partway through with *, and its tiles say which period each number covers
+  (accounts and servers all time; people and devices this month).
 - **The census** has no names (of servers, players or members) and no emails: members come as keyed hashes of their
   emails (`emailTag` in `src/session.js`, keyed with `SESSION_SECRET`), matched against the accounts' own when the
   page is drawn and then forgotten.

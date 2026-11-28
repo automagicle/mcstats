@@ -7,7 +7,7 @@
 //
 // Not counted at all: a browser asking not to be tracked (Global Privacy Control or Do Not Track), one driven by
 // automation, and one whose storage is off (it couldn't remember, so it would be counted on every page).
-// Loaded by every page of the site except /site-analytics; site.js calls mcstatsVisit.signedIn() after signing in.
+// Loaded by every page of the site (/site-analytics too); site.js calls mcstatsVisit.signedIn() after signing in.
 (() => {
   const KEY = 'mcs_seen';
   const KINDS = ['a', 's', 'b'];

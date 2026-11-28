@@ -60,6 +60,7 @@
     .sa-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .sa-table tr.sa-cur td { font-weight: 650; }
     .sa-table .est { color: var(--series-1); font-weight: 700; }
+    .sa-mark { color: var(--warning); font-weight: 700; cursor: help; }
     .sa-scroll { overflow-x: auto; }
     .sa-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 10px 0 0; }
     .sa-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
@@ -91,6 +92,8 @@
   </style>
   <script src="/ui.js" defer></script>
   <script src="/site-analytics.js" defer></script>
+  <!-- counted like any other page, so an operator's own account and device add up the same way -->
+  <script src="/visit.js" defer></script>
 </head>
 <body class="site sa" data-page="site-analytics">
   <header class="top">

@@ -326,13 +326,30 @@
 
   // People, estimated for one period: active accounts, plus devices that were never signed in, divided by how
   // many devices a signed-in person tends to use. Devices from browsers asking not to be tracked aren't in it.
+  // Active accounts reach back before devices were counted (past sign-ins, directory-migrations/0007), and for the
+  // current day, week and month the accounts' own last-seen days say exactly how many: the larger of the two.
   function people(kind, day) {
     const all = cnt(`dev:a:${kind}`, day);
     const signed = cnt(`dev:s:${kind}`, day);
     const anon = Math.max(0, all - signed);
-    const accounts = cnt(`acct:${kind}`, day);
+    const current = day === D.periods[kind];
+    const accounts = Math.max(cnt(`acct:${kind}`, day), current ? D.totals.accounts_active[kind] || 0 : 0);
     const perPerson = accounts > 0 && signed > 0 ? Math.max(1, signed / accounts) : 1;
     return { all, signed, anon, accounts, perPerson, est: accounts + anon / perPerson, dash: cnt(`dev:b:${kind}`, day), fresh: kind === 'd' ? cnt('dev:new', day) : null };
+  }
+
+  // The first day devices were counted (when this was deployed), or null before any were.
+  function devSince() {
+    let first = null;
+    for (const [day, m] of D.counts) if (m === 'dev:a:d' && (!first || day < first)) first = day;
+    return first;
+  }
+  // Whether device counting began partway through the period starting `day` (so its device numbers are low).
+  function partial(kind, day) {
+    const since = devSince();
+    if (!since) return true;
+    const end = kind === 'd' ? day : kind === 'w' ? addDays(day, 6) : addDays(addMonths(day, 1), -1);
+    return since > day && since <= end ? since : since > end;
   }
 
   // ---------- load ----------
@@ -420,18 +437,20 @@
     const out = [h('h2', { class: 'sa-section', text: 'Growth' })];
     const tiles = h('div', { class: 'tiles sa-tiles' });
     const p = people('m', D.periods.m);
+    const monthPartial = partial('m', D.periods.m);
     for (const metric of ['accounts', 'servers']) {
       const total = T[metric];
       const base = baselineFn(metric)(D.today);
       const added = newIn(D.history[metric], from);
-      tiles.append(tile(metric === 'accounts' ? 'Accounts' : 'Servers', fmt(total),
+      tiles.append(tile(metric === 'accounts' ? 'Accounts, all time' : 'Servers, all time', fmt(total),
         [base != null ? h('b', { text: `${fmt(Math.max(0, total - base))} above baseline` }) : null, base != null ? ' · ' : '', `${plus(added)} in ${rangeName()}`],
         base != null ? `Baseline ${fmt(base)} (set below)` : null));
     }
     tiles.append(
-      tile('People, est.', p.all || p.accounts ? `≈${fmt(p.est)}` : '–', ['this month · ', h('b', { text: `${fmt(p.accounts)} accounts` }), ` + ${fmt(p.anon)} devices never signed in`],
-        'Active accounts this month, plus devices that were never signed in this month, divided by how many devices a signed-in person uses. See the table under People.'),
-      tile('Devices', fmt(p.all), [`this month · ${fmt(p.signed)} signed in`], 'Browsers that opened any mcstats page this calendar month (UTC), each counted once. Browsers asking not to be tracked aren’t counted.'),
+      tile('People this month, est.', p.all || p.accounts ? `≈${fmt(p.est)}` : '–', [h('b', { text: `${fmt(p.accounts)} active accounts` }), ` + ${fmt(p.anon)} devices never signed in`],
+        'Accounts active this month (from their sign-ins and visits), plus devices never signed in this month, divided by how many devices a signed-in person uses. See the table under People.'),
+      tile('Devices this month', fmt(p.all), [`${fmt(p.signed)} signed in`, typeof monthPartial === 'string' ? ` · counted since ${dayLabel(monthPartial)}` : ''],
+        'Browsers that opened any mcstats page this calendar month (UTC), each counted once. Counting started when the site analytics was deployed; browsers asking not to be tracked aren’t counted.'),
     );
     out.push(tiles);
     const grid = h('div', { class: 'grid2' });
@@ -521,8 +540,9 @@
       h('thead', {}, h('tr', {}, h('th', { text: 'Period' }), ...['Devices', 'Signed in', 'Never signed in', 'Active accounts', 'Devices per account', 'People, est.'].map((t) => h('th', { class: 'num', text: t })))),
       h('tbody', {}, lines.map(([name, k, day, now]) => {
         const r = people(k, day);
+        const part = partial(k, day);
         return h('tr', { class: now ? 'sa-cur' : null },
-          h('td', { text: name }),
+          h('td', { title: part === true ? 'Devices weren’t counted yet' : part ? `Devices counted from ${dayLabel(part)} only` : null }, name, part ? h('span', { class: 'sa-mark', text: ' *' }) : null),
           h('td', { class: 'num', text: fmt(r.all) }), h('td', { class: 'num', text: fmt(r.signed) }), h('td', { class: 'num', text: fmt(r.anon) }),
           h('td', { class: 'num', text: fmt(r.accounts) }),
           h('td', { class: 'num', text: r.accounts && r.signed ? (Math.round(r.perPerson * 100) / 100).toFixed(2) : '–' }),
@@ -531,7 +551,8 @@
     const estCard = card('People, estimated', 'Signed in or not', h('div', { class: 'sa-scroll' }, table),
       h('p', { class: 'sa-note' },
         h('b', { text: 'People ≈ active accounts + devices never signed in ÷ devices per account.' }),
-        ' Active accounts are exact (counted on the server, every request). Devices are counted by each browser once per period, with no id; ',
+        devSince() ? ` * Devices were only counted from ${dayLabel(devSince(), true)}, so those periods’ device numbers are low; active accounts go back further (from sign-ins). ` : ' ',
+        'Active accounts are counted on the server: every signed-in visit, and before that, every sign-in on record. Devices are counted by each browser once per period, with no id; ',
         '“devices per account” is signed-in devices ÷ active accounts, taken as at least 1, and corrects for one person using a phone and a laptop. ',
         'Browsers with Do Not Track or Global Privacy Control, private windows (each one is a new device) and cleared storage make the device numbers a little off, the first two low and the others high.'));
     out.push(devCard, estCard);
