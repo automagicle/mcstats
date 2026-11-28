@@ -89,8 +89,8 @@ function formatter(opts) {
 
 const fmt = (ts, opts) => formatter(opts).format(ts * 1000);
 
-// Local date/hour/weekday for an hour. Pacific offsets are whole hours, so a UTC hour
-// is also exactly one local hour.
+// Local date/hour/weekday for an hour. Most zones are a whole number of hours from UTC, so a UTC hour is
+// also exactly one local hour; in the few that aren't (India, Nepal, …) hours and days sit up to 45 minutes off.
 function hourInfo(ts) {
   const h = Math.floor(ts / 3600) * 3600;
   let v = hourCache.get(h);
@@ -6842,8 +6842,41 @@ function applyLook(accent, tabs) {
     else root.style.removeProperty(k);
   }
 }
+/* ---------- Admin → Server: the time zone, picked by place ---------- */
+
+// "America/Argentina/Buenos_Aires" reads "America / Argentina / Buenos Aires".
+const tzLabel = (tz) => tz.replace(/_/g, ' ').replace(/\//g, ' / ');
+const tzRegion = (tz) => (tz.includes('/') ? tz.slice(0, tz.indexOf('/')) : 'UTC');
+// Every zone the browser knows, by region: { America: ['America/Adak', …], …, UTC: ['UTC'] }. `also` (the
+// server's own, and this browser's) are added in case the browser lists them under another name.
+function tzRegions(...also) {
+  let all = [];
+  try { all = Intl.supportedValuesOf('timeZone'); } catch { /* an old browser: just the ones given */ }
+  const out = {};
+  for (const tz of [...new Set([...all, ...also])].sort()) {
+    if (tz !== 'UTC' && !tz.includes('/')) continue;
+    (out[tzRegion(tz)] ||= []).push(tz);
+  }
+  out.UTC = ['UTC'];
+  return out;
+}
+// The time there now and how far it is from UTC: { time: 'Fri 4:19 PM', offset: 'UTC−8', odd } (odd: not a whole
+// number of hours from UTC). null for a zone this browser doesn't know.
+function tzNow(tz) {
+  try {
+    const now = new Date();
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(now);
+    const gmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(now).find((x) => x.type === 'timeZoneName')?.value || 'GMT';
+    return { time, offset: gmt.replace('GMT', 'UTC').replace('-', '−'), odd: gmt.includes(':') };
+  } catch {
+    return null;
+  }
+}
+const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
+
 // icon: undefined while it isn't changed, '' to remove it, or the new one as a data: URL (makeIcon)
 const srvDraftFrom = (d) => ({ name: d.name, slug: d.slug, public: d.public, password: '', confirm: '', accent: d.accent, tab_style: d.tab_style, addons: [...d.addons],
+  tz: d.tz || 'UTC',
   about: d.about || '', banner: d.banner || '', icon: undefined, layout: fullLayout(d.layout) });
 // What Save would change, one line each.
 function srvChanges() {
@@ -6855,6 +6888,7 @@ function srvChanges() {
   if (f.slug.trim().toLowerCase() !== d.slug) out.push(`Address: /${d.slug} → /${f.slug.trim().toLowerCase()} (old links stop working, the join link included, and everyone joins again)`);
   if (f.public !== d.public) out.push(f.public ? 'Public: anyone with the address can look' : 'Private: looking needs the join password');
   if (f.password) out.push(d.has_password ? 'A new join password (everyone who joined with the old one joins again)' : 'A join password');
+  if (f.tz !== (d.tz || 'UTC')) out.push(`Time zone: ${tzLabel(d.tz || 'UTC')} → ${tzLabel(f.tz)} (how times read; nothing recorded changes)`);
   if (f.accent !== d.accent) out.push(`Accent: ${accentName(d.accent)} → ${accentName(f.accent)}`);
   if (f.tab_style !== d.tab_style) out.push(`Tab style: ${f.tab_style === 'line' ? 'Line' : 'Frame'}`);
   if (f.about.trim() !== (d.about || '')) out.push(f.about.trim() ? (d.about ? 'A new description' : 'A description') : 'No description');
@@ -6905,6 +6939,7 @@ async function srvSave() {
   if (f.slug.trim().toLowerCase() !== d.slug) body.slug = f.slug.trim().toLowerCase();
   if (f.public !== d.public) body.public = f.public;
   if (f.password) Object.assign(body, { password: f.password, confirm: f.confirm });
+  if (f.tz !== (d.tz || 'UTC')) body.tz = f.tz;
   if (f.accent !== d.accent) body.accent = f.accent;
   if (f.tab_style !== d.tab_style) body.tab_style = f.tab_style;
   if (d.known_addons && f.addons.join() !== d.addons.join()) body.addons = f.addons;
@@ -6933,9 +6968,9 @@ async function srvSave() {
     MCS.banner = r.banner || '';
     MCS.icon = r.icon ? `${BASE}${r.icon}` : null;
     layoutSaved = fullLayout(r.layout);
-    // a new address is a new page; a new name is on every page's title: load it afresh
+    // a new address is a new page; a new name is on every page's title; a new time zone moves every day and hour shown: load it afresh
     if (r.moved) { srv.draft = null; location.href = `${r.moved}#/admin/server`; return; }
-    if (body.name || body.addons) { srv.draft = null; location.reload(); return; }
+    if (body.name || body.addons || body.tz) { srv.draft = null; location.reload(); return; }
     srv.data = r;
     srv.draft = srvDraftFrom(r);
     toast('Saved');
@@ -7166,6 +7201,32 @@ function renderServerAdmin(focusKey) {
     el('div', { class: 'card-head' }, el('h2', { text: title }), sub ? el('span', { class: 'card-sub', text: sub }) : null),
     el('div', { class: 'srv-fields' }, ...kids));
 
+  /* ---- the time zone: a region, then a place in it ---- */
+  const mine = browserTz();
+  const regions = tzRegions(f.tz, ...(mine ? [mine] : []));
+  const select = (key, label, options, value, pick) => {
+    const box = el('select', { class: 'adm-input srv-tz-select', 'aria-label': label, 'data-fk': key },
+      ...options.map(([v, text]) => el('option', { value: v, text })));
+    box.value = value;
+    box.addEventListener('change', () => pick(box.value));
+    return box;
+  };
+  const region = tzRegion(f.tz);
+  const regionBox = select('srv:tz-region', 'Region', Object.keys(regions).map((r) => [r, r]), region, (r) => {
+    // a new region starts at this browser's own place when it's in there, else its first
+    f.tz = mine && tzRegion(mine) === r ? mine : regions[r][0];
+    redraw('srv:tz-place');
+  });
+  const placeBox = region === 'UTC' ? null : select('srv:tz-place', 'Place', regions[region].map((z) => [z, tzLabel(z.slice(region.length + 1))]), f.tz, (z) => {
+    f.tz = z;
+    redraw('srv:tz-place');
+  });
+  const there = tzNow(f.tz);
+  const useMine = mine && mine !== f.tz ? el('button', { type: 'button', class: 'btn btn-quiet', text: `Use mine (${tzLabel(mine)})`, 'data-fk': 'srv:tz-mine' }) : null;
+  useMine?.addEventListener('click', () => { f.tz = mine; redraw('srv:tz-place'); });
+  const tzField = field('Time zone', el('div', { class: 'srv-row srv-tz' }, regionBox, placeBox, useMine),
+    `${there ? `It’s ${there.time} there now (${there.offset}). ` : ''}Times and days on every page are shown in it. Changing it loses nothing.${there?.odd ? ' This zone isn’t a whole number of hours from UTC, so hours and days on the charts sit up to 45 minutes off.' : ''}`, 'tz');
+
   /* ---- name and address ---- */
   const slugBox = text('slug', { type: 'text', maxlength: '32', spellcheck: 'false', autocapitalize: 'none', autocomplete: 'off', 'aria-label': 'Address',
     disabled: owner && !d.slug_locked ? null : '' });
@@ -7209,6 +7270,7 @@ function renderServerAdmin(focusKey) {
     iconField,
     field('Description', el('div', { class: 'srv-about-wrap' }, aboutBox, aboutCount), 'Shown under the name at the top of the Activity page. Plain text; a line break starts a new line.', 'about'),
     bannerField,
+    tzField,
     field('Address', el('div', { class: 'wiz-url srv-url' }, el('span', { class: 'wiz-url-host', text: `${location.host}/` }), slugBox),
       d.slug_locked || ownerOnly || '3 to 32 lowercase letters, digits and dashes. Changing it moves the server: old links stop working, and everyone joins again at the new address.', 'slug'));
 

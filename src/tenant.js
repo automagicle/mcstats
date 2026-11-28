@@ -19,7 +19,7 @@ import { forgetPerms, loadPerms, ROLES, setRoleStmt } from './roles.js';
 import { clearCache } from './cache.js';
 import { cleanEmail, EMAIL_RE, newJoinToken, sameString, sha256Hex } from './session.js';
 import { limit, tooMany } from './limiter.js';
-import { json } from './util.js';
+import { cleanTz, json } from './util.js';
 import { parseStart } from './seasons.js';
 import { cleanAccent, TAB_STYLES } from './look.js';
 import { cleanAbout, cleanLayout, layoutSetting, MAX_ABOUT } from './layout.js';
@@ -223,12 +223,10 @@ export class Tenant extends DurableObject {
         // the In-game commands box on the Activity page: '0' starts open, '' (as it comes) closed
         clean[k] = v === '0' ? '0' : '';
       } else if (k === 'TZ_NAME') {
-        try {
-          if (v) new Intl.DateTimeFormat('en', { timeZone: v });
-        } catch {
-          return { error: 'That isn’t a time zone (e.g. Europe/London).' };
-        }
-        clean[k] = v;
+        // by location, so it follows that place's clock changes; '' is UTC
+        const tz = v ? cleanTz(v) : '';
+        if (tz == null) return { error: 'That isn’t a time zone (e.g. Europe/London).' };
+        clean[k] = tz;
       } else if (k === 'CURRENT_SEASON') {
         const n = Number(v || 1);
         if (!Number.isInteger(n) || n < 1 || n > 99) return { error: 'The season is a number from 1 to 99.' };

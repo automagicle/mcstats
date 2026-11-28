@@ -4,7 +4,8 @@
 //   GET  /api/site/me                 { email, servers: [{ slug, name, step }], max }
 //   GET  /api/site/mod                what to install, from mod/ (src/modinfo.gen.js)
 //   GET  /api/site/slug?name=…        { slug, ok, error? }  whether that address is free (signed in only)
-//   POST /api/site/servers            { name, slug, visibility, password?, confirm? }  a new server; you're its owner.
+//   POST /api/site/servers            { name, slug, visibility, password?, confirm?, tz? }  a new server; you're its owner.
+//                                     tz: the maker's time zone ("America/Los_Angeles"), which its times are shown in
 //                                     visibility: 'private' (the stats need the join password) or 'public' (anyone
 //                                     with the address can look; the password is then optional)
 //   GET  /api/site/servers/<slug>     the server as its setup sees it
@@ -29,7 +30,7 @@ import { ipKey, limit, tooMany } from './limiter.js';
 import { sendEmail } from './email.js';
 import { isSuper } from './roles.js';
 import { handleMine, noteServer, saveServer } from './myservers.js';
-import { json } from './util.js';
+import { cleanTz, json } from './util.js';
 
 export const JOIN_FAILED = 'That server name and password don’t match.';
 const STEPS = 7;
@@ -175,7 +176,10 @@ export async function handleSite(request, env, url) {
       throw err;
     }
     forgetSlug(slug);
-    await tenantStub(env, id).setup({ slug, name, owner: email, settings: { PUBLIC: visibility === 'public' ? '1' : '' } });
+    // its times are shown in the zone of whoever made it: the one their browser says, or else the one their
+    // connection comes from; with neither it's UTC until they pick one (Admin → Server)
+    const tz = cleanTz(r.b.tz) || cleanTz(request.cf?.timezone);
+    await tenantStub(env, id).setup({ slug, name, owner: email, settings: { PUBLIC: visibility === 'public' ? '1' : '', ...(tz && { TZ_NAME: tz }) } });
     await saveServer(env, account.id, id);
     return json({ ok: true, server: { slug, name, step: 3, public: visibility === 'public' } });
   }

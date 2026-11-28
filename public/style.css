@@ -1953,6 +1953,9 @@ a.pcb-who:hover { text-decoration: underline; }
 .srv-url { max-width: 440px; }
 .srv-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .srv-row .srv-input { flex: 1 1 180px; max-width: 220px; }
+/* the time zone: region, then place */
+.srv-tz { align-items: center; }
+.srv-tz .srv-tz-select { flex: 0 1 auto; max-width: 100%; padding: 6px 8px; }
 /* the join link: the whole address in view where there's room, in the code face like the mod's key */
 .srv-link-row { align-items: center; }
 .srv-row .srv-input.srv-link { flex: 1 1 320px; max-width: 460px; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }

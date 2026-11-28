@@ -10,6 +10,28 @@ const check = (cookie, name) => call(`/api/site/slug?name=${encodeURIComponent(n
 const anonymousPage = (slug) => call(`/${slug}`);
 const join = (slug, password) => call('/api/site/join', { method: 'POST', body: { server: slug, password } });
 
+describe('a new server’s time zone', () => {
+  const tzOf = async (cookie, slug) => (await (await call(`/api/site/servers/${slug}`, { cookie })).json()).info.settings.TZ_NAME;
+
+  it('is the one the maker’s browser says', async () => {
+    const cookie = await siteCookie('tz-owner@example.org');
+    expect((await make(cookie, { name: 'Zone', slug: 'tz-local', visibility: 'public', tz: 'America/Los_Angeles' })).status).toBe(200);
+    expect(await tzOf(cookie, 'tz-local')).toBe('America/Los_Angeles');
+    expect((await (await call('/tz-local/api/status?season=1')).json()).tz).toBe('America/Los_Angeles');
+  });
+
+  it('falls back to UTC when the browser says none, or something that isn’t a place', async () => {
+    const cookie = await siteCookie('tz-owner-b@example.org');
+    expect((await make(cookie, { name: 'No zone', slug: 'tz-none', visibility: 'public' })).status).toBe(200);
+    expect((await make(cookie, { name: 'Bad zone', slug: 'tz-bad', visibility: 'public', tz: 'Not/A_Zone' })).status).toBe(200);
+    expect((await make(cookie, { name: 'Odd zone', slug: 'tz-odd', visibility: 'public', tz: { a: 1 } })).status).toBe(200);
+    for (const slug of ['tz-none', 'tz-bad', 'tz-odd']) {
+      expect(await tzOf(cookie, slug), slug).toBeUndefined();
+      expect((await (await call(`/${slug}/api/status?season=1`)).json()).tz, slug).toBe('UTC');
+    }
+  });
+});
+
 describe('the mod’s config', () => {
   it('uploads to the site’s main address, whichever address the owner is browsing at', async () => {
     const cookie = await siteCookie('config-owner@example.org');

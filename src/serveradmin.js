@@ -1,7 +1,8 @@
 // Admin → Server: the server's own details, changed from its dashboard.
 //
 //   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, mod, can, … }
-//   POST /api/admin/server   any of { name, accent, tab_style, about, layout }  admins
+//   POST /api/admin/server   any of { name, accent, tab_style, about, layout, tz }  admins (tz: the time zone its
+//                                                                               times are shown in, by location)
 //                            and { icon: 'data:image/png;base64,…' | '' }     admins (a square PNG; '' removes it)
 //                            and { join_link: 'new' | 'off' }                  admins: the link that lets players in
 //                                                                               without the password (src/joinlink.js)
@@ -19,7 +20,7 @@
 // A new address moves the server: /<old> stops existing and cookies made for it no longer apply (they're
 // Path=/<old>), so everyone joins again at the new one. Whoever changed it gets cookies for the new address
 // with the answer. A new password ends every viewer session made with the old one; the same goes for them.
-import { json } from './util.js';
+import { cleanTz, json } from './util.js';
 import { loadPerms } from './roles.js';
 import { forgetSlug, serverById, slugProblem } from './directory.js';
 import {
@@ -48,6 +49,8 @@ function state(t, row, perms) {
     has_password: row.has_password !== 0,
     // the link that lets players in without typing the name and password (src/joinlink.js), as a path on this site; null when there's none
     join_link: t.joinLink() ? joinLinkPath(row.slug, t.joinLink()) : null,
+    // the zone its times are shown in, by location ("America/Los_Angeles"). Only how times read: what's recorded is the same in any zone
+    tz: t.settings.TZ_NAME || 'UTC',
     accent: look.accent,
     tab_style: look.tabs,
     // the description and icon on its Activity page, and how its pages are laid out (src/layout.js)
@@ -98,6 +101,11 @@ export async function handleServerAdmin(t, request, url, who) {
     const name = String(b.name).trim().replace(/\s+/g, ' ');
     if (!name || name.length > 60) return bad('The name is 1 to 60 characters.', 'name');
     if (name !== row.name) patch.NAME = name;
+  }
+  if (has('tz')) {
+    const tz = cleanTz(b.tz);
+    if (!tz) return bad('Pick a time zone by place, like Europe/London.', 'tz');
+    if (tz !== (t.settings.TZ_NAME || 'UTC')) patch.TZ_NAME = tz;
   }
   if (has('accent')) patch.ACCENT = String(b.accent);
   if (has('tab_style')) patch.TAB_STYLE = String(b.tab_style);

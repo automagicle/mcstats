@@ -649,6 +649,8 @@
       busy(go, async () => {
         try {
           const body = { name: name.value, slug: slug.value, visibility };
+          // the server's times are shown in the zone of whoever makes it (changed on its Admin → Server page)
+          try { body.tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* the Worker falls back */ }
           if (visibility === 'private') Object.assign(body, { password: pass.value, confirm: confirm.value });
           const r = await api('/api/site/servers', body);
           W.me = await api('/api/site/me');
