@@ -557,9 +557,9 @@ because they live behind sign-in or inside each server's own objects. Nothing on
 
 **Who can see it**: the super admins (`SUPER_ADMIN_EMAIL`), signed in to their mcstats account, and the accounts
 they add on the page itself (**Who can see this page**, table `site_viewers`). Viewers can look and press Refresh;
-only super admins set baselines or change who's let in. To anyone else the page behaves like a server that doesn't
-exist (a redirect to `/join?server=site-analytics`), its script is a missing file and its API says `not found`.
-Signed out, go to `/account?next=/site-analytics` first. With `DEV_NO_AUTH=1` on localhost, `DEV_EMAIL` counts as
+only super admins set baselines or change who's let in. Anyone else gets a plain **Not authorized** page (403, with
+a link to sign in when nobody is), its script isn't served and its API says `not authorized`. No server can be called
+`site-analytics` (or `siteanalytics`): both are reserved names (`src/directory.js`). With `DEV_NO_AUTH=1` on localhost, `DEV_EMAIL` counts as
 signed in, as everywhere else.
 
 **What it shows**, over 30 days, 90 days, a year or all time:

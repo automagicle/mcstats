@@ -22,7 +22,7 @@ export const RESERVED = new Set([
   'welcome', 'start', 'invite', 'invites', 'link', 'links', 'go', 'open', 'share', 'embed', 'widget', 'widgets', 'badge',
   'explore', 'discover', 'browse', 'search', 'find', 'list', 'directory', 'top', 'popular', 'trending', 'featured', 'public', 'private',
   'player', 'players', 'team', 'teams', 'season', 'seasons', 'leaderboard', 'leaderboards', 'activity', 'combat', 'chat',
-  'chatlog', 'liveview', 'live', 'map', 'maps', 'analytics', 'roles', 'layout',
+  'chatlog', 'liveview', 'live', 'map', 'maps', 'analytics', 'site-analytics', 'siteanalytics', 'roles', 'layout',
   'mods', 'plugin', 'plugins', 'addon', 'download', 'install', 'update', 'updates', 'release', 'releases', 'changelog', 'version', 'versions',
   'help', 'support', 'contact', 'feedback', 'faq', 'docs', 'doc', 'documentation', 'guide', 'guides', 'wiki', 'learn', 'tutorial', 'tutorials',
   'about', 'blog', 'news', 'press', 'jobs', 'careers', 'company', 'community', 'forum', 'forums', 'discord', 'status', 'roadmap',

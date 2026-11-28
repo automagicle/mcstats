@@ -820,7 +820,7 @@
     ];
     return card('Who can see this page', 'Super admins, and the accounts you add here. Viewers can look and refresh, not change settings.',
       h('ul', { class: 'sa-list' }, rows), form, err,
-      h('p', { class: 'sa-note' }, 'Nothing on the site links here. Anyone else who opens /site-analytics is sent to /join as if it were a server that doesn’t exist. Signed out? Sign in at ', h('a', { href: '/account?next=/site-analytics', text: '/account?next=/site-analytics' }), '.'));
+      h('p', { class: 'sa-note' }, 'Nothing on the site links here. Anyone else who opens /site-analytics is told they aren’t authorized. Signed out? Sign in at ', h('a', { href: '/account?next=/site-analytics', text: '/account?next=/site-analytics' }), '.'));
   }
 
   function privacySection() {

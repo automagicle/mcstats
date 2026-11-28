@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { accountCookie, call, makeServer, ORIGIN } from './helpers.js';
 import { MOD } from '../src/modinfo.gen.js';
 import { hourlyCensus } from '../src/census.js';
+import { RESERVED } from '../src/directory.js';
 
 const OPERATOR = 'operator@example.org'; // SUPER_ADMIN_EMAIL in vitest.config.mjs
 const today = () => new Date().toISOString().slice(0, 10);
@@ -79,25 +80,28 @@ describe('the census of the servers', () => {
 });
 
 describe('who can see it', () => {
-  it('looks like a server that doesn’t exist to anyone signed out', async () => {
+  it('says “not authorized” to anyone signed out, with a way to sign in', async () => {
     const res = await call('/site-analytics');
-    const missing = await call('/sa-no-such-server');
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('/join?server=site-analytics');
-    expect(missing.status).toBe(302);
-    expect(missing.headers.get('Location')).toBe('/join?server=sa-no-such-server');
-    expect((await call('/api/site-analytics/data')).status).toBe(404);
-    expect((await call('/site-analytics.js')).status).toBe(404);
-    expect((await call('/site-analytics.html')).status).toBe(404);
+    expect(res.status).toBe(403);
+    const html = await res.text();
+    expect(html).toContain('Not authorized');
+    expect(html).toContain('/account?next=%2Fsite-analytics');
+    expect(html).not.toContain('/join');
+    const api = await call('/api/site-analytics/data');
+    expect(api.status).toBe(403);
+    expect(await api.json()).toEqual({ error: 'not authorized' });
+    expect((await call('/site-analytics.js')).status).toBe(403);
+    expect((await call('/site-analytics.html')).status).toBe(403);
   });
 
   it('and to a signed-in account that isn’t let in, even one that owns a server', async () => {
     const s = await makeServer('sa-owner');
-    expect((await call('/site-analytics', { cookie: s.cookie })).headers.get('Location')).toBe('/join?server=site-analytics');
-    const res = await call('/api/site-analytics/data', { cookie: s.cookie });
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: 'not found' });
-    expect((await call('/api/site-analytics/viewers', { method: 'POST', cookie: s.cookie, body: { email: 'me@example.org' } })).status).toBe(404);
+    const page = await call('/site-analytics', { cookie: s.cookie });
+    expect(page.status).toBe(403);
+    expect(await page.text()).toContain(s.owner);
+    expect((await call('/site-analytics.js', { cookie: s.cookie })).status).toBe(403);
+    expect((await call('/api/site-analytics/data', { cookie: s.cookie })).status).toBe(403);
+    expect((await call('/api/site-analytics/viewers', { method: 'POST', cookie: s.cookie, body: { email: 'me@example.org' } })).status).toBe(403);
   });
 
   it('a super admin gets the page and its script, kept out of search engines', async () => {
@@ -116,7 +120,7 @@ describe('who can see it', () => {
   it('a super admin lets another account in; it can look and refresh but not change anything', async () => {
     const op = await accountCookie(OPERATOR);
     const friend = await accountCookie('friend@example.org');
-    expect((await call('/api/site-analytics/data', { cookie: friend })).status).toBe(404);
+    expect((await call('/api/site-analytics/data', { cookie: friend })).status).toBe(403);
 
     const add = await call('/api/site-analytics/viewers', { method: 'POST', cookie: op, body: { email: 'Friend@Example.org' } });
     expect(add.status).toBe(200);
@@ -135,13 +139,17 @@ describe('who can see it', () => {
     expect((await call('/api/site-analytics/viewers', { method: 'POST', cookie: op, body: { email: 'x@example.org' }, headers: { Origin: 'https://evil.example' } })).status).toBe(403);
 
     expect((await call('/api/site-analytics/viewers', { method: 'POST', cookie: op, body: { email: 'friend@example.org', remove: true } })).status).toBe(200);
-    expect((await call('/api/site-analytics/data', { cookie: friend })).status).toBe(404);
+    expect((await call('/api/site-analytics/data', { cookie: friend })).status).toBe(403);
   });
 
-  it('no server can take its address', async () => {
+  it('no server can take its address, and both spellings are reserved names', async () => {
     const cookie = await accountCookie('taker@example.org');
-    const res = await call('/api/site/servers', { method: 'POST', cookie, body: { name: 'Site analytics', slug: 'site-analytics', password: 'password-123', confirm: 'password-123' } });
-    expect(res.status).toBe(400);
+    for (const slug of ['site-analytics', 'siteanalytics']) {
+      expect(RESERVED.has(slug)).toBe(true);
+      const res = await call('/api/site/servers', { method: 'POST', cookie, body: { name: 'Site analytics', slug, password: 'password-123', confirm: 'password-123' } });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/reserved/);
+    }
   });
 });
 

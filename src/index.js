@@ -12,8 +12,8 @@
 //                        /api/ops/*  the operator's (src/ops.js)
 //   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
 //   /api/discord/*       the Discord bot: Discord's interactions, adding it to a Discord server, player faces (src/discord/)
-//   /site-analytics, /api/site-analytics/*  numbers about the site itself, for its operators only; to anyone else it
-//                        looks like a server that doesn't exist (src/siteanalytics.js). /api/site/visit counts devices
+//   /site-analytics, /api/site-analytics/*  numbers about the site itself, for its operators only; anyone else is
+//                        told they aren't authorized (src/siteanalytics.js). /api/site/visit counts devices
 //                        (public/visit.js) and /downloads/*.jar counts mod downloads for it
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear

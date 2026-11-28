@@ -1,5 +1,5 @@
 // Site analytics: numbers about mcstats itself (accounts, servers, devices, the mod, the Discord bot), for the
-// site's operators. Nothing on the site links to it, and to anyone else it looks like a server that doesn't exist.
+// site's operators. Nothing on the site links to it, and anyone else is told they aren't allowed to see it.
 //
 //   GET  /site-analytics                 the page (public/site-analytics.html + .js), for viewers only
 //   GET  /api/site-analytics/data        everything the page draws
@@ -9,8 +9,8 @@
 //   POST /api/site-analytics/viewers     { email } | { email, remove: true }                     super admins only
 //
 // Viewers are the super admins (the SUPER_ADMIN_EMAIL secret) and the accounts they add (site_viewers), signed
-// in to their mcstats account. Everyone else gets what a missing server or page gets: /site-analytics redirects to
-// /join, the API says "not found".
+// in to their mcstats account. Everyone else gets a plain "not authorized" (403): the page says so (with a way to
+// sign in when nobody is), the API answers { error: 'not authorized' }, and the script isn't served.
 //
 // Counted from the rest of the site, without naming anyone:
 //   POST /api/site/visit  { a, s, b, n }   a browser's first visit of the day, week or month (public/visit.js)
@@ -49,20 +49,30 @@ export async function viewerOf(request, env, url) {
   return row ? { email, super: false } : null;
 }
 
-// What anyone else gets: the same as for a server that doesn't exist (src/index.js joinPage), or a missing file.
-async function notHere(env, url) {
-  if (url.pathname === PAGE) {
-    return new Response(null, { status: 302, headers: { Location: `/join?server=${encodeURIComponent(PAGE.slice(1))}`, 'Cache-Control': 'no-store' } });
-  }
-  if (url.pathname.startsWith(`${PAGE}/`)) return new Response('Not found', { status: 404 });
-  return env.ASSETS.fetch(new Request(new URL('/__not_a_file__', url)));
+// What anyone else gets: a 403 saying they aren't allowed here, and nothing about what the page holds.
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function notAuthorized(url, email) {
+  if (url.pathname !== PAGE) return new Response('Not authorized', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+  const next = `/account?${new URLSearchParams({ next: PAGE })}`;
+  const what = email
+    ? `<p class="site-sub">You’re signed in as <b>${esc(email)}</b>, which can’t see this page. <a href="/">Back to mcstats</a></p>`
+    : `<p class="site-sub">This page is only for some mcstats accounts. <a href="${next}">Sign in</a> if you have one of them.</p>`;
+  const html = `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
+<title>Not authorized · mcstats</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..800&family=Jersey+15&display=swap">
+<link rel="stylesheet" href="/style.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch {}</script>
+</head><body class="site"><main class="site-main"><section class="card site-card">
+<h1 class="site-title">Not authorized</h1>${what}</section></main></body></html>`;
+  return new Response(html, { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } });
 }
 
 const PRIVATE = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'same-origin' };
 
 export async function sitePage(request, env, url) {
   const me = await viewerOf(request, env, url);
-  if (!me) return notHere(env, url);
+  if (!me) return notAuthorized(url, (await accountOf(request, env))?.email ?? null);
   const p = url.pathname;
   if (p !== PAGE && p !== SCRIPT) {
     return new Response(null, { status: 302, headers: { Location: PAGE, 'Cache-Control': 'no-store' } });
@@ -146,7 +156,7 @@ async function data(env, me) {
 
 export async function handleSiteAnalytics(request, env, url) {
   const me = await viewerOf(request, env, url);
-  if (!me) return json({ error: 'not found' }, 404);
+  if (!me) return json({ error: 'not authorized' }, 403);
   const path = url.pathname.slice('/api/site-analytics'.length);
 
   if (path === '/data') {
