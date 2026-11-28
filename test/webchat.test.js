@@ -1,7 +1,7 @@
 // Who may send chat from the dashboard, and as whom: what Admin → Players and Roles say, nothing else.
 import { describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
-import { accountCookie, call, makeServer, newKey } from './helpers.js';
+import { accountCookie, call, makeServer, newKey, viewerCookie } from './helpers.js';
 import { hashAccountPassword } from '../src/password.js';
 
 const me = async (s, cookie) => (await call(`/${s.slug}/api/chat/me`, { cookie })).json();
@@ -9,6 +9,23 @@ const save = (s, body) => call(`/${s.slug}/api/admin?season=1`, { method: 'POST'
 const addMember = (s, email, role = 'member') => call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body: { email, role } });
 
 describe('web chat identity', () => {
+  it('says why someone can\'t send: signed out, not a member, or chat turned off', async () => {
+    const s = await makeServer('chat-why');
+    const send = (cookie) => call(`/${s.slug}/api/chat/send`, { method: 'POST', cookie, body: { text: 'hi' } });
+    // in with the server's password only
+    const view = await viewerCookie(s);
+    expect(await me(s, view)).toMatchObject({ refused: 'signed_out', blocked: true });
+    const out = await send(view);
+    expect(out.status).toBe(403);
+    expect(await out.json()).toMatchObject({ reason: 'signed_out', error: 'Sign in to send messages.' });
+    // signed in with an account that isn't one of the server's members
+    const stranger = `${view}; ${await accountCookie('stranger@example.org')}`;
+    expect(await me(s, stranger)).toMatchObject({ refused: 'not_member', email: null, account: 'stranger@example.org' });
+    expect(await (await send(stranger)).json()).toMatchObject({ reason: 'not_member' });
+    // the owner isn't stopped at all
+    expect(await me(s, s.cookie)).toMatchObject({ refused: null, blocked: false });
+  });
+
   it('follows Admin → Players and Roles', async () => {
     const s = await makeServer('chat-who');
     // the owner, with no player of their own, chats as Admin
@@ -40,7 +57,7 @@ describe('web chat identity', () => {
     const off = await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie,
       body: { email: 'steve@example.org', perms: { view: true, chat: false, admin: false, liveview: false, liveview_op: false } } });
     expect(off.status, await off.clone().text()).toBe(200);
-    expect(await me(s, steve)).toMatchObject({ blocked: true, ign: null });
+    expect(await me(s, steve)).toMatchObject({ blocked: true, refused: 'blocked', ign: null });
     const roles2 = await off.json();
     expect(roles2.users.find((u) => u.email === 'steve@example.org').chat_as).toBe(null);
   });

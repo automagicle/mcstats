@@ -4391,7 +4391,11 @@ function renderComposer() {
   // without the server, whispers can still reach people who have the dashboard open
   const can = !!(me.ign || me.admin);
   chatInput.disabled = !can;
-  chatInput.placeholder = me.blocked ? 'This account isn’t allowed to send messages from the dashboard'
+  // why this account can't send, when something stops it (src/link.js, chatRefusal)
+  const refused = me.refused ?? (me.blocked ? 'blocked' : null);
+  chatInput.placeholder = refused === 'signed_out' ? 'Sign in to send messages'
+    : refused === 'not_member' ? `${me.account} isn’t a member of this server, so it can’t send messages`
+    : refused ? 'This account isn’t allowed to send messages here · an admin can change that'
     : !me.ign && !me.admin
     ? (me.email ? `${me.email} isn’t linked to a player yet · connect it in game with /mcstats connect` : 'Sign in to send messages')
     : !me.linked ? "The server isn't connected · /w still reaches people on the website"

@@ -320,7 +320,9 @@ export class Tenant extends DurableObject {
 
   // What the cookies proved ({ viewer, email }, checked by the Worker) amounts to here:
   //   { email }        a member of this server (or a super admin), signed in to their mcstats account
-  //   { email: null }  may look: joined with the password, or the server is public
+  //   { email: null }  may look: joined with the password, or the server is public. If they're signed in
+  //                    to an account that isn't a member, it's named as `account`, only so the page can
+  //                    say why that account can't do more; it carries no access of its own.
   //   null             not let in
   async access(proof) {
     if (proof?.email) {
@@ -328,7 +330,7 @@ export class Tenant extends DurableObject {
       const perms = await loadPerms(env, { email: proof.email });
       if (perms.role || perms.super) return { email: proof.email };
     }
-    if (proof?.viewer || this.settings.PUBLIC === '1') return { email: null };
+    if (proof?.viewer || this.settings.PUBLIC === '1') return { email: null, account: proof?.email || null };
     return null;
   }
 
