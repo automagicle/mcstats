@@ -55,7 +55,7 @@ record Config(String url, String token, String accessClientId, String accessClie
 			liveview_entity_blocks=64
 
 			# A Minecraft client jar to read the game's textures from. Leave blank to download the official one
-			# for this version from Mojang the first time someone watches (kept in config/mcstats-liveview-cache).
+			# for this version from Mojang the first time someone watches (kept in mcstats-liveview-cache, next to this file).
 			liveview_client_jar=
 			""";
 

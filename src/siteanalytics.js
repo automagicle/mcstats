@@ -150,7 +150,7 @@ async function data(env, me) {
     access: me.super ? await viewers(env) : null,
     discord_ready: discordReady(env),
     census_batch: BATCH,
-    mod: { latest: MOD.version, files: (MOD.downloads || []).map((d) => ({ file: d.file, version: d.version, label: d.label })) },
+    mod: { latest: MOD.version, files: (MOD.downloads || []).map((d) => ({ file: d.file, version: d.version, label: d.label, edition: d.edition === 'paper' ? 'paper' : 'fabric' })) },
   };
 }
 

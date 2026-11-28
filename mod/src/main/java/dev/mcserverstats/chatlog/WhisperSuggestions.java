@@ -31,17 +31,20 @@ public final class WhisperSuggestions {
 
 	private WhisperSuggestions() { }
 
+	// "minecraft:msg" is Paper's copy of the command under the game's namespace; Fabric has only "msg".
 	public static void apply(CommandDispatcher<CommandSourceStack> dispatcher) {
-		try {
-			CommandNode<CommandSourceStack> msg = dispatcher.getRoot().getChild("msg");
-			if (msg == null) return;
-			CommandNode<CommandSourceStack> targets = msg.getChild("targets");
-			if (!(targets instanceof ArgumentCommandNode<CommandSourceStack, ?> arg)) return;
-			ArgumentCommandNode<CommandSourceStack, ?> replacement = rebuild(arg);
-			remove(msg, "targets");
-			msg.addChild(replacement);
-		} catch (ReflectiveOperationException | RuntimeException e) {
-			ChatLogMod.LOG.warn("Couldn't add website players to /msg suggestions; whispers still work", e);
+		for (String name : new String[] { "msg", "minecraft:msg" }) {
+			try {
+				CommandNode<CommandSourceStack> msg = dispatcher.getRoot().getChild(name);
+				if (msg == null) continue;
+				CommandNode<CommandSourceStack> targets = msg.getChild("targets");
+				if (!(targets instanceof ArgumentCommandNode<CommandSourceStack, ?> arg)) continue;
+				ArgumentCommandNode<CommandSourceStack, ?> replacement = rebuild(arg);
+				remove(msg, "targets");
+				msg.addChild(replacement);
+			} catch (ReflectiveOperationException | RuntimeException e) {
+				ChatLogMod.LOG.warn("Couldn't add website players to /msg suggestions; whispers still work", e);
+			}
 		}
 	}
 

@@ -493,7 +493,7 @@
   }
 
   // ---------------- /new ----------------
-  const STEPS = ['Your account', 'Name the server', 'Install the mods', 'Connect the mod', 'First upload', 'Optional setup', 'Done'];
+  const STEPS = ['Your account', 'Name the server', 'Install the mod', 'Connect the mod', 'First upload', 'Optional setup', 'Done'];
   const W = { me: null, server: null, view: 1, key: null, mod: null, poll: null, waitingSince: null };
 
   function stepper() {
@@ -519,7 +519,8 @@
           h('h1', { class: 'site-title', text: title }),
           sub ? h('p', { class: 'site-sub', text: sub }) : null,
           ...body)));
-    const first = main.querySelector('.wiz-panel input, .wiz-panel select, .wiz-panel textarea');
+    // not a choice's radio (Fabric or Paper): focused, it would look picked before anything is
+    const first = main.querySelector('.wiz-panel input:not([type=radio]), .wiz-panel select, .wiz-panel textarea');
     if (first && !first.readOnly) first.focus();
   }
 
@@ -669,38 +670,85 @@
     frame('Name the server', 'Pick its address and who can see it. You can change who can see it later.', form);
   }
 
-  // The mod's download: pick the Minecraft version the server runs, then the mod version (public/ui.js).
-  function modPicker(m) {
-    return window.mcstatsUI.modDownload(m.downloads, { suggested: m.jar, latest: m.version, fallback: { url: m.jar_url, file: m.jar } });
+  // The mod's download: pick the Minecraft version the server runs, then the mod version (public/ui.js), of the
+  // edition the server needs (the Fabric mod or the Paper plugin).
+  function modPicker(m, edition) {
+    const fallback = edition === 'paper' ? { url: m.paper?.jar_url, file: m.paper?.jar } : { url: m.jar_url, file: m.jar };
+    return window.mcstatsUI.modDownload(m.downloads, { suggested: edition === 'paper' ? m.paper?.jar : m.jar, latest: m.version, fallback, edition });
   }
 
-  // What the server needs and where the jar goes, read from the mod itself (/api/site/mod). With checks, each
-  // item can be ticked off (/new); without, it's a plain numbered list (/mod).
-  function installList(m, checks) {
+  // Which edition the page starts on: the last one picked in this browser, or none (the owner picks).
+  W.edition = window.mcstatsUI.savedEdition();
+  const configFile = (m, edition) => (edition === 'paper' ? m?.paper?.config_file : m?.config_file) || m?.config_file;
+
+  // "What does the server run?": the two editions as cards, with how to tell them apart. onPick(edition).
+  function editionPick(onPick) {
+    return h('div', { class: 'mod-edition-pick' },
+      h('p', { class: 'site-label', text: 'What does your Minecraft server run?' }),
+      window.mcstatsUI.editionChoice(W.edition, (e) => { W.edition = e; onPick(e); }),
+      h('p', { class: 'site-hint' }, 'Not sure? Look in the server’s folder (or its hosting panel’s file manager): a ', h('code', { text: 'mods' }),
+        ' folder means Fabric, a ', h('code', { text: 'plugins' }), ' folder means Paper. Vanilla, Spigot, Bukkit, Forge and Folia servers aren’t supported.'));
+  }
+
+  // What the server needs and where the jar goes, read from the mod itself (/api/site/mod), for one edition.
+  // With checks, each item can be ticked off (/new); without, it's a plain numbered list (/mod).
+  function installList(m, checks, edition = 'fabric') {
     const item = (title, ...body) => h('li', { class: 'wiz-check' },
       checks ? h('label', { class: 'wiz-check-head' }, h('input', { type: 'checkbox' }), h('span', { text: title }))
         : h('div', { class: 'wiz-check-head mod-head' }, h('span', { text: title })),
       h('div', { class: 'wiz-check-body' }, ...body));
     const code = (t) => h('code', { text: t });
+    const list = (labels) => labels.map((l, i, all) => [code(l), i < all.length - 1 ? ', ' : '']).flat();
+    const built = (e) => {
+      const mine = (m.downloads || []).filter((d) => (d.edition === 'paper' ? 'paper' : 'fabric') === e);
+      const newest = mine.filter((d) => d.version === m.version);
+      return [...new Set((newest.length ? newest : mine).map((d) => d.label))];
+    };
+    if (edition === 'paper') {
+      const p = m.paper || {};
+      const versions = built('paper');
+      return h('ol', { class: checks ? 'wiz-checks' : 'wiz-checks mod-steps' },
+        item('Minecraft (Java Edition)',
+          h('p', {}, 'The plugin is built for ', versions.length ? list(versions) : list(p.minecraft || []), '. Each jar runs only on the version it’s built for, so pick the one the server runs when you download it below (the server’s log says which if it’s wrong). Java 21 or newer for 1.21.x, Java 25 or newer for 26.x.')),
+        item('A Paper server',
+          h('p', {}, 'It’s a Paper plugin: get Paper from ', h('a', { href: p.server_url || 'https://papermc.io/downloads/paper', target: '_blank', rel: 'noopener', text: 'papermc.io' }), ', or switch the server to Paper in its hosting panel. Forks of Paper such as Purpur usually work too, but only Paper itself is tested. It doesn’t run on Spigot, Bukkit or Folia.')),
+        item('No other plugins needed',
+          h('p', {}, 'Everything it uses comes with Paper.')),
+        item(`The mcstats plugin ${m.version}`, modPicker(m, 'paper')),
+        item('Put it in the server’s plugins folder, and restart',
+          h('p', {}, 'Copy the jar into the ', code('plugins/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
+          h('p', {}, 'On its first start the plugin makes ', code(p.config_file || 'plugins/mcstats/mcstats-chat.properties'), checks ? '; the next step fills it in.' : '; setting up your server’s page fills it in.'),
+          h('p', { class: 'site-hint' }, 'It does everything the Fabric mod does, with three small differences: mobs near a Liveview camera can still despawn when no player is close; Liveview shows particles like hearts and crits only near players (explosions, block breaks and splashes show anywhere); and a message another plugin sends to every player one by one is logged only while two or more players are on.')));
+    }
     const extra = Object.entries(m.other_depends || {});
     return h('ol', { class: checks ? 'wiz-checks' : 'wiz-checks mod-steps' },
       item('Minecraft (Java Edition)',
-        h('p', {}, 'The mod is built for ', (m.downloads?.length ? [...new Set(m.downloads.filter((d) => d.version === m.version).map((d) => d.label))] : [m.minecraft_built]).map((l, i, all) => [code(l), i < all.length - 1 ? ', ' : '']).flat(), '. Pick the one the server runs when you download it below. Java 21 or newer for 1.21.x, Java 25 or newer for 26.x.')),
+        h('p', {}, 'The mod is built for ', (m.downloads?.length ? built('fabric') : [m.minecraft_built]).map((l, i, all) => [code(l), i < all.length - 1 ? ', ' : '']).flat(), '. Pick the one the server runs when you download it below. Java 21 or newer for 1.21.x, Java 25 or newer for 26.x.')),
       item('Fabric Loader',
         h('p', {}, 'The server needs the Fabric mod loader (the mod is built with ', code(m.loader_built), '; any recent one works). Install it with the ', h('a', { href: m.loader_installer, target: '_blank', rel: 'noopener', text: 'official Fabric server installer' }), '. Many hosting panels can switch a server to Fabric for you.')),
       item('Fabric API: not needed',
         h('p', {}, 'The pieces of Fabric API the mod uses (', code(m.fabric_api.version), ') are built into its jar. If the server has Fabric API already, that’s fine too.')),
       extra.length ? item('Other mods it needs', h('ul', {}, extra.map(([k, v]) => h('li', {}, code(k), ' ', code(String(v)))))) : null,
-      item(`The mcstats mod ${m.version}`, modPicker(m)),
+      item(`The mcstats mod ${m.version}`, modPicker(m, 'fabric')),
       item('Put it in the server’s mods folder, and restart',
         h('p', {}, 'Copy the jar into the ', code('mods/'), ' folder of the ', h('strong', { text: 'server' }), ' (next to its ', code('server.properties'), '), then restart the server. Players don’t install anything.'),
         h('p', {}, 'On its first start the mod makes ', code(m.config_file), checks ? '; the next step fills it in.' : '; setting up your server’s page fills it in.')));
   }
 
+  // The edition question, then that edition's steps under it (redrawn on each pick).
+  function installFor(m, checks, after = null) {
+    const steps = h('div', { class: 'mod-edition-steps', 'aria-live': 'polite' });
+    const fill = (e) => {
+      steps.replaceChildren(...(e ? [installList(m, checks, e), ...(after ? [after(e)] : [])] : [h('p', { class: 'site-hint mod-edition-wait', text: 'Pick one to see what to download and where it goes.' })]));
+    };
+    fill(W.edition);
+    return [editionPick(fill), steps];
+  }
+
   async function stepInstall() {
     W.mod ||= await api('/api/site/mod');
-    frame('Install the mods', 'On the Minecraft server, not on players’ games. These are read from the mod itself, so they’re exact.',
-      installList(W.mod, true), next(4));
+    frame('Install the mod', 'On the Minecraft server, not on players’ games. These are read from the mod itself, so they’re exact.',
+      ...installFor(W.mod, true, () => next(4)));
   }
 
   // ---------------- /mod: the mod by itself, for whoever came looking for it ----------------
@@ -710,14 +758,21 @@
     const mine = (me.servers || []).map((s) => h('li', {}, h('a', { href: `/new?server=${s.slug}&step=4`, text: s.name }), h('span', { class: 'site-hint', text: ' · make or replace its key' })));
     main.replaceChildren(h('section', { class: 'card site-card mod-page' },
       h('h1', { class: 'site-title', text: 'The mcstats mod' }),
-      h('p', { class: 'site-sub', text: 'It runs on the Minecraft server and sends what happens there to the server’s mcstats page. It’s for whoever runs the server: players don’t install anything.' }),
-      modPicker(m),
+      h('p', { class: 'site-sub', text: 'It runs on the Minecraft server and sends what happens there to the server’s mcstats page. It comes as a Fabric mod and as a Paper plugin; they do the same things. It’s for whoever runs the server: players don’t install anything.' }),
       h('h2', { class: 'site-h2', text: 'Installing it' }),
-      installList(m, false),
+      ...installFor(m, false),
       h('h2', { class: 'site-h2', text: 'Connecting it' }),
       h('p', { class: 'site-sub', text: 'The mod needs your server’s key to know where to send things. You get the key, and the file to put it in, when you set up the server’s page.' }),
       mine.length ? h('ul', { class: 'wiz-mine' }, mine) : null,
       h('div', { class: 'site-row' }, h('a', { class: 'btn', href: mine.length ? '/new?fresh=1' : '/new', text: 'Create a server' }))));
+  }
+
+  // Where the config file is: for the edition picked on the install step, or both when none was picked.
+  function whereConfig(r) {
+    const files = r.config_files || {};
+    if (W.edition && files[W.edition]) return [h('code', { text: files[W.edition] })];
+    if (files.fabric && files.paper) return [h('code', { text: files.fabric }), ' (Fabric) or ', h('code', { text: files.paper }), ' (Paper)'];
+    return [h('code', { text: r.config_file })];
   }
 
   function stepKey() {
@@ -732,7 +787,7 @@
       out.replaceChildren(
         h('p', { class: 'wiz-warn', text: 'This key is shown only now. Copy it somewhere safe; if it’s lost, make a new one.' }),
         h('div', { class: 'wiz-keyline' }, h('code', { class: 'wiz-keytext', text: r.key }), copyButton(() => r.key, 'Copy key')),
-        h('p', {}, 'Open ', h('code', { text: r.config_file }), ' in the Minecraft server’s folder and replace everything in it with this (or set just its ', h('code', { text: 'url=' }), ' and ', h('code', { text: 'token=' }), ' lines). The mod picks it up within a few seconds; no restart needed.'),
+        h('p', {}, 'Open ', ...whereConfig(r), ' in the Minecraft server’s folder and replace everything in it with this (or set just its ', h('code', { text: 'url=' }), ' and ', h('code', { text: 'token=' }), ' lines). The mod picks it up within a few seconds; no restart needed.'),
         area, h('p', {}, copyButton(() => r.config, 'Copy the file')));
     };
     make.addEventListener('click', () => {
@@ -764,7 +819,11 @@
       h('ul', {},
         h('li', {}, h('strong', { text: 'The key. ' }), 'The ', h('code', { text: 'token=' }), ' line must be the whole key, starting ', h('code', { text: 'mcs_' }), ', from the last time you made one. The server’s log says “the token isn’t this server’s key” if not.'),
         h('li', {}, h('strong', { text: 'The url. ' }), 'It must be ', h('code', { text: upload }), '.'),
-        h('li', {}, h('strong', { text: 'The mod loaded. ' }), 'Look in the server log, just after it starts, for “mcstats”. If it isn’t there, the jar isn’t in ', h('code', { text: 'mods/' }), ', the server isn’t on Fabric, or its Minecraft or Java version is wrong.'),
+        h('li', {}, h('strong', { text: 'The mod loaded. ' }), 'Look in the server log, just after it starts, for “mcstats”. ', ...(W.edition === 'paper'
+          ? ['If it isn’t there, the jar isn’t in ', h('code', { text: 'plugins/' }), ', or the server isn’t on Paper. If the log says the jar is for another version, download the one for the version the server runs.']
+          : W.edition === 'fabric'
+            ? ['If it isn’t there, the jar isn’t in ', h('code', { text: 'mods/' }), ', the server isn’t on Fabric, or its Minecraft or Java version is wrong.']
+            : ['If it isn’t there, the jar isn’t in ', h('code', { text: 'mods/' }), ' (Fabric) or ', h('code', { text: 'plugins/' }), ' (Paper), or it’s the wrong edition, or its Minecraft or Java version is wrong.'])),
         h('li', {}, h('strong', { text: 'Something happens. ' }), 'The mod sends chat, joins and leaves as they happen. Join the server or say something in chat.'),
         h('li', {}, h('strong', { text: 'Outgoing HTTPS. ' }), 'Some hosts block connections from the server to the internet. It needs to reach ', h('code', { text: new URL(upload).host }), ' on port 443.')));
     const go = next(6);

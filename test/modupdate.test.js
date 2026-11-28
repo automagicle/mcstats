@@ -1,6 +1,6 @@
 // Telling admins about a newer mod (src/modupdate.js), from mod/CHANGELOG.md (src/changelog.js).
 import { describe, expect, it } from 'vitest';
-import { compareGame, compareVersions, gameLabel, inRange, modJar, modUpdate, modUpdateMessage } from '../src/modupdate.js';
+import { compareGame, compareVersions, editionFromAgent, gameLabel, inRange, modJar, modUpdate, modUpdateMessage } from '../src/modupdate.js';
 import { MOD } from '../src/modinfo.gen.js';
 import { parseChangelog } from '../src/changelog.js';
 
@@ -38,7 +38,10 @@ const mod = {
     { file: 'mcstats-chat-1.2.0+mc1.21.11.jar', version: '1.2.0', minecraft: '1.21.11', label: '1.21.11' },
     { file: 'mcstats-chat-1.2.0+mc1.21.10.jar', version: '1.2.0', minecraft: '>=1.21.9 <=1.21.10', label: '1.21.9–1.21.10' },
     { file: 'mcstats-chat-1.1.0.jar', version: '1.1.0', minecraft: '~26.2', label: '26.2.x' },
+    { file: 'mcstats-paper-1.2.0+mc26.2.jar', edition: 'paper', version: '1.2.0', minecraft: '26.2', label: '26.2' },
+    { file: 'mcstats-paper-1.2.0+mc1.21.11.jar', edition: 'paper', version: '1.2.0', minecraft: '1.21.11', label: '1.21.11' },
   ],
+  paper: { jar: 'mcstats-paper-1.2.0+mc26.2.jar' },
 };
 
 describe('changelog', () => {
@@ -116,5 +119,24 @@ describe('Minecraft versions', () => {
     expect(modJar(null, null, mod).file).toBe('mcstats-chat-1.2.0+mc26.2.jar'); // unknown: the default build
     expect(modJar('1.20.1', null, mod).file).toBe('mcstats-chat-1.2.0+mc26.2.jar'); // nothing built for it
     expect(modJar('26.2', '1.1.0', mod)).toMatchObject({ file: 'mcstats-chat-1.1.0.jar', url: '/downloads/mcstats-chat-1.1.0.jar' });
+  });
+
+  it('picks the Paper plugin for a Paper server, and never a Fabric jar for one', () => {
+    expect(modJar('1.21.11', null, mod, 'paper').file).toBe('mcstats-paper-1.2.0+mc1.21.11.jar');
+    expect(modJar('26.2', null, mod, 'paper').file).toBe('mcstats-paper-1.2.0+mc26.2.jar');
+    expect(modJar(null, null, mod, 'paper').file).toBe('mcstats-paper-1.2.0+mc26.2.jar'); // unknown: the default build
+    // no Paper build of 1.1.0: the plugin the site calls default, not a Fabric jar
+    expect(modJar('26.2', '1.1.0', mod, 'paper')).toMatchObject({ file: 'mcstats-paper-1.2.0+mc26.2.jar', edition: 'paper' });
+    // a Fabric server still never gets a Paper jar
+    expect(modJar('1.21.11', null, mod, 'fabric').file).toBe('mcstats-chat-1.2.0+mc1.21.11.jar');
+    expect(modUpdate('1.0.0', mod, '1.21.11', 'paper')).toMatchObject({ edition: 'paper', jar_url: '/downloads/mcstats-paper-1.2.0+mc1.21.11.jar' });
+    expect(modUpdate('1.0.0', mod, '1.21.11')).toMatchObject({ edition: 'fabric', jar_url: '/downloads/mcstats-chat-1.2.0+mc1.21.11.jar' });
+  });
+
+  it('tells the Paper plugin from the Fabric mod by its User-Agent', () => {
+    expect(editionFromAgent('mcstats-chat/2.4.0 (Minecraft 26.2) Paper')).toBe('paper');
+    expect(editionFromAgent('mcstats-chat/2.4.0 (Minecraft 26.2)')).toBe('fabric');
+    expect(editionFromAgent('mcstats-chat/1.2.0')).toBe('fabric');
+    expect(editionFromAgent(null)).toBe('fabric');
   });
 });

@@ -1,0 +1,6 @@
+{
+	"edition": "paper",
+	"version": "${version}",
+	"minecraft": "${minecraft}",
+	"java": "${java}"
+}

@@ -6476,8 +6476,8 @@ function setMe(r) {
 }
 
 // The server mod's download, as on /mod: a Minecraft version and a mod version to pick (public/ui.js).
-function modPicker(downloads, { suggested = null, latest = null } = {}) {
-  return window.mcstatsUI.modDownload(downloads, { suggested, latest });
+function modPicker(downloads, { suggested = null, latest = null, edition = 'fabric' } = {}) {
+  return window.mcstatsUI.modDownload(downloads, { suggested, latest, edition });
 }
 
 // A newer version of the server's mod (src/modupdate.js), on every page for admins. An ordinary one can be
@@ -8819,19 +8819,37 @@ function renderAdmin() {
           : empty('Nothing has happened to it lately.')));
   };
 
-  // every jar the site has, by Minecraft version and mod version, starting on the one the server needs
+  // every jar the site has, by edition (the Fabric mod or the Paper plugin), Minecraft version and mod version,
+  // starting on the one the server needs: the edition its mod said it is when it connected
   const downloadCard = () => {
     const m = d.mod;
     if (!m) return null;
     const runs = d.link?.minecraft;
+    const known = m.server_edition || null;
+    admin.edition ||= known || window.mcstatsUI.savedEdition();
+    const UI = window.mcstatsUI;
+    const where = el('div', { class: 'mod-edition-steps' });
+    const fill = (e) => {
+      if (!e) {
+        where.replaceChildren(el('p', { class: 'site-hint mod-edition-wait', text: 'Pick one to see what to download.' }));
+        return;
+      }
+      const folder = e === 'paper' ? 'plugins/' : 'mods/';
+      const old = e === 'paper' ? 'mcstats-paper' : 'mcstats-chat';
+      // the server's own edition starts on the jar for its Minecraft version; the other starts on the newest
+      where.replaceChildren(
+        modPicker(m.downloads, { suggested: e === known ? m.suggested : null, latest: m.version, edition: e }),
+        el('p', { class: 'site-sub' }, 'Put the jar in the server’s ', el('code', { text: folder }), ` folder in place of any older ${old} jar, and restart the server. The config file stays as it is. `,
+          el('a', { href: '/mod', text: 'What it needs and how to install it' })));
+    };
+    fill(admin.edition);
+    const what = known ? `The server runs the ${UI.EDITIONS[known].name} ${known === 'paper' ? 'plugin' : 'mod'}${runs ? ` on Minecraft ${runs}` : ''}, so that’s picked below.`
+      : runs ? `The server runs Minecraft ${runs}, so that’s picked below.` : 'Players don’t install anything.';
     return el('section', { class: 'card adm-card mod-page adm-mod-dl' },
       el('h2', { class: 'site-title', text: 'The mcstats mod' }),
-      el('p', { class: 'site-sub', text: runs
-        ? `It runs on the Minecraft server and sends what happens there to these pages. The server runs Minecraft ${runs}, so that’s picked below.`
-        : 'It runs on the Minecraft server and sends what happens there to these pages. Players don’t install anything.' }),
-      modPicker(m.downloads, { suggested: m.suggested, latest: m.version }),
-      el('p', { class: 'site-sub' }, 'Put the jar in the server’s ', el('code', { text: 'mods/' }), ' folder in place of any older mcstats-chat jar, and restart the server. The config file stays as it is. ',
-        el('a', { href: '/mod', text: 'What it needs and how to install it' })),
+      el('p', { class: 'site-sub', text: `It runs on the Minecraft server and sends what happens there to these pages, as a Fabric mod or a Paper plugin. ${what}` }),
+      UI.editionChoice(admin.edition, (e) => { admin.edition = e; fill(e); }),
+      where,
       // the key that ties the mod to this server is made in setup, by its owners
       site.super && MCS.slug ? el('p', { class: 'site-sub' }, 'The key in the mod’s config file is what ties it to this server. ',
         el('a', { href: `/new?server=${encodeURIComponent(MCS.slug)}&step=4`, text: 'Make a new key in setup' }), ' (the old one stops working at once).') : null);
@@ -8925,7 +8943,8 @@ function renderAdmin() {
       ...(mu.urgent ? [el('ul', { class: 'adm-update-why' }, ...mu.urgent_why.map((w) => el('li', { text: w })))] : []),
       el('p', { class: 'adm-note' },
         'To update: ', el('a', { href: mu.jar_url, download: '', text: `download ${mu.jar}` }),
-        `, put it in the server’s mods folder in place of the old mcstats-chat jar, and restart the server. The config file stays as it is.`),
+        mu.edition === 'paper' ? `, put it in the server’s plugins folder in place of the old mcstats-paper jar, and restart the server. The config file stays as it is.`
+          : `, put it in the server’s mods folder in place of the old mcstats-chat jar, and restart the server. The config file stays as it is.`),
       body, more);
   };
 

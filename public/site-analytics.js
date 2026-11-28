@@ -678,7 +678,7 @@
         files.length ? h('div', { class: 'sa-scroll', style: 'margin-top:12px' }, h('table', { class: 'sa-table' },
           h('thead', {}, h('tr', {}, h('th', { text: 'Jar' }), h('th', { class: 'num', text: 'Browser' }), h('th', { class: 'num', text: 'Other' }), h('th', { class: 'num', text: 'All' }))),
           h('tbody', {}, files.map(([f, v]) => h('tr', {},
-            h('td', {}, known.get(f) ? `${known.get(f).version} · Minecraft ${known.get(f).label}` : f),
+            h('td', {}, known.get(f) ? `${known.get(f).version} · ${known.get(f).edition === 'paper' ? 'Paper' : 'Fabric'} · Minecraft ${known.get(f).label}` : f),
             h('td', { class: 'num', text: fmt(v.web) }), h('td', { class: 'num', text: fmt(v.cli) }), h('td', { class: 'num', text: fmt(v.web + v.cli) })))))) : null)));
     return out;
   }

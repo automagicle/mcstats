@@ -4,9 +4,18 @@ pluginManagement {
 			name = 'Fabric'
 			url = 'https://maven.fabricmc.net/'
 		}
+		maven {
+			name = 'PaperMC'
+			url = 'https://repo.papermc.io/repository/maven-public/'
+		}
 		mavenCentral()
 		gradlePluginPortal()
 	}
+}
+
+// Downloads the JDK a target asks for (paper.gradle: 21 for 1.21.x, 25 for 26.x) when it isn't installed.
+plugins {
+	id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
 rootProject.name = 'mcstats-chat'
@@ -15,4 +24,9 @@ rootProject.name = 'mcstats-chat'
 file('versions').listFiles().findAll { new File(it, 'gradle.properties').exists() }.sort { it.name }.each { dir ->
 	include ":${dir.name}"
 	project(":${dir.name}").projectDir = dir
+}
+// Each folder in paper/ is one Paper plugin jar, for the Minecraft version its gradle.properties names.
+file('paper').listFiles()?.findAll { new File(it, 'gradle.properties').exists() }?.sort { it.name }?.each { dir ->
+	include ":paper-${dir.name}"
+	project(":paper-${dir.name}").projectDir = dir
 }

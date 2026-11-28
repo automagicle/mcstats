@@ -8,13 +8,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
-import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
-import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
-import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
-import net.fabricmc.fabric.api.event.player.UseBlockCallback;
-import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -22,7 +15,10 @@ import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -41,155 +37,182 @@ public final class ActionHooks {
 		this.touches = touches;
 	}
 
-	public void register() {
-		PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
-			try {
-				if (level.isClientSide()) {
-					return;
-				}
-				touch(level, pos);
-				emit(
-						"block_break",
-						player,
-						level,
-						pos.getX(),
-						pos.getY(),
-						pos.getZ(),
-						Ids.block(state),
-						"");
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-block-break", "Liveview block_break hook failed", thrown);
+	// One method per event Liveview's feed is built from. The platform calls each on the server thread:
+	// Fabric from Fabric API's events (FabricEntry), Paper from Bukkit's (PaperEvents).
+
+	/** A player broke a block (after it's gone). */
+	public void blockBroken(Level level, Player player, BlockPos pos, BlockState state) {
+		try {
+			if (level.isClientSide()) {
+				return;
 			}
-		});
-		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
-			try {
-				if (!(entity instanceof ServerPlayer player)) {
-					return;
-				}
-				String message = "";
-				try {
-					Component text = source.getLocalizedDeathMessage(entity);
-					message = text == null ? "" : text.getString();
-				} catch (Throwable thrown) {
-					LogOnce.warn("death-message", "Liveview could not read a death message", thrown);
-				}
-				emit(
-						"death",
-						player.getUUID(),
-						Ids.dimension(player.level()),
-						player.getBlockX(),
-						player.getBlockY(),
-						player.getBlockZ(),
-						Ids.entityType(source.getEntity()),
-						message);
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-death", "Liveview death hook failed", thrown);
+			touch(level, pos);
+			emit(
+					"block_break",
+					player,
+					level,
+					pos.getX(),
+					pos.getY(),
+					pos.getZ(),
+					Ids.block(state),
+					"");
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-block-break", "Liveview block_break hook failed", thrown);
+		}
+	}
+
+	/** Something died; only players are reported. */
+	public void died(LivingEntity entity, DamageSource source) {
+		try {
+			if (!(entity instanceof ServerPlayer player)) {
+				return;
 			}
-		});
-		ServerPlayerEvents.JOIN.register(player -> {
+			String message = "";
 			try {
-				emit("join", player, player.level(), player.getBlockX(), player.getBlockY(), player.getBlockZ(), "", "");
+				Component text = source.getLocalizedDeathMessage(entity);
+				message = text == null ? "" : text.getString();
 			} catch (Throwable thrown) {
-				LogOnce.warn("hook-join", "Liveview join hook failed", thrown);
+				LogOnce.warn("death-message", "Liveview could not read a death message", thrown);
 			}
-		});
-		ServerPlayerEvents.LEAVE.register(player -> {
-			try {
-				emit("leave", player, player.level(), player.getBlockX(), player.getBlockY(), player.getBlockZ(), "", "");
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-leave", "Liveview leave hook failed", thrown);
+			emit(
+					"death",
+					player.getUUID(),
+					Ids.dimension(player.level()),
+					player.getBlockX(),
+					player.getBlockY(),
+					player.getBlockZ(),
+					Ids.entityType(source.getEntity()),
+					message);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-death", "Liveview death hook failed", thrown);
+		}
+	}
+
+	public void joined(ServerPlayer player) {
+		try {
+			emit("join", player, player.level(), player.getBlockX(), player.getBlockY(), player.getBlockZ(), "", "");
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-join", "Liveview join hook failed", thrown);
+		}
+	}
+
+	public void left(ServerPlayer player) {
+		try {
+			emit("leave", player, player.level(), player.getBlockX(), player.getBlockY(), player.getBlockZ(), "", "");
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-leave", "Liveview leave hook failed", thrown);
+		}
+	}
+
+	/** A system message broadcast to everyone. */
+	public void gameMessage(Component message, boolean overlay) {
+		try {
+			// overlay messages are the action bar above the hotbar, not chat
+			if (message == null || overlay) {
+				return;
 			}
-		});
-		ServerMessageEvents.GAME_MESSAGE.register((server, message, overlay) -> {
-			try {
-				// overlay messages are the action bar above the hotbar, not chat
-				if (message == null || overlay) {
-					return;
-				}
-				emitLine("system_message", null, "", null, null, null, "", message.getString(), message);
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-system", "Liveview system_message hook failed", thrown);
+			emitLine("system_message", null, "", null, null, null, "", message.getString(), message);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-system", "Liveview system_message hook failed", thrown);
+		}
+	}
+
+	/** A chat message (Fabric: with the game's own message and chat type). */
+	public void chat(PlayerChatMessage message, ServerPlayer sender, net.minecraft.network.chat.ChatType.Bound params) {
+		try {
+			emitChat(message, sender, params);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-chat", "Liveview chat hook failed", thrown);
+		}
+	}
+
+	/** /say or /me (Fabric); only a player's are reported. */
+	public void commandMessage(PlayerChatMessage message, ServerPlayer sender, net.minecraft.network.chat.ChatType.Bound params) {
+		try {
+			if (sender == null) {
+				return;
 			}
-		});
-		ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
-			try {
-				emitChat(message, sender, params);
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-chat", "Liveview chat hook failed", thrown);
+			emitChat(message, sender, params);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-command-chat", "Liveview command chat hook failed", thrown);
+		}
+	}
+
+	/** A player's chat, /say or /me, as its text and the whole line as players see it (Paper). */
+	public void chatLine(ServerPlayer sender, String text, Component shown) {
+		try {
+			if (sender == null) {
+				return;
 			}
-		});
-		ServerMessageEvents.COMMAND_MESSAGE.register((message, source, params) -> {
-			try {
-				ServerPlayer sender = source.getPlayer();
-				if (sender == null) {
-					return;
-				}
-				emitChat(message, sender, params);
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-command-chat", "Liveview command chat hook failed", thrown);
+			emitLine("chat", sender.getUUID(), Ids.dimension(sender.level()), sender.getBlockX(), sender.getBlockY(), sender.getBlockZ(), "",
+					text == null ? "" : text, shown);
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-chat", "Liveview chat hook failed", thrown);
+		}
+	}
+
+	/** A player swung at an entity. */
+	public void attacked(Player player, Level level, Entity entity) {
+		try {
+			if (level.isClientSide()) {
+				return;
 			}
-		});
-		AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
-			try {
-				if (level.isClientSide()) {
-					return InteractionResult.PASS;
-				}
-				emit(
-						"attack",
-						player,
-						level,
-						entity.getBlockX(),
-						entity.getBlockY(),
-						entity.getBlockZ(),
-						Ids.entityType(entity),
-						"");
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-attack", "Liveview attack hook failed", thrown);
+			emit(
+					"attack",
+					player,
+					level,
+					entity.getBlockX(),
+					entity.getBlockY(),
+					entity.getBlockZ(),
+					Ids.entityType(entity),
+					"");
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-attack", "Liveview attack hook failed", thrown);
+		}
+	}
+
+	/** A player used the item in a hand (right-click, not on a block). */
+	public void usedItem(Player player, Level level, InteractionHand hand) {
+		try {
+			if (level.isClientSide()) {
+				return;
 			}
-			return InteractionResult.PASS;
-		});
-		UseItemCallback.EVENT.register((player, level, hand) -> {
-			try {
-				if (level.isClientSide()) {
-					return InteractionResult.PASS;
-				}
-				emit(
-						"item_use",
-						player,
-						level,
-						player.getBlockX(),
-						player.getBlockY(),
-						player.getBlockZ(),
-						Ids.item(player.getItemInHand(hand)),
-						"");
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-item-use", "Liveview item_use hook failed", thrown);
+			emit(
+					"item_use",
+					player,
+					level,
+					player.getBlockX(),
+					player.getBlockY(),
+					player.getBlockZ(),
+					Ids.item(player.getItemInHand(hand)),
+					"");
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-item-use", "Liveview item_use hook failed", thrown);
+		}
+	}
+
+	/** A player right-clicked a block: checked a tick later for a block placed there or next to it. */
+	public void usedBlock(Player player, Level level, BlockHitResult hit) {
+		try {
+			if (level.isClientSide() || hit == null) {
+				return;
 			}
-			return InteractionResult.PASS;
-		});
-		UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
-			try {
-				if (level.isClientSide() || hit == null) {
-					return InteractionResult.PASS;
-				}
-				touch(level, hit.getBlockPos());
-				if (hit.getDirection() != null) {
-					touch(level, hit.getBlockPos().relative(hit.getDirection()));
-				}
-				UUID uuid = player.getUUID();
-				BlockPos pos = hit.getBlockPos();
-				Direction face = hit.getDirection();
-				String dimension = Ids.dimension(level);
-				remember(uuid, dimension, pos, level.getBlockState(pos));
-				if (face != null) {
-					BlockPos next = pos.relative(face);
-					remember(uuid, dimension, next, level.getBlockState(next));
-				}
-			} catch (Throwable thrown) {
-				LogOnce.warn("hook-use-block", "Liveview use-block hook failed", thrown);
+			touch(level, hit.getBlockPos());
+			if (hit.getDirection() != null) {
+				touch(level, hit.getBlockPos().relative(hit.getDirection()));
 			}
-			return InteractionResult.PASS;
-		});
+			UUID uuid = player.getUUID();
+			BlockPos pos = hit.getBlockPos();
+			Direction face = hit.getDirection();
+			String dimension = Ids.dimension(level);
+			remember(uuid, dimension, pos, level.getBlockState(pos));
+			if (face != null) {
+				BlockPos next = pos.relative(face);
+				remember(uuid, dimension, next, level.getBlockState(next));
+			}
+		} catch (Throwable thrown) {
+			LogOnce.warn("hook-use-block", "Liveview use-block hook failed", thrown);
+		}
 	}
 
 	/** Server thread only. Drops pending place checks from before (a server start, or a stretch with nobody watching). */

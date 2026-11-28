@@ -1,5 +1,5 @@
 // Reads the mod's versions and dependencies from mod/gradle.properties, mod/build.gradle and
-// mod/src/main/resources/fabric.mod.json, and writes src/modinfo.gen.js, which /new's "Install the mods"
+// mod/src/fabric/resources/fabric.mod.json, and writes src/modinfo.gen.js, which /new's "Install the mods"
 // step shows. Run by wrangler before every build (wrangler.jsonc "build"); test/modinfo.test.js checks the
 // file is up to date.
 //   node scripts/mod-info.mjs           write it
@@ -39,21 +39,30 @@ export function zipEntry(buf, wanted) {
   return null;
 }
 
-// Every jar in public/downloads (what the site serves at /downloads/), with the mod version and the Minecraft
-// versions it says it runs on (its own fabric.mod.json), newest mod first, then newest Minecraft first.
+// Every jar in public/downloads (what the site serves at /downloads/), with its edition ('fabric', the mod, or
+// 'paper', the plugin), the mod version and the Minecraft versions it says it runs on (a Fabric jar's own
+// fabric.mod.json, a Paper jar's mcstats.json), newest mod first, then newest Minecraft first.
 export function downloads(dir = join(root, 'public/downloads')) {
   if (!existsSync(dir)) return [];
   const out = [];
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.jar') && !f.endsWith('-sources.jar')).sort()) {
-    const json = zipEntry(readFileSync(join(dir, file)), 'fabric.mod.json');
-    if (!json) continue;
-    const meta = JSON.parse(json.toString('utf8'));
-    const minecraft = String(meta.depends?.minecraft ?? '');
-    out.push({ file, version: meta.version, minecraft, label: gameLabel(minecraft), java: meta.depends?.java ?? null, loader: meta.depends?.fabricloader ?? null });
+    const buf = readFileSync(join(dir, file));
+    const fabric = zipEntry(buf, 'fabric.mod.json');
+    if (fabric) {
+      const meta = JSON.parse(fabric.toString('utf8'));
+      const minecraft = String(meta.depends?.minecraft ?? '');
+      out.push({ file, edition: 'fabric', version: meta.version, minecraft, label: gameLabel(minecraft), java: meta.depends?.java ?? null, loader: meta.depends?.fabricloader ?? null });
+      continue;
+    }
+    const paper = zipEntry(buf, 'mcstats.json');
+    if (!paper) continue;
+    const meta = JSON.parse(paper.toString('utf8'));
+    const minecraft = String(meta.minecraft ?? '');
+    out.push({ file, edition: 'paper', version: meta.version, minecraft, label: gameLabel(minecraft), java: meta.java ?? null, loader: null });
   }
   const parts = (v) => String(v).split(/[.+-]/).map((x) => Number(x) || 0);
   const cmp = (a, b) => { const x = parts(a), y = parts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
-  return out.sort((a, b) => cmp(b.version, a.version) || compareGame(rangeLow(b.minecraft), rangeLow(a.minecraft)));
+  return out.sort((a, b) => cmp(b.version, a.version) || compareGame(rangeLow(b.minecraft), rangeLow(a.minecraft)) || a.edition.localeCompare(b.edition));
 }
 
 // Config.java's TEMPLATE text block, with its indentation taken off as Java does.
@@ -71,7 +80,7 @@ export function modInfo() {
   // one jar per folder in mod/versions/ (target.gradle); the default one is the version gradle.properties names
   const target = properties(read(`mod/versions/${props.minecraft_version}/gradle.properties`));
   const gradle = read('mod/target.gradle');
-  const mod = JSON.parse(read('mod/src/main/resources/fabric.mod.json'));
+  const mod = JSON.parse(read('mod/src/fabric/resources/fabric.mod.json'));
   const archive = /archivesName\s*=\s*'([^']+)'/.exec(gradle)?.[1] ?? 'mcstats-chat';
   const bundled = /fabricApiModules\s*=\s*\[([^\]]+)\]/.exec(gradle);
   const modules = bundled ? [...bundled[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : [];
@@ -79,8 +88,14 @@ export function modInfo() {
   const others = Object.fromEntries(Object.entries(depends).filter(([k]) => !['fabricloader', 'minecraft', 'java'].includes(k)));
   const files = downloads();
   // the newest version's jar for the default Minecraft version, as built (target.gradle: <version>+mc<folder>)
-  const jar = files.find((d) => d.version === props.version && d.file.includes(`+mc${props.minecraft_version}.jar`))?.file
+  const jar = files.find((d) => d.edition === 'fabric' && d.version === props.version && d.file.includes(`+mc${props.minecraft_version}.jar`))?.file
     ?? `${archive}-${props.version}+mc${props.minecraft_version}.jar`;
+  // the Paper plugin: one jar per Minecraft version (mod/paper/<mc>/, mod/paper.gradle)
+  const paperDir = join(root, 'mod/paper');
+  const paperBuilt = existsSync(paperDir) ? readdirSync(paperDir).filter((d) => existsSync(join(paperDir, d, 'gradle.properties')))
+    .map((d) => properties(read(`mod/paper/${d}/gradle.properties`))) : [];
+  const paperJar = files.find((d) => d.edition === 'paper' && d.version === props.version && d.file.includes(`+mc${props.minecraft_version}.jar`))?.file
+    ?? `mcstats-paper-${props.version}+mc${props.minecraft_version}.jar`;
   return {
     id: mod.id,
     name: mod.name,
@@ -99,6 +114,14 @@ export function modInfo() {
     fabric_api: { version: props.fabric_api_version, bundled: modules.length > 0, modules },
     other_depends: others,
     config_file: 'config/mcstats-chat.properties',
+    // The same mod as a Paper plugin (mod/src/paper): everything above but Fabric's loader and API. Its jars are
+    // in `downloads` with edition 'paper'; each runs on exactly the Minecraft version it was built for.
+    paper: {
+      jar: paperJar,
+      minecraft: paperBuilt.map((p) => p.minecraft_version).sort(compareGame),
+      java: `>=${paperBuilt.find((p) => p.minecraft_version === props.minecraft_version)?.java_version ?? target.java_version}`,
+      config_file: 'plugins/mcstats/mcstats-chat.properties',
+    },
     // The file the mod writes on its first start (Config.java TEMPLATE), so /new can show it filled in.
     config_template: configTemplate(),
     // mod/CHANGELOG.md, for telling admins what a newer version brings (src/modupdate.js)

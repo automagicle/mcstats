@@ -81,6 +81,7 @@ export async function handleSite(request, env, url) {
       jar_url: `/downloads/${MOD.jar}`,
       loader_installer: 'https://fabricmc.net/use/server/',
       fabric_api_url: 'https://modrinth.com/mod/fabric-api/versions',
+      paper: { ...MOD.paper, jar_url: `/downloads/${MOD.paper?.jar}`, server_url: 'https://papermc.io/downloads/paper' },
       ingest_url: `${uploadOrigin(env, url)}/api/ingest/chat`,
     });
   }
@@ -232,7 +233,9 @@ export async function handleSite(request, env, url) {
     ).bind(row.id, keyHash, created).run();
     await setStep(5);
     console.log(`site: ${email} made a new mod key for ${row.slug}`);
-    return json({ key, created_at: created, config_file: MOD.config_file, config: configFor(uploadOrigin(env, url), key), state: await state() });
+    // config_files: where the file is for each edition (the page shows the one the owner picked)
+    return json({ key, created_at: created, config_file: MOD.config_file, config_files: { fabric: MOD.config_file, paper: MOD.paper?.config_file },
+      config: configFor(uploadOrigin(env, url), key), state: await state() });
   }
 
   if (action === '/settings') {

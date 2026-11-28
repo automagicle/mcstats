@@ -13,6 +13,7 @@ export const MOD = {
   "downloads": [
     {
       "file": "mcstats-chat-2.4.0+mc26.3.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": "~26.3",
       "label": "26.3.x",
@@ -20,7 +21,17 @@ export const MOD = {
       "loader": ">=0.18.4"
     },
     {
+      "file": "mcstats-paper-2.4.0+mc26.3.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "26.3",
+      "label": "26.3",
+      "java": ">=25",
+      "loader": null
+    },
+    {
       "file": "mcstats-chat-2.4.0+mc26.2.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": "~26.2",
       "label": "26.2.x",
@@ -28,7 +39,26 @@ export const MOD = {
       "loader": ">=0.18.4"
     },
     {
+      "file": "mcstats-paper-2.4.0+mc26.2.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "26.2",
+      "label": "26.2",
+      "java": ">=25",
+      "loader": null
+    },
+    {
+      "file": "mcstats-paper-2.4.0+mc26.1.2.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "26.1.2",
+      "label": "26.1.2",
+      "java": ">=25",
+      "loader": null
+    },
+    {
       "file": "mcstats-chat-2.4.0+mc26.1.2.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": ">=26.1 <26.2",
       "label": "26.1.x",
@@ -37,6 +67,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.4.0+mc1.21.11.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": "1.21.11",
       "label": "1.21.11",
@@ -44,7 +75,26 @@ export const MOD = {
       "loader": ">=0.16.0"
     },
     {
+      "file": "mcstats-paper-2.4.0+mc1.21.11.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "1.21.11",
+      "label": "1.21.11",
+      "java": ">=21",
+      "loader": null
+    },
+    {
+      "file": "mcstats-paper-2.4.0+mc1.21.10.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "1.21.10",
+      "label": "1.21.10",
+      "java": ">=21",
+      "loader": null
+    },
+    {
       "file": "mcstats-chat-2.4.0+mc1.21.10.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": ">=1.21.9 <=1.21.10",
       "label": "1.21.9–1.21.10",
@@ -52,7 +102,17 @@ export const MOD = {
       "loader": ">=0.16.0"
     },
     {
+      "file": "mcstats-paper-2.4.0+mc1.21.8.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "1.21.8",
+      "label": "1.21.8",
+      "java": ">=21",
+      "loader": null
+    },
+    {
       "file": "mcstats-chat-2.4.0+mc1.21.8.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": ">=1.21.6 <=1.21.8",
       "label": "1.21.6–1.21.8",
@@ -61,6 +121,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.4.0+mc1.21.5.jar",
+      "edition": "fabric",
       "version": "2.4.0",
       "minecraft": "1.21.5",
       "label": "1.21.5",
@@ -68,7 +129,17 @@ export const MOD = {
       "loader": ">=0.16.0"
     },
     {
+      "file": "mcstats-paper-2.4.0+mc1.21.5.jar",
+      "edition": "paper",
+      "version": "2.4.0",
+      "minecraft": "1.21.5",
+      "label": "1.21.5",
+      "java": ">=21",
+      "loader": null
+    },
+    {
       "file": "mcstats-chat-2.3.0+mc26.3.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": "~26.3",
       "label": "26.3.x",
@@ -77,6 +148,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc26.2.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": "~26.2",
       "label": "26.2.x",
@@ -85,6 +157,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc26.1.2.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": ">=26.1 <26.2",
       "label": "26.1.x",
@@ -93,6 +166,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc1.21.11.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": "1.21.11",
       "label": "1.21.11",
@@ -101,6 +175,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc1.21.10.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": ">=1.21.9 <=1.21.10",
       "label": "1.21.9–1.21.10",
@@ -109,6 +184,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc1.21.8.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": ">=1.21.6 <=1.21.8",
       "label": "1.21.6–1.21.8",
@@ -117,6 +193,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.3.0+mc1.21.5.jar",
+      "edition": "fabric",
       "version": "2.3.0",
       "minecraft": "1.21.5",
       "label": "1.21.5",
@@ -125,6 +202,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.2.0.jar",
+      "edition": "fabric",
       "version": "2.2.0",
       "minecraft": "~26.2",
       "label": "26.2.x",
@@ -133,6 +211,7 @@ export const MOD = {
     },
     {
       "file": "mcstats-chat-2.1.0.jar",
+      "edition": "fabric",
       "version": "2.1.0",
       "minecraft": "~26.2",
       "label": "26.2.x",
@@ -155,7 +234,21 @@ export const MOD = {
   },
   "other_depends": {},
   "config_file": "config/mcstats-chat.properties",
-  "config_template": "# mcstats chat log: sends this server's public chat to your mcstats dashboard.\n# Saved changes are picked up within a few seconds; no restart needed.\n\n# Your dashboard's address followed by /api/ingest/chat,\n# e.g. https://mcstats.example.workers.dev/api/ingest/chat\nurl=\n\n# This server's key, from the dashboard's setup page (/new, \"Connect the mod\"). It starts with mcs_\n# and is shown once; making a new one there stops the old one at once.\ntoken=\n\n# Only if the dashboard sits behind Cloudflare Access: a service token, so the request gets past\n# the login page (Zero Trust > Access > Service credentials > Service tokens). Otherwise leave blank.\naccess_client_id=\naccess_client_secret=\n\n# Also log joins, leaves, deaths and advancements.\nsystem_messages=true\n\n# Show chat sent from the dashboard in game, as \"[Web] <name> message\". Only players whose\n# login email is on the dashboard's roster can send.\nweb_chat=true\n\n# Liveview: lets the dashboard's admins watch the world from its Liveview tab. Nobody can watch until\n# an operator makes the viewer key in game (/liveview key viewer) and an admin enters it on the\n# dashboard. Needs web_chat=true (that connection is how the dashboard asks for the view).\nliveview=true\n\n# Also let admins who entered the control key (/liveview key control) run commands as the server\n# console and move items in containers, from the dashboard.\nliveview_control=true\n\n# How much of the world a viewer is sent: chunks around the camera (2-12), chunks kept ready around\n# each player (0-4), and how far from a player or camera mobs are sent, in blocks (0-128).\nliveview_camera_chunks=8\nliveview_player_chunks=2\nliveview_entity_blocks=64\n\n# A Minecraft client jar to read the game's textures from. Leave blank to download the official one\n# for this version from Mojang the first time someone watches (kept in config/mcstats-liveview-cache).\nliveview_client_jar=\n",
+  "paper": {
+    "jar": "mcstats-paper-2.4.0+mc26.2.jar",
+    "minecraft": [
+      "1.21.5",
+      "1.21.8",
+      "1.21.10",
+      "1.21.11",
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "java": ">=25",
+    "config_file": "plugins/mcstats/mcstats-chat.properties"
+  },
+  "config_template": "# mcstats chat log: sends this server's public chat to your mcstats dashboard.\n# Saved changes are picked up within a few seconds; no restart needed.\n\n# Your dashboard's address followed by /api/ingest/chat,\n# e.g. https://mcstats.example.workers.dev/api/ingest/chat\nurl=\n\n# This server's key, from the dashboard's setup page (/new, \"Connect the mod\"). It starts with mcs_\n# and is shown once; making a new one there stops the old one at once.\ntoken=\n\n# Only if the dashboard sits behind Cloudflare Access: a service token, so the request gets past\n# the login page (Zero Trust > Access > Service credentials > Service tokens). Otherwise leave blank.\naccess_client_id=\naccess_client_secret=\n\n# Also log joins, leaves, deaths and advancements.\nsystem_messages=true\n\n# Show chat sent from the dashboard in game, as \"[Web] <name> message\". Only players whose\n# login email is on the dashboard's roster can send.\nweb_chat=true\n\n# Liveview: lets the dashboard's admins watch the world from its Liveview tab. Nobody can watch until\n# an operator makes the viewer key in game (/liveview key viewer) and an admin enters it on the\n# dashboard. Needs web_chat=true (that connection is how the dashboard asks for the view).\nliveview=true\n\n# Also let admins who entered the control key (/liveview key control) run commands as the server\n# console and move items in containers, from the dashboard.\nliveview_control=true\n\n# How much of the world a viewer is sent: chunks around the camera (2-12), chunks kept ready around\n# each player (0-4), and how far from a player or camera mobs are sent, in blocks (0-128).\nliveview_camera_chunks=8\nliveview_player_chunks=2\nliveview_entity_blocks=64\n\n# A Minecraft client jar to read the game's textures from. Leave blank to download the official one\n# for this version from Mojang the first time someone watches (kept in mcstats-liveview-cache, next to this file).\nliveview_client_jar=\n",
   "releases": [
     {
       "version": "2.4.0",
