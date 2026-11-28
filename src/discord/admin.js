@@ -2,17 +2,17 @@
 // server's own object, because it talks to Discord and to the directory.
 //
 //   GET                                   everything the section shows (below)
-//   POST { action: 'code' }               owners: a link code for /mcstats setup (15 minutes, used once)
-//   POST { action: 'unlink' }             owners: unlink the Discord server
-//   POST { action: 'share', share }       owners: what may go to Discord at all
-//   POST { action: 'bridge', bridge }     owners: who may /say ({ say: 'off' | 'linked' | 'anyone' })
+//   POST { action: 'code' }               owners and admins: a link code for /mcstats setup (15 minutes, used once)
+//   POST { action: 'unlink' }             owners and admins: unlink the Discord server
+//   POST { action: 'share', share }       owners and admins: what may go to Discord at all
+//   POST { action: 'bridge', bridge }     owners and admins: who may /say ({ say: 'off' | 'linked' | 'anyone' })
 //   POST { action: 'commands', commands } admins: commands on or off, answers seen by everyone or only the asker
 //   POST { action: 'preset', preset, channels: { status, events, chat } }   admins: a preset (Way 1's last step)
 //   POST { action: 'feeds', feeds: { status: { channel_id, options } | null, … } }   admins: feeds one by one
 //   POST { action: 'test' }               admins: a test post in each feed
 //   POST { action: 'player.unlink', discord_id }   admins: a Discord user no longer counts as their player
 import { json } from '../util.js';
-import { loadPerms } from '../roles.js';
+import { canManage, loadPerms } from '../roles.js';
 import { linkStatus } from '../link.js';
 import { discordReady, isSnowflake } from './api.js';
 import { openServer } from './server.js';
@@ -29,7 +29,7 @@ export async function discordAdmin(request, env, url, row, stub, who, origin) {
   const srv = await openServer(env, row, origin);
   const perms = await loadPerms(srv.env, { email: g.who.email });
   if (!perms.admin && !perms.super) return json({ error: 'forbidden' }, 403);
-  const owner = !!(perms.owner || perms.super);
+  const owner = canManage(perms); // owners and admins (src/roles.js)
 
   if (request.method === 'GET') return json(await state(env, srv, owner));
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
@@ -40,7 +40,7 @@ export async function discordAdmin(request, env, url, row, stub, who, origin) {
   if (raw.length > MAX_BODY) return json({ error: 'too large' }, 413);
   let b;
   try { b = JSON.parse(raw); } catch { return json({ error: 'bad json' }, 400); }
-  const ownersOnly = () => json({ error: 'Only the server’s owners can change that.' }, 403);
+  const ownersOnly = () => json({ error: 'Only the server’s owners and admins can change that.' }, 403);
   const needLink = () => json({ error: 'Link a Discord server first.' }, 409);
 
   switch (b?.action) {

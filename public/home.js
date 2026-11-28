@@ -11,6 +11,14 @@
 // Each piece is built as public/app.js builds the real one, with the dashboard's own classes
 // (public/style.css); the function it follows is named beside it.
 (() => {
+  // The page always opens at the top (or at the section its address names): where it was scrolled to
+  // isn't kept, so a refresh starts it over, examples and all.
+  history.scrollRestoration = 'manual';
+  if (performance.getEntriesByType('navigation')[0]?.type === 'reload') {
+    const toTop = () => scrollTo({ top: 0, behavior: 'instant' });
+    toTop();
+    addEventListener('load', toTop, { once: true });
+  }
   const $ = (id) => document.getElementById(id);
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   const h = (tag, attrs = {}, ...kids) => {
@@ -155,7 +163,7 @@
     out.push(...p.today.map(([a, b]) => [a, b ?? null]));
     return (p.sessions = out);
   }
-  let live = null; // the Liveview example, once it has loaded: live.event(a line of the chat log)
+  let live = null; // the Liveview example, once it's loaded: live.event(a line of the chat log)
   const online = new Set(PLAYERS.filter((p) => sessionsOf(p).at(-1)[1] === null).map((p) => p.name));
   const playedBetween = (p, from, to) => sessionsOf(p).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b ?? now(), to) - Math.max(a, from)), 0);
   // how many were on in each minute from..to (to itself isn't counted)
@@ -272,51 +280,56 @@
   }
 
   /* ---------------- what they wear and carry ----------------
-     Each player's gear fits how far along they are. Early game: leather, chainmail and iron, stone and
-     iron tools, nothing enchanted. Mid: iron and diamond, a few low enchantments. Late: diamond and
-     netherite, fully enchanted and trimmed, a named weapon, a totem.
-     armor: head, chest, legs, feet as a material, * when enchanted, #rrggbb for dyed leather.
+     The server is three months in, so nobody is in leather any more, and each player's gear fits how far
+     along they are (stage). 1: iron with a first diamond piece or two, lightly enchanted. 2: enchanted
+     diamond with a trim, and a weapon of their own. 3: the end game: netherite or an elytra, everything
+     enchanted, a named weapon, a totem. Their advancements, deaths and chat further down go by the same stage.
+     armor: head, chest, legs, feet as a material (or elytra), * when enchanted, #rrggbb for dyed leather.
      carry: the weapons and tools on them as [item, its custom name or null, ...enchantments]. */
 
   const GEAR = {
-    Pebble_: { armor: ['netherite*', 'netherite*', 'netherite*', 'netherite*'], trim: ['spire', 'amethyst'], off: 'totem_of_undying', carry: [
+    Pebble_: { stage: 3, armor: ['netherite*', 'netherite*', 'netherite*', 'netherite*'], trim: ['spire', 'amethyst'], off: 'totem_of_undying', carry: [
       ['netherite_sword', 'Excalibur', 'Sharpness V', 'Sweeping Edge III', 'Looting III', 'Unbreaking III', 'Mending'],
       ['netherite_axe', null, 'Sharpness V', 'Efficiency V', 'Unbreaking III', 'Mending'],
       ['netherite_pickaxe', null, 'Efficiency V', 'Fortune III', 'Unbreaking III', 'Mending']] },
-    nightowl_: { armor: ['netherite*', 'netherite*', 'diamond*', 'netherite*'], trim: ['ward', 'emerald'], off: 'totem_of_undying', carry: [
-      ['diamond_spear', 'Stargazer', 'Sharpness V', 'Lunge III', 'Unbreaking III', 'Mending'],
+    nightowl_: { stage: 3, armor: ['netherite*', 'netherite*', 'netherite*', 'netherite*'], trim: ['ward', 'gold'], off: 'totem_of_undying', carry: [
+      ['netherite_spear', 'Stargazer', 'Sharpness V', 'Lunge III', 'Unbreaking III', 'Mending'],
       ['netherite_axe', null, 'Efficiency V', 'Unbreaking III', 'Mending'],
       ['netherite_pickaxe', null, 'Efficiency V', 'Silk Touch', 'Unbreaking III', 'Mending']] },
-    kestrel: { armor: ['diamond*', 'netherite*', 'diamond*', 'diamond*'], trim: ['flow', 'copper'], off: 'shield', carry: [
-      ['mace', 'Bonk', 'Density IV', 'Wind Burst II', 'Unbreaking III'],
-      ['diamond_sword', null, 'Sharpness IV', 'Looting III', 'Unbreaking III'],
-      ['diamond_pickaxe', null, 'Efficiency IV', 'Unbreaking III']] },
-    Quartzy: { armor: ['iron*', 'diamond*', 'iron*', 'iron*'], trim: ['coast', 'quartz'], off: 'shield', carry: [
-      ['diamond_sword', null, 'Sharpness II', 'Knockback I'],
-      ['diamond_pickaxe', null, 'Efficiency III', 'Fortune II'],
-      ['iron_axe', null]] },
-    Saltwater: { armor: ['diamond*', 'diamond', 'iron', 'iron*'], off: 'water_bucket', carry: [
+    // the flier: an elytra where a chestplate would be, rockets in the other hand, and a mace to land with
+    kestrel: { stage: 3, armor: ['diamond*', 'elytra*', 'diamond*', 'diamond*'], trim: ['flow', 'copper'], off: 'firework_rocket', carry: [
+      ['mace', 'Bonk', 'Density V', 'Wind Burst III', 'Unbreaking III', 'Mending'],
+      ['diamond_sword', null, 'Sharpness V', 'Looting III', 'Unbreaking III', 'Mending'],
+      ['diamond_pickaxe', null, 'Efficiency V', 'Unbreaking III', 'Mending']] },
+    Saltwater: { stage: 2, armor: ['diamond*', 'diamond*', 'diamond*', 'diamond*'], trim: ['tide', 'lapis'], off: 'water_bucket', carry: [
+      ['trident', 'Tidecaller', 'Riptide III', 'Impaling V', 'Unbreaking III', 'Mending'],
+      ['diamond_sword', null, 'Sharpness IV', 'Unbreaking III'],
+      ['diamond_pickaxe', null, 'Efficiency IV', 'Fortune III', 'Unbreaking III']] },
+    Quartzy: { stage: 2, armor: ['diamond*', 'netherite*', 'diamond*', 'diamond*'], trim: ['coast', 'quartz'], off: 'shield', carry: [
+      ['diamond_sword', null, 'Sharpness IV', 'Knockback II', 'Unbreaking III'],
+      ['diamond_axe', null, 'Efficiency IV', 'Unbreaking III'],
+      ['diamond_pickaxe', null, 'Efficiency IV', 'Fortune III', 'Unbreaking III']] },
+    oakleaf: { stage: 2, armor: ['diamond*', 'diamond*', 'iron*', 'diamond'], trim: ['wild', 'emerald'], off: 'lava_bucket', carry: [
       ['diamond_sword', null, 'Sharpness III', 'Unbreaking II'],
-      ['iron_pickaxe', null, 'Efficiency III', 'Unbreaking II'],
+      ['diamond_pickaxe', null, 'Efficiency IV', 'Unbreaking II'],
+      ['iron_axe', null, 'Efficiency II']] },
+    minty: { stage: 1, armor: ['iron*', 'diamond*', 'iron*', 'diamond*'], off: 'shield', carry: [
+      ['diamond_sword', null, 'Smite IV', 'Unbreaking II'],
+      ['iron_axe', null, 'Efficiency III'],
+      ['iron_pickaxe', null, 'Efficiency III', 'Unbreaking II']] },
+    dandelion: { stage: 1, armor: ['leather#f8c627', 'iron*', 'iron*', 'iron*'], off: 'shears', carry: [
+      ['iron_sword', null, 'Sharpness II'],
+      ['iron_pickaxe', null, 'Efficiency III', 'Fortune II'],
       ['iron_axe', null]] },
-    oakleaf: { armor: ['iron', 'iron*', 'iron', 'iron'], off: 'lava_bucket', carry: [
-      ['iron_sword', null, 'Sharpness II', 'Unbreaking I'],
+    Brickhouse: { stage: 1, armor: ['iron', 'iron*', 'iron', 'iron'], off: 'bread', carry: [
+      ['iron_sword', null, 'Sharpness I'],
       ['iron_pickaxe', null, 'Efficiency II'],
       ['stone_axe', null]] },
-    minty: { armor: ['iron', 'iron', 'chainmail', 'iron'], off: 'shield', carry: [
-      ['iron_sword', null, 'Smite III'],
-      ['iron_axe', null],
-      ['iron_pickaxe', null, 'Efficiency I', 'Unbreaking I']] },
-    dandelion: { armor: ['leather#f8c627', 'iron', 'leather#5e7c16', 'iron'], off: 'shears', carry: [
-      ['stone_sword', null],
-      ['iron_pickaxe', null]] },
-    Brickhouse: { armor: [null, 'iron', 'leather#a06540', 'leather#a06540'], off: 'bread', carry: [
-      ['stone_sword', null],
-      ['iron_pickaxe', null],
-      ['stone_axe', null]] },
   };
+  const stageOf = (name) => GEAR[name].stage;
+  const flies = (name) => GEAR[name].armor[1]?.startsWith('elytra');
   const SLOTS = ['head', 'chest', 'legs', 'feet'], PIECES = ['helmet', 'chestplate', 'leggings', 'boots'];
-  // The best weapon they carry comes first: mace, then sword, spear, axe, pickaxe; better material
+  // The best weapon they carry comes first: mace, then trident, sword, spear, axe, pickaxe; better material
   // first (app.js, weaponRank). It's the one in the model's hand until another is picked.
   const KINDS = ['mace', 'trident', 'sword', 'spear', 'axe', 'pickaxe'], MATERIALS = ['netherite', 'diamond', 'iron', 'copper', 'stone'];
   const kindOf = (it) => it.id.split('_').pop();
@@ -328,6 +341,8 @@
     g.armor.forEach((a, i) => {
       if (!a) return;
       const [, mat, shine, dye] = /^([a-z]+)(\*)?(#\w+)?$/.exec(a);
+      // an elytra is worn where a chestplate would be: an item of its own, and it takes no trim
+      if (mat === 'elytra') { armor[SLOTS[i]] = { id: 'elytra', asset: 'elytra', glint: !!shine, enchants: shine ? ['Unbreaking III', 'Mending'] : [] }; return; }
       armor[SLOTS[i]] = {
         id: `${mat}_${PIECES[i]}`, asset: mat, glint: !!shine,
         ...(dye && { dye: parseInt(dye.slice(1), 16) }),
@@ -337,7 +352,7 @@
     });
     const carry = g.carry.map(([id, name, ...enchants]) => ({ id, name, enchants, glint: enchants.length > 0 }))
       .sort((a, b) => weaponRank(a) - weaponRank(b));
-    const offhand = { id: g.off, ...(g.off === 'shield' && { special: 'shield' }) };
+    const offhand = { id: g.off, ...(g.off === 'shield' && { special: 'shield' }), ...(g.off === 'firework_rocket' && { n: 37 }) };
     return (p.gear = { armor, carry, offhand });
   }
   const picked = new Map(); // player -> the weapon picked from the list under their model
@@ -350,9 +365,10 @@
   const itemName = (it) => it.name || title(it.id);
   const itemColor = (it) => (it.id === 'mace' ? '#ff55ff' : it.glint ? '#55ffff' : '#ffffff');
   const TIERS = ['stone', 'iron', 'diamond', 'netherite'];
-  const HAND = { sword: [[5, 6, 7, 8], [1.6, 1.6, 1.6, 1.6]], axe: [[9, 9, 9, 10], [0.8, 0.9, 1, 1]], pickaxe: [[3, 4, 5, 6], [1.2, 1.2, 1.2, 1.2]], mace: [[6], [0.6]] };
+  const HAND = { sword: [[5, 6, 7, 8], [1.6, 1.6, 1.6, 1.6]], axe: [[9, 9, 9, 10], [0.8, 0.9, 1, 1]], pickaxe: [[3, 4, 5, 6], [1.2, 1.2, 1.2, 1.2]], mace: [[6], [0.6]],
+    trident: [[9], [1.1]], spear: [[2, 3, 4, 5], [1.33, 1.05, 0.95, 0.87]] };
   function tipLines(it) {
-    const stats = HAND[kindOf(it)], tier = Math.max(0, TIERS.indexOf(it.id.split('_')[0]));
+    const stats = HAND[kindOf(it)], tier = stats && stats[0].length > 1 ? Math.max(0, TIERS.indexOf(it.id.split('_')[0])) : 0;
     const lines = [[{ t: itemName(it), c: itemColor(it), ...(it.name && { i: 1 }) }], ...it.enchants.map((e) => [{ t: e, c: '#aaaaaa' }])];
     if (stats) {
       lines.push([], [{ t: 'When in Main Hand:', c: '#aaaaaa' }],
@@ -366,30 +382,37 @@
 
   // What kills players besides each other: [what the dashboard calls it, the game's death message].
   const MOB_DEATHS = [
-    ['Creeper', 'was blown up by Creeper'], ['Zombie', 'was slain by Zombie'], ['Skeleton', 'was shot by Skeleton'],
-    ['Drowning', 'drowned'], ['Fall', 'fell from a high place'], ['Fall', 'hit the ground too hard'],
-    ['Witch', 'was killed by Witch using magic'], ['Enderman', 'was slain by Enderman'], ['Fire', 'burned to death'],
-    ['Warden', 'was obliterated by a sonically-charged shriek whilst trying to escape Warden'], ['Cactus', 'was pricked to death'],
-    ['Anvil', 'was squashed by a falling anvil'], ['Drowned', 'was impaled by Drowned'], ['Lava', 'tried to swim in lava'],
-    ['Fireworks', 'went off with a bang'], ['Pillager', 'was shot by Pillager'], ['Piglin Brute', 'was slain by Piglin Brute'],
-    ['Ghast', 'was fireballed by Ghast'], ['Bee', 'was stung to death'], ['Void', 'fell out of the world'],
-    ['Starvation', 'starved to death'], ['Suffocation', 'suffocated in a wall'], ['Freezing', 'was frozen to death'],
-    ['Lightning', 'was struck by lightning'], ['Elytra', 'experienced kinetic energy'], ['Vindicator', 'was slain by Vindicator'],
-    ['Evoker', 'was killed by Evoker using magic'], ['Breeze', 'was shot by Breeze'], ['Lava', 'discovered the floor was lava'],
-    ['Sweet Berry Bush', 'was poked to death by a sweet berry bush'], ['Fall', 'fell off some vines'], ['Hoglin', 'was slain by Hoglin'],
+    ['Creeper', 'was blown up by Creeper'], ['Fall', 'fell from a high place'], ['Wither Skeleton', 'was slain by Wither Skeleton'],
+    ['Enderman', 'was slain by Enderman'], ['Lava', 'tried to swim in lava'], ['Warden', 'was obliterated by a sonically-charged shriek whilst trying to escape Warden'],
+    ['Piglin Brute', 'was slain by Piglin Brute'], ['Void', 'fell out of the world'], ['Wither', 'withered away'], ['Ghast', 'was fireballed by Ghast'],
+    ['Shulker', 'was shot by Shulker'], ['Blaze', 'was fireballed by Blaze'], ['Breeze', 'was shot by Breeze'], ['Fall', 'hit the ground too hard'],
+    ['Skeleton', 'was shot by Skeleton'], ['Witch', 'was killed by Witch using magic'], ['Drowned', 'was impaled by Drowned'], ['Vindicator', 'was slain by Vindicator'],
+    ['Evoker', 'was killed by Evoker using magic'], ['Pillager', 'was shot by Pillager'], ['Hoglin', 'was slain by Hoglin'], ['Guardian', 'was slain by Guardian'],
+    ['Ender Dragon', 'was slain by Ender Dragon'], ['Fireworks', 'went off with a bang'], ['Anvil', 'was squashed by a falling anvil'],
+    ['Lava', 'discovered the floor was lava'], ['Fire', 'burned to death'], ['Drowning', 'drowned'], ['Zombie', 'was slain by Zombie'],
+    ['Lightning', 'was struck by lightning'], ['Suffocation', 'suffocated in a wall'], ['Freezing', 'was frozen to death'], ['Bee', 'was stung to death'],
+    ['Cactus', 'was pricked to death'], ['Sweet Berry Bush', 'was poked to death by a sweet berry bush'],
+    ['Elytra', 'experienced kinetic energy'], // only whoever flies
   ];
+  const diesOf = (name) => MOB_DEATHS.filter(([cause]) => cause !== 'Elytra' || flies(name));
   // Every death this season, oldest first: { who, by (the player who did it), cause (anything else) }.
-  // Before today: who killed whom how often, and a few deaths each to the world, more for the less geared.
+  // Before today: who killed whom how often (the better geared win more), and each one's deaths to the
+  // world: fewer for those further along, and the kind their days bring (the flier's crashes, the End's void).
   const DEATHS = [];
-  for (const [by, who, n] of [['Pebble_', 'kestrel', 5], ['Pebble_', 'nightowl_', 3], ['Pebble_', 'Saltwater', 3], ['Pebble_', 'Quartzy', 2],
-    ['nightowl_', 'Pebble_', 2], ['nightowl_', 'kestrel', 3], ['nightowl_', 'Saltwater', 2], ['kestrel', 'Saltwater', 2], ['kestrel', 'nightowl_', 2],
-    ['kestrel', 'minty', 1], ['Saltwater', 'kestrel', 1], ['Saltwater', 'Quartzy', 2], ['Quartzy', 'minty', 1], ['minty', 'oakleaf', 1]]) {
+  for (const [by, who, n] of [['Pebble_', 'kestrel', 3], ['Pebble_', 'nightowl_', 3], ['Pebble_', 'Saltwater', 2], ['Pebble_', 'Quartzy', 2],
+    ['nightowl_', 'Pebble_', 3], ['nightowl_', 'kestrel', 3], ['nightowl_', 'Saltwater', 2], ['nightowl_', 'Quartzy', 1],
+    ['kestrel', 'Pebble_', 2], ['kestrel', 'nightowl_', 3], ['kestrel', 'Saltwater', 2], ['kestrel', 'minty', 1], ['kestrel', 'oakleaf', 1],
+    ['Saltwater', 'kestrel', 2], ['Saltwater', 'Quartzy', 2], ['Saltwater', 'oakleaf', 1], ['Quartzy', 'Saltwater', 1], ['Quartzy', 'minty', 1],
+    ['oakleaf', 'minty', 1], ['minty', 'oakleaf', 1], ['minty', 'dandelion', 1]]) {
     for (let i = 0; i < n; i++) DEATHS.push({ who, by });
   }
+  const USUAL = { kestrel: ['Elytra', 'Elytra', 'Fall'], nightowl_: ['Void', 'Shulker', 'Enderman'], Pebble_: ['Wither', 'Warden'],
+    Saltwater: ['Drowned', 'Guardian'], oakleaf: ['Lava', 'Piglin Brute'], Quartzy: ['Wither Skeleton'] };
   for (const p of PLAYERS) {
-    const r = rng(`${p.name}:deaths`);
-    const n = (GEAR[p.name].trim ? 2 : 5) + Math.floor(r() * 5);
-    for (let i = 0; i < n; i++) DEATHS.push({ who: p.name, cause: MOB_DEATHS[Math.floor(r() * 16)][0] });
+    const r = rng(`${p.name}:deaths`), list = diesOf(p.name).slice(0, 23);
+    for (const cause of USUAL[p.name] ?? []) DEATHS.push({ who: p.name, cause });
+    const n = [0, 6, 3, 1][stageOf(p.name)] + Math.floor(r() * 4);
+    for (let i = 0; i < n; i++) DEATHS.push({ who: p.name, cause: list[Math.floor(r() * list.length)][0] });
   }
   // everyone's kills and deaths (app.js, combatPlayers)
   const fighters = () => PLAYERS.map((p) => {
@@ -467,18 +490,35 @@
     return `${fmt(from, { ...md, ...hm })} – ${fmt(to, sameDay ? hm : { ...md, ...hm })}`;
   }
 
+  // how far paging moved the time axis, in widths of the old range: -1 is a whole width earlier (app.js, pageShift)
+  function pageShift(prev, w, dir) {
+    if (!dir) return 0;
+    const [a0, a1] = spanOf(prev), [b0] = spanOf(w);
+    return Math.max(-1, Math.min(1, (b0 - a0) / (a1 - a0))) || dir;
+  }
+  let syncCtl = () => {}; // puts the range control in step with `win`, once the control's built
+
   // [calendar] [presets | Custom] [‹] [›] (app.js, rangeControl)
   {
     const host = $('w-ctl');
     let pop = null;
-    const set = (w) => { win = w; close(); sync(); drawTimeline(); };
+    // dir: which way an arrow stepped (the chart then scrolls that way), 0 for a range picked outright
+    const set = (w, dir = 0) => {
+      const shift = pageShift(win, w, dir);
+      chartWaits = false;
+      win = w;
+      close();
+      sync();
+      drawTimeline(shift);
+    };
+    syncCtl = sync;
     const cal = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Choose a date range', title: 'Choose a date range', onclick: () => toggle() },
       icon(['M2.5 4.5h11v9h-11z', 'M2.5 7.5h11', 'M5.5 2.5v3', 'M10.5 2.5v3']));
     const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Time range' });
     const presets = PRESETS.map((p) => [p.v, seg.appendChild(h('button', { type: 'button', text: p.v, onclick: () => set({ count: p.count, end: null, preset: p.v }) }))]);
     const custom = seg.appendChild(h('button', { type: 'button', text: 'Custom', hidden: true, onclick: () => toggle() }));
-    const prev = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Earlier', title: 'Earlier', onclick: () => set(shiftWindow(win, -1)) }, icon(['M10 3.5 5.5 8l4.5 4.5']));
-    const next = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Later', title: 'Later', onclick: () => set(shiftWindow(win, 1)) }, icon(['M6 3.5 10.5 8 6 12.5']));
+    const prev = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Earlier', title: 'Earlier', onclick: () => set(shiftWindow(win, -1), -1) }, icon(['M10 3.5 5.5 8l4.5 4.5']));
+    const next = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Later', title: 'Later', onclick: () => set(shiftWindow(win, 1), 1) }, icon(['M6 3.5 10.5 8 6 12.5']));
     host.replaceChildren(cal, seg, prev, next);
     function sync() {
       for (const [v, b] of presets) b.setAttribute('aria-pressed', String(win.preset === v));
@@ -529,19 +569,24 @@
 
   // Who was on, minute by minute; over ranges longer than six hours, with the hour's average as a
   // second line; over ranges longer than eight days, each hour's average and peak (app.js, loadTimeline).
-  function drawTimeline() {
-    const [from, to] = spanOf(win);
+  // slide: how far the time axis just moved, in widths (paging with the arrows): the chart scrolls there.
+  // Until the chart has been scrolled to, it waits a few hours back, and rolls up to now as it arrives.
+  const ROLL = 0.38; // of the range
+  let chartWaits = !reduced();
+  function drawTimeline(slide = 0, slideOpts) {
+    let [from, to] = spanOf(win);
+    if (chartWaits) { const back = Math.round((to - from) * ROLL); from -= back; to -= back; }
     $('w-label').textContent = windowLabel(win);
     const c1 = 'var(--series-1)', c2 = 'var(--series-2)', c3 = 'var(--series-3)';
     const key = (color, text) => h('span', {}, h('span', { class: 'key', style: `background:${color}` }), text);
     const lo = Math.max(START, from - 30), hi = Math.min(now() + 1, to + 31); // a little past each edge, for the average
-    const each = counts(lo, hi);
+    const each = hi > lo ? counts(lo, hi) : [];
     let opts;
     if (to - from <= 8 * DAY) {
       const pts = each.map((v, i) => ({ t: lo + i, v }));
       const series = [{ name: 'online', cls: '1', color: c1, area: true, pts }];
       const trend = to - from > 361;
-      if (trend) {
+      if (trend && pts.length) {
         // the average over the hour around each minute
         const avg = [];
         let a = 0, b = 0, sum = 0;
@@ -573,20 +618,66 @@
       };
       $('w-legend').replaceChildren(key(c1, 'Average online'), key(c3, 'Peak online'));
     }
-    lineChart($('w-chart'), opts);
+    lineChart($('w-chart'), opts, slide, slideOpts);
   }
 
-  // The chart itself (app.js, drawLineChart), without the paging slide or pinch zoom.
+  // Paging with ‹ ›: the old drawing scrolls out as the new one scrolls in from the side it came from,
+  // like one long strip behind the plot's edges, by exactly the time the range moved; the y-axis stays
+  // where it is. Where the two cover the same time only the new one shows (app.js, slideIn).
+  const SLIDE = { duration: 450, easing: 'cubic-bezier(0.65, 0, 0.35, 1)' };
+  let clips = 0;
+  function slideIn(root, old, shift, opts = SLIDE) {
+    const cur = root.firstElementChild;
+    if (!old || !cur || !shift || reduced()) return;
+    const W = root.clientWidth;
+    Object.assign(old.style, { position: 'absolute', left: '0', top: '0', pointerEvents: 'none' });
+    root.style.overflow = 'hidden';
+    root.sliding = (root.sliding || 0) + 1;
+    root.append(old);
+    const oldBody = old.querySelector('.slide-clip > .slide'), curBody = cur.querySelector('.slide-clip > .slide');
+    const box = root.plotBox, strip = !!(oldBody && curBody && box);
+    const dist = strip ? Math.max(1, Math.max(280, W) - box.l - box.r) : W;
+    const fade = !strip && Math.abs(shift) < 0.999;
+    const made = [];
+    if (strip) {
+      const clip = (svg, node, x0, x1) => {
+        const id = `w-slide-${++clips}`;
+        const c = sv('clipPath', { id }, sv('rect', { x: x0, y: -50, width: Math.max(0, x1 - x0), height: 5000 }));
+        svg.append(c);
+        node.setAttribute('clip-path', `url(#${id})`);
+        made.push([c, node]);
+      };
+      // both drawings stay inside the plot, and the old one shows only the time the new one doesn't cover
+      for (const [svg, body] of [[old, oldBody], [cur, curBody]]) clip(svg, body.parentNode, box.l - 1, box.l + dist + 1);
+      if (shift < 0) clip(old, oldBody, box.l + dist * (1 + shift), box.l + dist + 1);
+      else clip(old, oldBody, box.l - 1, box.l + dist * shift);
+    }
+    // earlier (a negative shift) moves what's drawn to the right, like scrolling back along a timeline
+    (strip ? oldBody : old).animate([{ transform: 'translateX(0)', opacity: 1 }, { transform: `translateX(${-shift * dist}px)`, opacity: fade ? 0 : 1 }], opts);
+    (strip ? curBody : cur).animate([{ transform: `translateX(${shift * dist}px)`, opacity: fade ? 0 : 1 }, { transform: 'translateX(0)', opacity: 1 }], opts).finished
+      .catch(() => {})
+      .finally(() => {
+        old.remove();
+        for (const [c, node] of made) { c.remove(); node.removeAttribute('clip-path'); }
+        if (!--root.sliding) root.style.overflow = '';
+      });
+  }
+
+  // The chart itself (app.js, drawLineChart). The y-axis is a group of its own, and everything that
+  // moves with time (the hour labels, the lines, the crosshair) another, .slide, so paging can scroll it.
   // opts: { from, to, step, series: [{ name, cls, color, area, pts: [{ t, v }] }], fmtValue, fmtTime, whoAt(t) }
-  function lineChart(root, opts) {
+  function lineChart(root, opts, slide = 0, slideOpts) {
     const { from, to, step, series } = opts, pts0 = series[0].pts;
+    const old = slide ? root.firstElementChild : null;
     if (root.matches(':hover')) hideTip(); // its tooltip is about a point that's being redrawn
     if (!pts0.some((p) => p.t >= from - step && p.t <= to + step)) {
       root.replaceChildren(h('div', { class: 'empty-chart', text: 'No data in this range yet' }));
+      slideIn(root, old, slide, slideOpts);
       return;
     }
     const W = Math.max(280, root.clientWidth), H = root.clientHeight || 240;
     const m = { l: 30, r: 10, t: 10, b: 24 };
+    root.plotBox = { l: m.l, r: m.r }; // for paging and pinch zoom
     const pw = W - m.l - m.r, ph = H - m.t - m.b;
     // up to the most online in the range, in steps of 5, never less than 0-10 so the scale stays steady
     let vmax = 0;
@@ -596,28 +687,30 @@
     const x = (t) => n2(m.l + ((t - from) / (to - from)) * pw), y = (v) => n2(m.t + ph - (v / ymax) * ph);
     const text = (attrs, s) => { const t = sv('text', { class: 'axis-text', ...attrs }); t.textContent = s; return t; };
     const svg = sv('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Players online over time' });
+    const yaxis = sv('g', { class: 'yaxis' }), body = sv('g', { class: 'slide' });
+    svg.append(yaxis, sv('g', { class: 'slide-clip' }, body)); // clipped to the plot while a slide is under way
 
     for (let v = 0; v <= ymax; v += 5) {
-      if (v > 0) svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'gridline' }));
-      svg.append(text({ x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }, v));
+      if (v > 0) yaxis.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'gridline' }));
+      yaxis.append(text({ x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }, v));
     }
-    svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'baseline' }));
+    yaxis.append(sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'baseline' }));
 
     // x ticks: hours for short ranges, midnights for long ones; which get a label depends on the
-    // clock, not on where the range starts
+    // clock, not on where the range starts, so they're the same ones as the chart is scrolled along
     const days = (to - from) / DAY;
     const apart = days <= 0.6 ? 60 : days <= 1.5 ? 180 : DAY;
     const every = Math.max(1, Math.ceil((to - from) / apart / Math.max(2, Math.floor(pw / 80))));
     for (let t = Math.ceil(from / 60) * 60; t < to; t += 60) {
       const hour = hourOf(t);
       if (!(days <= 0.6 || (days <= 1.5 ? hour % 3 === 0 : hour === 0)) || Math.round(t / apart) % every) continue;
-      svg.append(text({ x: x(t), y: H - 6, 'text-anchor': 'middle' },
+      body.append(text({ x: x(t), y: H - 6, 'text-anchor': 'middle' },
         days <= 1.5 ? hourName(hour, false) : fmt(t, days <= 8 ? { weekday: 'short' } : { month: 'short', day: 'numeric' })));
     }
 
     // the lines, clipped to the plot (a little is drawn past each edge)
     const plot = sv('g', { 'clip-path': 'url(#w-chart-clip)' });
-    svg.append(sv('clipPath', { id: 'w-chart-clip' }, sv('rect', { x: m.l, y: 0, width: pw, height: m.t + ph + 1 })), plot);
+    body.append(sv('clipPath', { id: 'w-chart-clip' }, sv('rect', { x: m.l, y: 0, width: pw, height: m.t + ph + 1 })), plot);
     for (const s of series) {
       let line = '', area = '', first = null, last = null;
       const closeArea = () => { if (s.area && first) area += `L${x(last.t)},${y(0)}L${x(first.t)},${y(0)}Z`; };
@@ -643,8 +736,9 @@
     const cross = sv('line', { y1: m.t, y2: m.t + ph, class: 'crosshair', visibility: 'hidden' });
     const markers = series.map((s) => sv('circle', { r: 4, style: `fill:${s.color}`, class: 'marker', visibility: 'hidden' }));
     const hit = sv('rect', { x: m.l, y: 0, width: pw, height: H, fill: 'transparent' });
-    svg.append(cross, ...markers, hit);
+    body.append(cross, ...markers, hit);
     const move = (e) => {
+      if (root.sliding) return;
       const t = from + ((e.clientX - svg.getBoundingClientRect().left - m.l) / pw) * (to - from);
       const i = Math.max(0, Math.min(pts0.length - 1, Math.round((t - pts0[0].t) / step)));
       const p = pts0[i], px = x(p.t);
@@ -671,11 +765,90 @@
     hit.addEventListener('pointerdown', move);
     hit.addEventListener('pointerleave', leave);
     root.replaceChildren(svg);
+    slideIn(root, old, slide, slideOpts);
+  }
+
+  // Pinch to zoom the chart's range around the point under the fingers, and scroll sideways to move
+  // along it (app.js, pinchZoom): a trackpad pinch (Ctrl+wheel in most browsers, gesture events in
+  // Safari), Ctrl+scroll with a mouse, or two fingers. Each step is worked out from where the gesture
+  // started. Everything's already on the page here, so the chart is simply drawn again each frame.
+  {
+    const root = $('w-chart');
+    const MIN = 30, MAX = 90 * DAY;
+    let g = null, idle = 0, raf = 0;
+    const plotWidth = () => { const { l, r } = root.plotBox || { l: 0, r: 0 }; return [l, Math.max(1, root.clientWidth - l - r)]; };
+    const begin = (clientX) => {
+      if (g) return;
+      const [from, to] = spanOf(win), [l, pw] = plotWidth();
+      g = { from, to, f: Math.min(1, Math.max(0, (clientX - root.getBoundingClientRect().left - l) / pw)), scale: 1, shift: 0 };
+      hideTip();
+    };
+    const span = () => Math.min(MAX, Math.max(MIN, (g.to - g.from) * g.scale));
+    // the range the fingers ask for right now: never past now, nor before the server's first day
+    const wanted = () => {
+      const at = g.from + g.f * (g.to - g.from), t = now();
+      let from = at - g.f * span() + g.shift, to = from + span();
+      if (to > t) { from -= to - t; to = t; }
+      if (from < START && to < t) { to = Math.min(t, to + START - from); from = START; }
+      return [from, to];
+    };
+    const apply = () => {
+      raf = 0;
+      if (!g) return;
+      const [from, to] = wanted().map(Math.round);
+      const count = to - from, end = to >= now() - 1 ? null : to;
+      if (win.day == null && win.count === count && win.end === end) return;
+      win = { count, end, preset: PRESETS.find((p) => p.count === count)?.v ?? 'custom' };
+      syncCtl();
+      drawTimeline();
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    const panBy = (px) => {
+      const base = g.from + g.f * (g.to - g.from) - g.f * span(); // where the range starts unmoved
+      g.shift += (px / plotWidth()[1]) * span();
+      g.shift = wanted()[0] - base; // pushing past now or the start doesn't build up
+      kick();
+    };
+    const zoomTo = (scale) => {
+      const len = g.to - g.from;
+      g.scale = Math.min(MAX / len, Math.max(MIN / len, scale));
+      kick();
+    };
+    const end = () => { g = null; };
+
+    root.addEventListener('wheel', (e) => {
+      const sideways = !e.ctrlKey && (Math.abs(e.deltaX) > Math.abs(e.deltaY) || (e.shiftKey && e.deltaY));
+      if (!e.ctrlKey && !sideways) return; // plain scrolling is the page's
+      e.preventDefault();
+      if (chartWaits || root.sliding) return;
+      begin(e.clientX);
+      if (sideways) panBy(Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
+      else zoomTo(g.scale * Math.exp(Math.max(-50, Math.min(50, e.deltaY)) * 0.01));
+      clearTimeout(idle);
+      idle = setTimeout(end, 300);
+    }, { passive: false });
+    root.addEventListener('gesturestart', (e) => { e.preventDefault(); begin(e.clientX); });
+    root.addEventListener('gesturechange', (e) => { e.preventDefault(); if (g) zoomTo(1 / e.scale); });
+    root.addEventListener('gestureend', (e) => { e.preventDefault(); end(); });
+    let startDist = 0;
+    const dist = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    root.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 2) return;
+      g = null;
+      begin((e.touches[0].clientX + e.touches[1].clientX) / 2);
+      startDist = dist(e.touches);
+    }, { passive: true });
+    root.addEventListener('touchmove', (e) => {
+      if (e.touches.length !== 2 || !g || !startDist) return;
+      e.preventDefault();
+      zoomTo(startDist / Math.max(1, dist(e.touches)));
+    }, { passive: false });
+    root.addEventListener('touchend', (e) => { if (e.touches.length < 2 && startDist) { startDist = 0; end(); } });
   }
 
   /* ---------------- a player's page (app.js: showPlayer and what it calls) ---------------- */
 
-  const FEATURED = ['Pebble_', 'oakleaf', 'kestrel', 'Brickhouse']; // late game, mid, late, early
+  const FEATURED = ['Pebble_', 'kestrel', 'Saltwater', 'Brickhouse']; // netherite and a sword, an elytra and a mace, a trident, iron
   let current = FEATURED[0];
   let three = null, model = null;
 
@@ -699,7 +872,7 @@
     const g = h('div', { class: 'weekgrid', role: 'img', 'aria-label': 'Activity by weekday and hour' }, h('span'), DOWS.map((d) => h('span', { class: 'dlabel', text: d })));
     for (let hr = 0; hr < 24; hr++) {
       g.append(h('span', { class: 'hlabel', text: hr % 3 ? '' : hourName(hr, true) }));
-      for (let d = 0; d < 7; d++) g.append(h('span', { class: `wcell lv${level(grid[d][hr])}`, 'data-d': d, 'data-h': hr }));
+      for (let d = 0; d < 7; d++) g.append(h('span', { class: `wcell lv${level(grid[d][hr])}`, 'data-d': d, 'data-h': hr, style: `--d:${d};--h:${hr}` }));
     }
     const scale = h('div', { class: 'scale' }, h('span', { class: 'lbl', text: 'Less' }), [0, 1, 2, 3, 4].map((i) => h('span', { class: `sw lv${i}` })), h('span', { class: 'lbl', text: 'More' }));
     root.replaceChildren(g, scale);
@@ -884,8 +1057,8 @@
   /* their model (public/home3d.js, loaded as soon as the page is idle) */
   let loading = null;
   const load3d = () => (loading ??= import('/home3d.js').then((m) => { three = m; return m; }));
-  const near = (el, fn, margin = 1200) => {
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); fn(); } }, { rootMargin: `${margin}px` });
+  const near = (el, fn, within = 1200) => {
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); fn(); } }, { rootMargin: `${within}px` });
     io.observe(el);
   };
   // Fetch the 3D code and every texture the first models need while the reader is still up top, so the
@@ -910,38 +1083,41 @@
   // kind: chat | join | leave | death | advancement
   const LOG = [
     [1022, 'kestrel', 'join', 'joined the game'],
-    [1024, 'Pebble_', 'chat', 'meet at spawn for the raid'],
-    [1025, 'Pebble_', 'chat', 'bring arrows pls'],
-    [1025, 'minty', 'chat', 'omw'],
-    [1029, 'kestrel', 'advancement', 'has made the advancement [Voluntary Exile]'],
+    [1024, 'Pebble_', 'chat', 'wither fight at the arena in 5'],
+    [1025, 'Pebble_', 'chat', 'bring milk and a spare totem'],
+    [1025, 'minty', 'chat', 'omw, my first one'],
+    [1029, 'minty', 'advancement', 'has made the advancement [Withering Heights]'],
     [1030, 'oakleaf', 'join', 'joined the game'],
-    [1034, 'minty', 'death', 'was shot by Pillager', 'Pillager'],
-    [1034, 'minty', 'chat', 'NOT the crossbow guys again'],
-    [1038, 'Pebble_', 'advancement', 'has completed the challenge [Hero of the Village]'],
-    [1039, 'kestrel', 'chat', 'gg!! free emeralds'],
+    [1034, 'minty', 'death', 'withered away', 'Wither'],
+    [1034, 'minty', 'chat', 'ok so the milk was not optional'],
+    [1038, 'Pebble_', 'advancement', 'has reached the goal [Beaconator]'],
+    [1039, 'kestrel', 'chat', 'gg!! next star is mine'],
     [1040, 'dandelion', 'join', 'joined the game'],
-    [1051, 'oakleaf', 'death', 'tried to swim in lava', 'Lava'],
+    [1051, 'oakleaf', 'death', 'tried to swim in lava to escape Piglin Brute', 'Lava'],
     [1052, 'dandelion', 'chat', 'rip oak'],
-    [1052, 'oakleaf', 'chat', 'my whole inventory 😭'],
+    [1052, 'oakleaf', 'chat', 'the bastion wins again 😭'],
     [1052, 'Quartzy', 'leave', 'left the game'],
-    [1060, 'oakleaf', 'advancement', 'has made the advancement [Hot Stuff]'],
-    [1061, 'oakleaf', 'chat', 'thanks game very helpful'],
+    [1060, 'oakleaf', 'advancement', 'has made the advancement [War Pigs]'],
+    [1061, 'oakleaf', 'chat', 'got the upgrade template though'],
     [1078, 'oakleaf', 'leave', 'left the game'],
-    [1085, 'dandelion', 'advancement', 'has made the advancement [Diamonds!]'],
-    [1086, 'dandelion', 'chat', 'found a vein of 7 at y -58'],
+    [1085, 'dandelion', 'advancement', 'has made the advancement [Hidden in the Depths]'],
+    [1086, 'dandelion', 'chat', 'two ancient debris in one tnt blast'],
     [1086, 'Pebble_', 'chat', 'coords?? 👀'],
     [1087, 'dandelion', 'chat', 'nope'],
     [1114, 'dandelion', 'leave', 'left the game'],
-    [1132, 'kestrel', 'death', 'was blown up by Creeper', 'Creeper'],
+    [1132, 'kestrel', 'death', 'experienced kinetic energy', 'Elytra'],
+    [1133, 'kestrel', 'chat', 'that mountain was not there yesterday'],
     [1180, 'kestrel', 'death', 'was slain by Pebble_ using [Excalibur]', 'Pebble_'],
     [1181, 'kestrel', 'chat', 'that was an accident right'],
     [1181, 'Pebble_', 'chat', 'absolutely'],
     [1187, 'Pebble_', 'death', 'was smashed by kestrel with [Bonk]', 'kestrel'],
     [1187, 'kestrel', 'chat', 'also an accident'],
     [1212, 'Saltwater', 'join', 'joined the game'],
-    [1218, 'minty', 'advancement', 'has made the advancement [We Need to Go Deeper]'],
-    [1219, 'Saltwater', 'chat', 'portal is next to the big oak btw'],
-    [1224, 'Saltwater', 'death', 'fell from a high place', 'Fall'],
+    [1216, 'minty', 'chat', 'which portal goes to the bastion'],
+    [1219, 'Saltwater', 'chat', 'the one next to the big oak'],
+    [1222, 'minty', 'advancement', 'has made the advancement [Those Were the Days]'],
+    [1226, 'Saltwater', 'death', 'hit the ground too hard', 'Fall'],
+    [1227, 'Saltwater', 'chat', 'riptide in the rain, 10/10 until the landing'],
   ].map(([t, name, kind, text, cause]) => ({ t, name, kind, text, cause }));
   const died = (m) => DEATHS.push(byName.has(m.cause) ? { who: m.name, by: m.cause } : { who: m.name, cause: m.cause });
   LOG.filter((m) => m.kind === 'death').forEach(died);
@@ -1020,85 +1196,103 @@
     if (m.name === current && (m.kind === 'death' || m.kind === 'chat')) { renderChatTile(); renderCombat(); }
     else if (m.cause === current) renderCombat();
     if (atEnd || m.you) log.scrollTop = log.scrollHeight;
-    live?.event(m);
+    live?.event(m); // the Liveview example further down shows it happen
   }
 
   // The server keeps going while the page is open: whoever's online talks, fights, dies and earns
   // advancements every few seconds. Some chat is a short back-and-forth between two or three players.
   // Kills name the killer, who's online too. {a} {b} {c} are other online players, {x} {y} {z} coordinates.
   const CHAT = [
-    'anyone want to go to the end tonight', 'who took my elytra', 'lol', 'brb dinner', 'back', 'nice base {a}',
+    'anyone want to do an end city run tonight', 'who took the rockets from the community barrel', 'lol', 'brb dinner', 'back', 'nice base {a}',
     'can someone help me with the wither', 'gg', 'there is a creeper on my roof AGAIN', 'trading hall finally done',
-    'mending villager found!!', 'who left the nether portal unlit', 'i have 3 stacks of iron if anyone needs',
-    'come see my sheep farm', 'is the server lagging or is it me', 'just got mending on my pick',
+    'the mending villager restocked!!', 'who left the nether portal unlit', 'i have a shulker of iron if anyone needs',
+    'come see the new beacon at spawn', 'is the server lagging or is it me', 'finally got mending on my pick',
     'anyone have spare ender pearls', 'ok who keeps killing the cows', 'the ancient city is SO scary',
-    'found a trial chamber near spawn', 'i hear a warden', 'wow the sunset', 'shield up shield up',
-    'selling 64 glass for 3 diamonds', 'buying netherite scrap, paying well', 'free food at spawn, help yourselves',
+    'ominous trial chamber near spawn, who is in', 'i hear a warden', 'wow the sunset', 'shield up shield up',
+    'selling a stack of rockets for 3 diamonds', 'buying netherite scrap, paying well', 'free golden carrots at spawn, help yourselves',
     'base is at {x} {y} {z} if anyone wants to visit', 'phantoms are back, someone sleep pls', 'sleeping', 'zzz',
-    'whos up for a pvp tournament at 9', 'just tamed a wolf, his name is Biscuit', 'raid at the village!!', 'need 2 more blaze rods',
+    'whos up for a pvp tournament at 9', 'just tamed a wolf, his name is Biscuit', 'raid farm is running if anyone needs totems', 'need 2 more wither skulls',
     'the iron farm is broken again', 'who built the giant dirt tower', '{a} that was you wasnt it', 'my house is on fire help',
-    'found a mansion', 'anyone seen my horse', 'cherry grove at {x} {z}, its beautiful', 'brb mom', 'afk 5 min',
-    'just beat the ender dragon solo 😎', 'trident with riptide is so fun', 'its raining, perfect for riptide', 'who wants to go mining',
+    'found a mansion at {x} {z}', 'anyone seen my horse', 'cherry grove at {x} {z}, its beautiful', 'brb mom', 'afk 5 min',
+    'dragon respawn tonight, bring beds', 'the nether hub reaches the mansion now', 'who wants to go debris mining',
     'note to self: do not punch the iron golem', 'my villagers keep dying', 'goodnight everyone', 'morning all',
-    'new world record: 3 deaths in 2 minutes', 'please stop stealing from the community chest', 'does anyone know a good mob farm design',
-    'emergency: i am in the nether with no food', 'bastion at {x} {z}, bring gold', 'my creeper farm makes so much gunpowder lol',
+    'new world record: 3 deaths in 2 minutes', 'please stop stealing from the community barrel', 'does anyone know a good gold farm design',
+    'emergency: i am in the nether with no fire res', 'bastion at {x} {z}, bring gold', 'my creeper farm makes so much gunpowder lol',
+    'anyone got a spare silence trim', 'the guardian farm is finally afk-able', 'who has a silk touch pick i can borrow',
   ];
   const REPLY = ['same', 'lol', 'omw', 'where?', 'nice!!', 'no way', 'haha', 'ill help', 'not me', 'ok', 'coming', 'gg',
     'wait for me', 'what', 'lmaooo', 'big if true', 'rip', 'on it', 'ty', 'sus', '👀', 'brb', 'k', 'pics or it didnt happen', 'lets gooo'];
   // short conversations, said in turn by two or three players ([speaker 0/1/2, text])
   const TALKS = [
-    [[0, 'anyone have a spare diamond pick'], [1, 'yeah i have one'], [0, 'can i borrow it'], [1, 'if you give it back this time']],
+    [[0, 'anyone have a spare netherite upgrade template'], [1, 'yeah i have one'], [0, 'can i have it'], [1, 'for 7 diamonds, they dont grow on trees']],
     [[0, 'who placed tnt next to my base'], [1, 'wasnt me'], [2, 'wasnt me either'], [0, '...']],
-    [[0, 'wanna trade 10 emeralds for a mending book?'], [1, 'deal'], [0, 'meet at the market']],
-    [[0, 'how do i get to the end'], [1, 'eyes of ender, throw them and follow'], [0, 'thanks!!'], [2, 'bring a water bucket']],
+    [[0, 'wanna trade 10 emeralds for a mending book?'], [1, 'deal'], [0, 'meet at the trading hall']],
+    [[0, 'whats the fastest way to the end portal'], [1, 'nether hub, purple line'], [0, 'thanks!!'], [2, 'bring slow falling']],
     [[0, 'the warden just chased me for 5 minutes'], [1, 'did you survive'], [0, 'barely'], [2, 'skill issue']],
-    [[0, 'coords for the stronghold?'], [1, '{x} {z}'], [0, 'omw']],
-    [[0, 'i found 12 diamonds'], [1, 'share??'], [0, 'no'], [1, 'rude']],
+    [[0, 'coords for the ancient city?'], [1, '{x} {z}'], [0, 'omw']],
+    [[0, 'found 4 ancient debris'], [1, 'share??'], [0, 'no'], [1, 'rude']],
     [[0, 'server restart soon?'], [1, 'idk ask the admin'], [2, 'maybe in an hour']],
     [[0, 'who wants to build a castle together'], [1, 'me!'], [2, 'me too'], [0, 'meet at spawn in 10']],
-    [[0, 'lost my whole inventory to lava'], [1, 'f'], [2, 'f'], [0, 'thanks for the support']],
-    [[0, 'my farm finally works'], [1, 'which one'], [0, 'the auto sugar cane'], [1, 'nice!']],
+    [[0, 'lost a full shulker to the void'], [1, 'f'], [2, 'f'], [0, 'thanks for the support']],
+    [[0, 'gold farm finally works'], [1, 'rates?'], [0, 'enough to never mine gold again'], [1, 'nice!']],
     [[0, 'can someone sleep, its night'], [1, 'sleeping'], [2, 'sleeping']],
-    [[0, 'just got killed by a baby zombie'], [1, 'classic'], [2, 'they are the worst']],
-    [[0, 'anyone want to raid an ocean monument'], [1, 'what do we need'], [0, 'water breathing and prayers'], [1, 'im in']],
+    [[0, 'a baby zombie just took half my hearts'], [1, 'classic'], [2, 'they are the worst']],
+    [[0, 'anyone want to clear an ocean monument'], [1, 'what do we need'], [0, 'water breathing and milk'], [1, 'im in']],
+    [[0, 'who has shulker shells to spare'], [1, 'how many'], [0, 'like 6'], [1, 'check the barrel at spawn']],
   ];
-  // Killed by another player. The game names the weapon only when it has a name of its own.
+  // Killed by another player. The game names the weapon only when it has a name of its own, and says
+  // how by the kind of weapon: smashed with a mace, impaled on a trident, speared.
   const PVP = ['was slain by {a}', 'was slain by {a}', 'was shot by {a}', 'was knocked into the void by {a}', 'was doomed to fall by {a}',
     'walked into fire while fighting {a}', 'drowned while trying to escape {a}'];
   function killedBy(a) {
-    const it = gearOf(byName.get(a)).carry[0];
+    const it = gearOf(byName.get(a)).carry[0], kind = kindOf(it);
     if (!it.name || Math.random() < 0.3) return any(PVP).replace('{a}', a);
-    return it.id === 'mace' ? `was smashed by ${a} with [${it.name}]` : `was slain by ${a} using [${it.name}]`;
+    return kind === 'mace' ? `was smashed by ${a} with [${it.name}]` : kind === 'trident' ? `was impaled by ${a} with [${it.name}]`
+      : kind === 'spear' ? `was speared by ${a} using [${it.name}]` : `was slain by ${a} using [${it.name}]`;
   }
-  // [frame, title, what it's for]: the game's own advancements (frame: task, goal or challenge)
+  // [frame, title, what it's for, from which stage, up to which]: the game's own advancements (frame: task,
+  // goal or challenge). While the page is open a player earns only ones that fit how far along they are:
+  // nobody in netherite mines their first diamond.
   const ADVANCEMENTS = [
-    ['task', 'Stone Age', 'Mine Stone with your new Pickaxe'], ['task', 'Getting an Upgrade', 'Construct a better Pickaxe'],
-    ['task', 'Acquire Hardware', 'Smelt an Iron Ingot'], ['task', 'Suit Up', 'Protect yourself with a piece of iron armor'],
-    ['task', 'Hot Stuff', 'Fill a Bucket with lava'], ['task', "Isn't It Iron Pick", 'Upgrade your Pickaxe'],
-    ['task', 'Not Today, Thank You', 'Deflect a projectile with a Shield'], ['task', 'Ice Bucket Challenge', 'Obtain a block of Obsidian'],
-    ['task', 'Diamonds!', 'Acquire diamonds'], ['task', 'We Need to Go Deeper', 'Build, light and enter a Nether Portal'],
-    ['task', 'Cover Me with Diamonds', 'Diamond armor saves lives'], ['task', 'Enchanter', 'Enchant an item at an Enchanting Table'],
-    ['task', 'Eye Spy', 'Follow an Eye of Ender'], ['task', 'Into Fire', 'Relieve a Blaze of its rod'],
-    ['task', 'Hidden in the Depths', 'Obtain Ancient Debris'], ['task', 'Remote Getaway', 'Escape the island'],
-    ['task', 'Monster Hunter', 'Kill any hostile monster'], ['task', 'Sniper Duel', 'Kill a Skeleton from at least 50 meters away'],
-    ['task', 'Voluntary Exile', 'Kill a raid captain. Maybe consider staying away from villages for the time being...'],
-    ['task', "Who's the Pillager Now?", 'Give a Pillager a taste of their own medicine'], ['task', 'Bullseye', 'Hit the bullseye of a Target block from at least 30 meters away'],
-    ['task', 'A Seedy Place', 'Plant a seed and watch it grow'], ['task', 'Best Friends Forever', 'Tame an animal'],
+    ['task', 'Into Fire', 'Relieve a Blaze of its rod', 1, 1], ['task', 'Eye Spy', 'Follow an Eye of Ender', 1, 1],
+    ['task', 'Crafting a New Look', 'Craft a trimmed armor at a Smithing Table', 1, 1],
+    ['task', 'Those Were the Days', 'Enter a Bastion Remnant', 1, 2], ['task', 'War Pigs', 'Loot a Chest in a Bastion Remnant', 1, 2],
+    ['task', 'Hidden in the Depths', 'Obtain Ancient Debris', 1, 2], ['goal', 'Free the End', 'Good luck', 1, 2],
+    ['task', 'Withering Heights', 'Summon the Wither', 1, 2], ['task', 'Spooky Scary Skeleton', "Obtain a Wither Skeleton's skull", 1, 2],
+    ['task', 'Remote Getaway', 'Escape the island', 2, 2], ['goal', 'The City at the End of the Game', 'Go on in, what could happen?', 2, 2],
+    ['goal', "Sky's the Limit", 'Find Elytra', 2, 2], ['challenge', 'Cover Me in Debris', 'Get a full suit of Netherite armor', 2, 2],
+    ['task', 'Bring Home the Beacon', 'Construct and place a Beacon', 2, 2],
+    ['task', 'Great View From Up Here', 'Levitate up 50 blocks from the attacks of a Shulker', 2, 3],
+    ['goal', 'You Need a Mint', "Collect Dragon's Breath in a Glass Bottle", 2, 3], ['goal', 'Revaulting', 'Unlock an Ominous Vault with an Ominous Trial Key', 2, 3],
+    ['challenge', 'Blowback', 'Kill a Breeze with a deflected Breeze-shot Wind Charge', 2, 3],
+    ['challenge', 'A Furious Cocktail', 'Have every potion effect applied at the same time', 2, 3],
+    ['goal', 'Beaconator', 'Bring a Beacon to full power', 3, 3], ['goal', 'The End... Again...', 'Respawn the Ender Dragon', 3, 3],
+    ['goal', 'The Next Generation', 'Hold the Dragon Egg', 3, 3], ['goal', 'Postmortal', 'Use a Totem of Undying to cheat death', 'totem_of_undying'],
+    ['challenge', 'How Did We Get Here?', 'Have every effect applied at the same time', 3, 3],
+    ['challenge', 'Adventuring Time', 'Discover every biome', 3, 3], ['challenge', 'Monsters Hunted', 'Kill one of every hostile monster', 3, 3],
+    ['challenge', 'Smithing with Style', 'Apply these smithing templates at least once: Spire, Snout, Rib, Ward, Silence, Vex, Tide, Wayfinder', 3, 3],
+    ['challenge', 'Serious Dedication', 'Use a Netherite Ingot to upgrade a Hoe, and then reevaluate your life choices', 3, 3],
+    // any time
+    ['challenge', 'Sniper Duel', 'Kill a Skeleton from at least 50 meters away'], ['challenge', 'Bullseye', 'Hit the bullseye of a Target block from at least 30 meters away'],
+    ['task', "Who's the Pillager Now?", 'Give a Pillager a taste of their own medicine'], ['challenge', 'Arbalistic', 'Kill five unique mobs with one crossbow shot'],
     ['task', 'Sticky Situation', 'Jump into a Honey Block to break your fall'], ['task', 'Total Beelocation', 'Move a Bee Nest, with 3 Bees inside, using Silk Touch'],
-    ['task', 'Sneak 100', 'Sneak near a Sculk Sensor or Warden to prevent it from detecting you'],
-    ['task', 'Under Lock and Key', 'Unlock a Vault with a Trial Key'], ['task', 'Respecting the Remnants', 'Brush a Suspicious block to obtain a Pottery Sherd'],
+    ['task', 'Sneak 100', 'Sneak near a Sculk Sensor or Warden to prevent it from detecting you'], ['task', 'It Spreads', 'Kill a mob near a Sculk Catalyst'],
+    ['task', 'Minecraft: Trial(s) Edition', 'Step foot in a Trial Chamber'], ['task', 'Under Lock and Key', 'Unlock a Vault with a Trial Key'],
+    ['task', 'Who Needs Rockets?', 'Use a Wind Charge to launch yourself upward 8 blocks'],
+    ['task', 'Respecting the Remnants', 'Brush a Suspicious block to obtain a Pottery Sherd'], ['task', 'Smells Interesting', 'Obtain a Sniffer Egg'],
     ['task', 'Crafters Crafting Crafters', 'Be near a Crafter when it crafts a Crafter'], ['task', 'The Power of Books', 'Read the power signal of a Chiseled Bookshelf using a Comparator'],
-    ['task', 'Smells Interesting', 'Obtain a Sniffer Egg'], ['task', 'Country Lode, Take Me Home', 'Use a Compass on a Lodestone'],
-    ['goal', 'Zombie Doctor', 'Weaken and then cure a Zombie Villager'], ['goal', 'Free the End', 'Good luck'],
-    ['goal', "Sky's the Limit", 'Find Elytra'], ['goal', 'The City at the End of the Game', 'Go on in, what could happen?'],
-    ['goal', 'The Next Generation', 'Hold the Dragon Egg'],
+    ['task', 'Country Lode, Take Me Home', 'Use a Compass on a Lodestone'], ['task', 'Star Trader', 'Trade with a Villager at the build height limit'],
+    ['task', 'Caves & Cliffs', 'Free fall from the top of the world (build limit) to the bottom of the world and survive'],
+    ['task', 'Feels Like Home', 'Take a Strider for a loooong ride on a lava lake in the Overworld'],
+    ['goal', 'Zombie Doctor', 'Weaken and then cure a Zombie Villager'], ['challenge', 'Two by Two', 'Breed all the animals!'],
     ['challenge', 'Hero of the Village', 'Successfully defend a village from a raid'], ['challenge', 'Return to Sender', 'Destroy a Ghast with a fireball'],
-    ['challenge', 'Over-Overkill', 'Deal 50 hearts of damage in a single hit using the Mace'], ['challenge', 'Arbalistic', 'Kill five unique mobs with one crossbow shot'],
-    ['challenge', 'Adventuring Time', 'Discover every biome'], ['challenge', 'How Did We Get Here?', 'Have every effect applied at the same time'],
-    ['challenge', 'Two by Two', 'Breed all the animals!'], ['challenge', 'Cover Me in Debris', 'Get a full suit of Netherite armor'],
-    ['challenge', 'Monsters Hunted', 'Kill one of every hostile monster'],
-    ['challenge', 'Serious Dedication', 'Use a Netherite Ingot to upgrade a Hoe, and then reevaluate your life choices'],
+    ['challenge', 'Subspace Bubble', 'Use the Nether to travel 7 km in the Overworld'],
+    ['challenge', 'Uneasy Alliance', 'Rescue a Ghast from the Nether, bring it safely home to the Overworld... and then kill it'],
+    ['challenge', 'Over-Overkill', 'Deal 50 hearts of damage in a single hit using the Mace', 'mace'],
   ];
+  // (an item in place of the stages: only whoever has it on them)
+  const earns = (name) => ADVANCEMENTS.filter(([, , , lo = 1, hi = 3]) => (typeof lo === 'string'
+    ? GEAR[name].off === lo || GEAR[name].carry.some(([id]) => id === lo) : lo <= stageOf(name) && stageOf(name) <= hi));
   const ADV_BY_TITLE = new Map(ADVANCEMENTS.map(([frame, name, desc]) => [name, { frame, title: name, desc }]));
   const ADV_WORDS = { task: 'has made the advancement', goal: 'has reached the goal', challenge: 'has completed the challenge' };
 
@@ -1125,10 +1319,10 @@
       if (others.length && Math.random() < 0.5) later(1200 + Math.random() * 1500, () => add({ kind: 'chat', name: others[0], text: any(REPLY) }));
     } else if (roll < 0.82) {
       if (others.length && Math.random() < 0.35) add({ kind: 'death', name: who, text: killedBy(others[0]), cause: others[0] });
-      else { const [cause, text] = any(MOB_DEATHS); add({ kind: 'death', name: who, text, cause }); }
+      else { const [cause, text] = any(diesOf(who)); add({ kind: 'death', name: who, text, cause }); }
       if (Math.random() < 0.35) later(1500, () => add({ kind: 'chat', name: Math.random() < 0.5 ? who : (others[0] ?? who), text: any(['rip', 'NOOO', 'my stuff!!', 'f', 'lol', 'gg', 'not again', 'how', '💀']) }));
     } else {
-      const [frame, name] = any(ADVANCEMENTS);
+      const [frame, name] = any(earns(who));
       add({ kind: 'advancement', name: who, text: `${ADV_WORDS[frame]} [${name}]` });
       if (others.length && Math.random() < 0.4) later(1300, () => add({ kind: 'chat', name: others[0], text: any(['gg!', 'congrats', 'nice', 'finally lol', 'lets go!', 'gg ' + who]) }));
     }
@@ -1155,7 +1349,7 @@
     [/^(hi|hey|hello|yo|sup|hiya|howdy|heyo|hai)\b/i, ['hey! o/', 'hiii', 'yo!', 'hello from the overworld', 'hey whats up', 'o/', 'hi!! are you on the website?', 'heyyy']],
     [/\b(bye|cya|goodnight|gn|later|see ya)\b/i, ['bye!', 'cya!', 'gn!', 'see you tomorrow', 'night!', 'byeee']],
     [/\b(thanks|thank you|ty|thx)\b/i, ['np!', 'anytime', 'no problem', 'youre welcome :)', 'np np']],
-    [/\b(diamond|diamonds)\b/i, ['diamonds?? where', 'i have like 4 lol', 'check y -58, thats where i found mine', 'trade you 3 for some iron', 'no diamonds for you']],
+    [/\b(diamond|diamonds)\b/i, ['diamonds?? where', 'i have a stack somewhere lol', 'check y -58, thats where i found mine', 'trade you 3 for some rockets', 'no diamonds for you']],
     [/\b(help|stuck|lost|dying)\b/i, ['omw!', 'where are you?', 'send coords', 'coming, hold on', 'cant right now sorry', 'type your coords']],
     [/\b(coords|where|location)\b/i, ['{x} {y} {z}', 'near spawn', 'by the big oak', 'in the nether, under the fortress', 'not telling 😏']],
     [/\b(creeper|zombie|skeleton|warden|enderman)\b/i, ['RUN', 'lol good luck', 'they got me earlier too', 'shield up!', 'i hate those']],
@@ -1163,7 +1357,7 @@
     [/\b(lol|lmao|haha|xd|lmfao)\b/i, ['lol', 'haha', 'lmaooo', '😂', 'xD']],
     [/\b(gg|wp|nice|cool|awesome|wow)\b/i, ['gg', 'ty!', 'right?!', 'ikr', 'thanks :D']],
     [/\b(come|join|online|play)\b/i, ['im on rn!', 'join us at spawn', 'maybe later', 'already on', 'cant right now, homework']],
-    [/\b(website|site|web|page|browser)\b/i, ['wait you can type from the website??', 'this website is so cool', 'the stats page says im on 55 hours lol', 'how do i get on the site']],
+    [/\b(website|site|web|page|browser)\b/i, ['wait you can type from the website??', 'this website is so cool', 'the stats page knows how long i was afk lol', 'how do i get on the site']],
     [/\b(who|you)\b.*\?$/i, ['its me, {n}', 'just a player', 'idk who are YOU', 'a legend']],
     [/\?$/, ['no idea tbh', 'yes', 'nope', 'maybe?', 'ask {a}', 'good question', 'probably', 'idk ask the admin']],
     [/./, ['saw that in game, works!', 'who is that lol', 'hiii', 'come online we need help with the farm', 'ok!', 'lol', 'true', 'nice',
@@ -1190,8 +1384,10 @@
     if (others.length && Math.random() < 0.45) later(2400 + Math.random() * 1200, () => add({ kind: 'chat', name: others[0], text: any(CHIME).replace('{n}', who) }));
   }
 
-  // The Liveview example (public/homelive.js). Loaded as the section comes near, and told every line
-  // the chat log gets, so who's online, what's said and who dies are the same there as everywhere else.
+  /* ---------------- Liveview (public/homelive.js): the same players, walking about a little world ----------------
+     Loaded when the section comes near: from two screens away, so building the world is over before the
+     examples just above it arrive and do their own moving. It's told every line the chat log gets, so who's
+     online, what's said and who dies are the same there as everywhere else on the page. */
   near($('liveview'), async () => {
     try {
       const m = await import('/homelive.js');
@@ -1199,13 +1395,12 @@
         players: PLAYERS, online, specOf, gearOf, head, itemTip, hideTip,
         clock: () => clock(now()),
         say: sayFromPage,
+        // /kill in the example, with controls on
         kill: (name) => add({ kind: 'death', name, text: 'was killed', cause: 'Command' }),
       });
     } catch {
-      const fail = $('ld-fail');
-      if (fail) fail.hidden = false;
-      const terrain = $('ld-terrain');
-      if (terrain) terrain.textContent = '';
+      $('ld-fail').hidden = false;
+      $('ld-terrain').textContent = '';
     }
   }, 2200);
 
@@ -1315,7 +1510,7 @@
         h('td', { class: 'rank', text: String(i + 1) }),
         h('td', { class: key === 'name' ? 'sorted' : '' },
           h('div', { class: 'pname' }, head(byName.get(p.name), 22), h('a', { href: '#players', text: p.name })),
-          h('div', { class: `bar${barKey === 'deaths' ? ' bar-deaths' : ''}`, style: `width:${Math.max(1, (p[barKey] / top) * 100)}%` })),
+          h('div', { class: `bar${barKey === 'deaths' ? ' bar-deaths' : ''}`, style: `width:${Math.max(1, (p[barKey] / top) * 100)}%;--i:${i}` })),
         cell('kills', String(p.kills)),
         cell('deaths', String(p.deaths), `${p.pvpDeaths} by players · ${p.deaths - p.pvpDeaths} other`),
         cell('kd', fmtKd(p), `${p.kills} ${p.kills === 1 ? 'kill' : 'kills'} ÷ ${p.deaths} ${p.deaths === 1 ? 'death' : 'deaths'}`))))));
@@ -1371,6 +1566,149 @@
     renderTiles();
     if (isLive(win) && !$('w-chart').matches(':hover')) drawTimeline();
   }, 5000);
+
+  /* ---------------- scrolling ----------------
+     The top bar's link for the section in view is marked by a line that slides from one link to the next.
+     Each example comes up to meet the reader as it arrives: --p on it runs from 0 to 1 over that stretch
+     (public/style.css, .home-motion), and the first time it's reached it does something of its own: the
+     chart rolls up to now, numbers count up.
+     A section's heading stays beside its example; when the next one comes for its place it's flicked away
+     rather than pushed out at the speed of the page, and it springs back when the page is scrolled up again.
+     The bar's height is measured, so what sticks stops under it. */
+  {
+    const top = document.querySelector('.top'), rootEl = document.documentElement;
+    const measure = () => rootEl.style.setProperty('--top-h', `${top.offsetHeight}px`);
+    new ResizeObserver(measure).observe(top);
+    measure();
+    const nav = document.querySelector('.home-nav');
+    const links = [...nav.querySelectorAll('a[href^="#"]')].map((a) => [a, $(a.getAttribute('href').slice(1))]).filter(([, el]) => el);
+    const line = nav.appendChild(h('i', { class: 'home-nav-line', 'aria-hidden': 'true' }));
+    const hero = document.querySelector('.home-shot .home-window');
+    const arriving = [...document.querySelectorAll('.home-fvis, .home-ftext, .home-live-head, #lv-demo > .lv-world, .home-end')];
+    const heads = [...document.querySelectorAll('.home-ftext')];
+    const wide = matchMedia('(min-width: 1001px)'); // narrower than this the headings sit above their examples and don't stick
+    const motion = !reduced();
+    rootEl.classList.toggle('home-motion', motion);
+    const set = (el, name, v) => { const s = v.toFixed(3); if (el.dataset[name] !== s) { el.dataset[name] = s; el.style.setProperty(`--${name}`, s); } };
+    const ease = (t) => 1 - (1 - t) ** 3;
+
+    // the line under the current link: it slides (and stretches) to the next one; with none current it draws in to nothing
+    let marked = null;
+    const place = (a, width = a.offsetWidth) => {
+      line.style.setProperty('--x', `${a.offsetLeft + (a.offsetWidth - width) / 2}px`);
+      line.style.setProperty('--w', `${width}px`);
+    };
+    function mark(a) {
+      if (a === marked) return;
+      for (const [l] of links) l.setAttribute('aria-current', String(l === a));
+      if (a && !marked) { // from nothing: it grows out of the middle of its link
+        line.style.transition = 'none';
+        place(a, 0);
+        void line.offsetWidth;
+        line.style.transition = '';
+      }
+      if (a) place(a); else if (marked) place(marked, 0);
+      line.classList.toggle('on', !!a);
+      marked = a;
+    }
+    addEventListener('resize', () => { if (marked) place(marked); });
+    document.fonts?.ready.then(() => { if (marked) place(marked); });
+
+    let queued = false, lastY = scrollY, lastT = performance.now(), speed = 0;
+    const update = () => {
+      queued = false;
+      const vh = innerHeight, y = scrollY, t = performance.now();
+      if (t > lastT) speed = (y - lastY) / (t - lastT); // px a millisecond, down is positive
+      lastY = y;
+      lastT = t;
+      // the section whose top has passed the middle of the window; none before the first or by the end of the page
+      let current = null;
+      for (const [a, el] of links) if (el.getBoundingClientRect().top < vh * 0.5) current = a;
+      if (document.querySelector('.home-end').getBoundingClientRect().top < vh * 0.5) current = null;
+      mark(current);
+      if (!motion) return;
+      set(hero, 'p', ease(Math.min(1, y / 300)));
+      for (const el of arriving) {
+        const r = el.getBoundingClientRect();
+        if (r.top > vh * 1.2) { set(el, 'p', 0); continue; }
+        set(el, 'p', ease(Math.max(0, Math.min(1, (vh - r.top) / (vh * 0.3)))));
+      }
+      // The headings that stick. `room` is how much of the section is left under a stuck heading: at 0 the
+      // page would start pushing it up under the bar, so just before that it goes (.gone), all at once.
+      // And one that has just come to rest under the bar carries on a little, by how fast it was going.
+      const stickAt = top.offsetHeight + 22;
+      for (const el of heads) {
+        if (!wide.matches) { el.classList.remove('gone'); continue; }
+        const room = el.parentElement.getBoundingClientRect().bottom - stickAt - el.offsetHeight;
+        const gone = room < 30;
+        if (gone !== el.classList.contains('gone')) el.classList.toggle('gone', gone);
+        const stuck = !gone && el.parentElement.getBoundingClientRect().top < stickAt - 8;
+        if (stuck && el.dataset.stuck !== '1' && speed > 0.35) {
+          const far = Math.min(9, speed * 4.5);
+          el.animate([{ transform: 'translateY(0)', easing: 'ease-out' }, { transform: `translateY(${-far}px)`, offset: 0.24, easing: 'ease-in-out' },
+            { transform: `translateY(${far * 0.28}px)`, offset: 0.62, easing: 'ease-in-out' }, { transform: 'translateY(0)' }], { duration: 480, composite: 'add' });
+        }
+        el.dataset.stuck = stuck ? '1' : '0';
+      }
+    };
+    const queue = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };
+    addEventListener('scroll', queue, { passive: true });
+    addEventListener('resize', queue);
+    update();
+
+    /* what each example does the first time it's reached */
+    const arrive = (el, fn, threshold = 0.4) => {
+      const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); fn(); } }, { threshold });
+      io.observe(el);
+    };
+    // The numbers written in an element count up to what they are: "182h" from 0h, "1,204" from 0. If
+    // it's written again meanwhile (the minute passed, someone died), that stands and the counting stops.
+    const roll = (el, ms = 900, wait = 0) => {
+      const final = el.textContent;
+      if (!/\d/.test(final) || el.childElementCount) return;
+      const at = (k) => final.replace(/\d[\d,]*(?:\.\d+)?/g, (n) => {
+        const v = parseFloat(n.replace(/,/g, '')) * k;
+        return n.includes(',') ? Math.round(v).toLocaleString() : v.toFixed((n.split('.')[1] || '').length);
+      });
+      let shown = (el.textContent = at(0));
+      const t0 = performance.now() + wait;
+      const frame = (t) => {
+        if (el.textContent !== shown) return;
+        const e = Math.max(0, Math.min(1, (t - t0) / ms));
+        el.textContent = shown = e >= 1 ? final : at(ease(e));
+        if (e < 1) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    };
+    const rollAll = (root, selector, gap = 70) => [...root.querySelectorAll(selector)].forEach((el, i) => roll(el, 900, i * gap));
+    if (motion) {
+      // the Activity page: its numbers count up and whoever's online pops in, then the chart rolls up to now
+      const shot = document.querySelector('.home-shot');
+      arrive(shot.querySelector('.tiles'), () => {
+        rollAll(shot, '.tile-value');
+        [...$('w-chips').children].forEach((c, i) => { c.style.animationDelay = `${120 + i * 70}ms`; c.classList.add('chip-enter'); });
+      }, 0.6);
+      arrive($('w-chart'), () => {
+        chartWaits = false;
+        drawTimeline(ROLL, { duration: 1400, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      }, 0.55);
+      // a player's page: their numbers count up
+      arrive($('profile'), () => {
+        rollAll($('p-page'), '.tile-value, .pcb-value');
+      }, 0.3);
+      // the small cards drop in; the week fills in day by day, the table's bars grow, the password is typed
+      const more = $('more');
+      arrive(more, () => {
+        more.classList.add('in');
+        rollAll($('m-fights'), 'td.num', 40);
+        const pass = document.querySelector('.home-pass'), dots = pass.firstChild, all = dots.data;
+        dots.data = '';
+        [...all].forEach((_, i) => setTimeout(() => { dots.data = all.slice(0, i + 1); }, 700 + i * 110));
+      }, 0.25);
+    } else {
+      $('more').classList.add('in');
+    }
+  }
 
   /* ---------------- the sky: the game's clouds, sun and moon, by day and by night ----------------
      The clouds are the game's: one flat layer of see-through white slabs, laid out by the game's own

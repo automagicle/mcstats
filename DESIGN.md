@@ -296,6 +296,20 @@ What is different here and nowhere else:
 - Left out on purpose: number odometers, the chart's slide and pinch zoom, and the cards a first look doesn't need
   (advancements, the daily activity bars, the chat log's own graph).
 
+## Site analytics
+
+`/site-analytics` (operators only; [public/site-analytics.html](public/site-analytics.html), its styles inline there)
+is built from the same parts: `.page-title`, a `.seg` for the range, `.tiles`, `.card` panels in `.grid2`, small
+uppercase section labels (12px/700, `--muted`). It wears the site's green, like the other site pages.
+
+- **Two series colours only**: the accent (`--series-1`) and blue (`--accent-blue`, as `--sa-2`). Checked for colour
+  blindness in both themes; orange and amber next to green or each other are not, so a breakdown into more parts
+  (what accounts are, versions in use) is a list of **labelled horizontal bars** (`.sa-hbars`: label, an 8px bar in the
+  accent, the number, its share) rather than a stacked bar of many colours.
+- A **baseline** is a 2px dashed line in `--ink-2`, never a colour; an estimate drawn over bars is the same.
+- Bars have a 2px gap between neighbours and between stacked parts, square ends. The hover marker on a line is the
+  usual round one, with a 2px `--surface` ring.
+
 ## Add-ons
 
 Features only some servers have (Egg SMP's eggs) live in `public/addons/<id>/` with their own stylesheet, loaded

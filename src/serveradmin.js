@@ -1,7 +1,8 @@
 // Admin → Server: the server's own details, changed from its dashboard.
 //
 //   GET  /api/admin/server   { name, slug, public, has_password, accent, tab_style, addons, mod, can, … }
-//   POST /api/admin/server   any of { name, accent, tab_style, about, layout }  admins
+//   POST /api/admin/server   any of { name, accent, tab_style, about, layout, tz }  admins (tz: the time zone its
+//                                                                               times are shown in, by location)
 //                            and { icon: 'data:image/png;base64,…' | '' }     admins (a square PNG; '' removes it)
 //                            and { join_link: 'new' | 'off' }                  admins: the link that lets players in
 //                                                                               without the password (src/joinlink.js)
@@ -10,6 +11,8 @@
 //                                                                               page's commands box starts closed
 //                                                                               (src/commands.js)
 //                            and { slug, public, password + confirm }           owners
+//                            and { addon_options: { addon: { key: bool } } }   admins: the options of the add-ons it
+//                                                                               has (src/addons.js)
 //                            and { addons: [ids] }                              the site's operators
 //
 // It runs inside the server's Tenant object (src/tenant.js hands it over before the rest of the API), because
@@ -19,14 +22,14 @@
 // A new address moves the server: /<old> stops existing and cookies made for it no longer apply (they're
 // Path=/<old>), so everyone joins again at the new one. Whoever changed it gets cookies for the new address
 // with the answer. A new password ends every viewer session made with the old one; the same goes for them.
-import { json } from './util.js';
-import { loadPerms } from './roles.js';
+import { cleanTz, json } from './util.js';
+import { canManage, loadPerms } from './roles.js';
 import { forgetSlug, serverById, slugProblem } from './directory.js';
 import {
   clearCookie, cookie, DAY, hashPassword, joinLinkPath, MAX_PASSWORD, MIN_PASSWORD, passwordStamp, serverPath, signToken, VIEW_DAYS,
 } from './session.js';
 import { limit, tooMany } from './limiter.js';
-import { ADDONS, addonList } from './addons.js';
+import { ADDONS, addonList, addonOptions } from './addons.js';
 import { lookOf } from './look.js';
 import { MOD } from './modinfo.gen.js';
 import { iconFromDataUrl, layoutOf } from './layout.js';
@@ -48,6 +51,8 @@ function state(t, row, perms) {
     has_password: row.has_password !== 0,
     // the link that lets players in without typing the name and password (src/joinlink.js), as a path on this site; null when there's none
     join_link: t.joinLink() ? joinLinkPath(row.slug, t.joinLink()) : null,
+    // the zone its times are shown in, by location ("America/Los_Angeles"). Only how times read: what's recorded is the same in any zone
+    tz: t.settings.TZ_NAME || 'UTC',
     accent: look.accent,
     tab_style: look.tabs,
     // the description and icon on its Activity page, and how its pages are laid out (src/layout.js)
@@ -59,8 +64,12 @@ function state(t, row, perms) {
     // which /mcstats commands are switched off, and whether the Activity page's commands box starts closed
     commands: commandsOf(t.settings),
     addons: addonList(t.settings),
-    // what this sign-in may change: everyone here is an admin; owner adds the address, password and visibility
-    can: { owner: !!(perms.owner || perms.super), super: !!perms.super },
+    // the options of the add-ons it has, for its admins: [{ addon, key, name, about, on }]
+    addon_options: Object.entries(addonOptions(t.settings)).flatMap(([addon, opts]) =>
+      Object.entries(opts).map(([key, on]) => ({ addon, key, name: ADDONS[addon].options[key].name, about: ADDONS[addon].options[key].about, on }))),
+    // what this sign-in may change: everyone here has the admin permission; owner (an owner or admin, src/roles.js
+    // canManage) adds the address, password and visibility
+    can: { owner: canManage(perms), super: !!perms.super },
     slug_locked: slugLock(t),
     // the mod this site offers (src/modinfo.gen.js, read from mod/)
     mod: { version: MOD.version, jar: MOD.jar, jar_url: `/downloads/${MOD.jar}`, minecraft: MOD.minecraft_built, downloads: MOD.downloads },
@@ -89,7 +98,7 @@ export async function handleServerAdmin(t, request, url, who) {
   }
   if (!b || typeof b !== 'object') return json({ error: 'bad json' }, 400);
   const bad = (error, field) => json({ error, field }, 400);
-  const owner = perms.owner || perms.super;
+  const owner = canManage(perms);
   const has = (k) => b[k] !== undefined && b[k] !== null;
 
   // ---- check everything first, so a refused change leaves nothing half done ----
@@ -98,6 +107,11 @@ export async function handleServerAdmin(t, request, url, who) {
     const name = String(b.name).trim().replace(/\s+/g, ' ');
     if (!name || name.length > 60) return bad('The name is 1 to 60 characters.', 'name');
     if (name !== row.name) patch.NAME = name;
+  }
+  if (has('tz')) {
+    const tz = cleanTz(b.tz);
+    if (!tz) return bad('Pick a time zone by place, like Europe/London.', 'tz');
+    if (tz !== (t.settings.TZ_NAME || 'UTC')) patch.TZ_NAME = tz;
   }
   if (has('accent')) patch.ACCENT = String(b.accent);
   if (has('tab_style')) patch.TAB_STYLE = String(b.tab_style);
@@ -126,7 +140,7 @@ export async function handleServerAdmin(t, request, url, who) {
   }
 
   const ownerOnly = ['slug', 'public', 'password', 'banner'].filter((k) => has(k) && b[k] !== '');
-  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owner can change its address, password, who can see it, or whether the header shows.' }, 403);
+  if (ownerOnly.length && !owner) return json({ error: 'Only the server’s owners and admins can change its address, password, who can see it, or whether the header shows.' }, 403);
   if (has('addons') && !perms.super) return json({ error: 'forbidden' }, 403);
 
   const password = typeof b.password === 'string' ? b.password : '';
@@ -152,6 +166,14 @@ export async function handleServerAdmin(t, request, url, who) {
     if (!lim.ok) return tooMany(lim.retry);
   }
   if (has('addons') && (!Array.isArray(b.addons) || b.addons.some((id) => !ADDONS[id]))) return bad('unknown add-on');
+  // an add-on's options: only of an add-on the server has (or is being given in this same change)
+  if (has('addon_options')) {
+    const o = b.addon_options;
+    const on = new Set(has('addons') ? b.addons : addonList(t.settings));
+    const ok = o && typeof o === 'object' && !Array.isArray(o) && Object.entries(o).every(([id, opts]) => on.has(id) && opts && typeof opts === 'object'
+      && Object.entries(opts).every(([key, v]) => ADDONS[id]?.options?.[key] && typeof v === 'boolean'));
+    if (!ok) return bad('unknown add-on option', 'addon_options');
+  }
   if (has('join_link') && b.join_link !== 'new' && b.join_link !== 'off') return bad('expected join_link: "new" or "off"', 'join_link');
 
   // ---- then change it ----
@@ -174,6 +196,7 @@ export async function handleServerAdmin(t, request, url, who) {
     console.log(`server: ${who.email} ${b.join_link === 'new' ? 'made a new join link for' : 'turned off the join link of'} ${row.slug}`);
   }
   if (has('addons')) await t.setAddons(b.addons);
+  if (has('addon_options')) await t.setAddonOptions(b.addon_options);
   const sets = [];
   if (patch.NAME) sets.push(t.env.DIRECTORY.prepare('UPDATE servers SET name = ? WHERE id = ?').bind(patch.NAME, t.id));
   if (password) {

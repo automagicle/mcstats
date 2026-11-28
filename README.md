@@ -108,6 +108,8 @@ into the first server (`LEGACY_SLUG`, `eggsmp`) without stopping the mod:
   gives nothing on B. An mcstats **account** is signed in site-wide, but it's nobody on a server until it's a member
   there: being a member of A makes you nobody on B.
 - **Roles** are per server: `owner`, `admin`, `member` (src/roles.js), each a starting set of the five permissions.
+  Owners and admins can do the same things (the Roles tab, the address, password and visibility, Discord linking),
+  except that only an owner makes owners, and no one but a super admin changes or removes an owner.
   Every admin check asks "is this email an admin *of this server*".
 - **Caches** are per server: the `cache` table is in each server's own database, and Liveview's assets are cached
   under the server's id. Only the game's own textures and Mojang skins are shared, keyed by version and name.
@@ -173,7 +175,7 @@ log is left empty.
 
 `#/admin` (linked in the footer for admins only) is one page with a menu down the left: **Players**, **Teams**,
 **Layout**, **Server**, **Chat and deaths**, **Mod and commands**, **Connection and data**, **Analytics**, and, for
-owners, **Roles**. On a
+owners and admins, **Roles**. On a
 phone the menu is a strip that scrolls sideways. One Save bar at the bottom covers every section. It only
 appears when something is unsaved, lists each change, and puts a count on the section it belongs to. Reset
 puts that draft back. Nothing on the site changes until Save, and Save applies all of it or none of it.
@@ -189,9 +191,9 @@ Admin it is a draft on the Save bar; nothing changes until Save.
 | **Name** | admins | Shown at the top of its pages and in emails. |
 | **Icon** | admins | A square picture, dropped on the box or picked with the button, cropped to a 128px PNG. The game's own 64×64 `server-icon.png` stays sharp. It sits beside the name in the About header on Activity, and it becomes the browser tab's icon. |
 | **Description** | admins | Up to 280 characters under the name in that header. A line break starts a new line. The header stays hidden until there is an icon or a description, and Admin → Layout can switch it off altogether. |
-| **Address** (`/<address>`) | owners | Moves the server: the old address stops existing (its join link too) and everyone joins again at the new one (cookies are per address). It can't be a name the site uses or may come to use (`RESERVED` in `src/directory.js`). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
-| **Private or public** | owners | A public server can only be made private once it has a join password. |
-| **Join password** | owners | 8 characters or more. A new one makes everyone who joined with the old one join again. |
+| **Address** (`/<address>`) | owners and admins | Moves the server: the old address stops existing (its join link too) and everyone joins again at the new one (cookies are per address). It can't be a name the site uses or may come to use (`RESERVED` in `src/directory.js`). Whoever moves it is let in at the new address straight away. The first server can't be moved while the old shared `CHAT_INGEST_TOKEN` is still set, because that token finds it by its address. At most 5 moves a day. |
+| **Private or public** | owners and admins | A public server can only be made private once it has a join password. |
+| **Join password** | owners and admins | 8 characters or more. A new one makes everyone who joined with the old one join again. |
 | **Join link** | admins | One address (`/<server>/join/<token>`) that lets in whoever opens it, with no name or password to type: made, copied, replaced and turned off here, at once (not with the Save bar). A new link stops the old one working; people it already let in stay in until the join password changes. Not offered while the server is public. |
 | **Accent color** | admins | Green (the default), blue, or any color (`#rrggbb`). |
 | **Tab style** | admins | Line (the default: the current tab is greyer with a line in the accent color under it) or Frame (set in, framed, no color). |
@@ -487,6 +489,7 @@ The jar is in `public/downloads/` (kept in git, so a deploy from a push serves i
 download, what the server needs (read from the mod itself) and where the key comes from. `/mod` is linked from the home
 page (top bar, the closing section, the footer) and, on a server's page, from **Admin → Mod and commands** (for its admins)
 and a small "Server owners: get the mod" link in the footer. Players never need it, and nothing else points them at it.
+The Worker serves `/downloads/` itself so it can count jar downloads for the [site analytics](#site-analytics).
 
 ## Sign-in
 
@@ -547,6 +550,69 @@ Admin → Roles (owners and admins without a player send as Admin anyway); anyon
 
 Cloudflare Access isn't used any more; the mod's `access_client_id` / `access_client_secret` settings are only for a
 dashboard still behind it.
+
+## Site analytics
+
+`/site-analytics` (`src/siteanalytics.js`, `src/census.js`, `public/site-analytics.html` and `.js`) is mcstats' own
+dashboard about itself, for the site's operators: the numbers a page-view tool like Google Analytics can't see,
+because they live behind sign-in or inside each server's own objects. Nothing on the site links to it.
+
+**Who can see it**: the super admins (`SUPER_ADMIN_EMAIL`), signed in to their mcstats account, and the accounts
+they add on the page itself (**Who can see this page**, table `site_viewers`). Viewers can look and press Refresh;
+only super admins set baselines or change who's let in. Anyone else gets a plain **Not authorized** page (403, with
+a link to sign in when nobody is), its script isn't served and its API says `not authorized`. No server can be called
+`site-analytics` (or `siteanalytics`): both are reserved names (`src/directory.js`). With `DEV_NO_AUTH=1` on localhost, `DEV_EMAIL` counts as
+signed in, as everywhere else.
+
+**What it shows**, over 30 days, 90 days, a year or all time:
+
+| Section | What | Where it comes from |
+| --- | --- | --- |
+| Growth | Accounts and servers, total and above your baseline, as charts with the baseline as a dashed line | `accounts.created_at`, `servers.created_at` (whole history); baselines in `site_baselines` |
+| People | Devices by day, week and month (signed in, never signed in, opened a dashboard, new), and an estimate of people | `site_counts` from `public/visit.js`; active accounts from `accounts.seen_day` |
+| Accounts | Active today, this week, this month; what accounts are across servers (player only, admin only, owner only, mixed, in no server); servers per account; members invited by email with no account yet | the census, matched against `accounts` |
+| Servers | From created to active (finished setup, mod connected, active in 30 days, 7 days, 24 hours, players on now); public or private, address set, Discord linked; members and Minecraft players per server; players and chat lines across the site | the census and the directory |
+| Mod | Servers with the mod connected now and this week; versions in use (and how many are on the latest); Minecraft versions; downloads by day and by jar | the census (each server's mod connection), `site_counts` |
+| Discord bot | Discord servers the bot is in (Discord's own count), how many are linked to a server, feeds switched on, Discord users linked to players | `GET /applications/@me`, `discord_guilds`, the census |
+| Trends | Active servers, players this week, accounts active this month, servers with the mod connected, one point a day | `site_snapshots` |
+
+"Active" for a server means the mod uploaded something or a player was seen (by the mod or by pinging its address)
+in that time. Weeks run Monday to Sunday and months are calendar months, in UTC, everywhere on the page.
+
+**Baselines**: a number you set for accounts or servers (your own test accounts, what there was at launch…). The
+baseline on a day is the latest one from on or before it; one with no date counts from the start. The Growth charts
+draw it as a dashed line and can show the totals with it taken off.
+
+**The census**: every server's numbers are in its own Durable Object, so the site's totals are put together by
+asking each one (`Tenant.census()`, plus its `ServerLink` for the mod's version and connection), 30 at a time,
+oldest first, and keeping each answer in `server_census`. A cron runs it every hour (`17 * * * *`; servers older than
+6 hours are asked again), reads the bot's Discord count, and saves the day's totals in `site_snapshots`. **Refresh**
+on the page asks every server now; the page asks the stale ones by itself when it opens.
+
+**Privacy**, which is the point of doing it this way:
+
+- **Devices** are counted without being told apart. Each browser keeps, in its own `localStorage` (`mcs_seen`), the
+  day, week and month it was last counted (for any page, signed in, and a server's dashboard), and sends those back
+  once a day to `POST /api/site/visit`; the Worker adds 1 to each period it's behind on and says what to remember.
+  No id, cookie, IP address or user agent is stored, so nobody can be followed from one day to the next. Browsers with
+  Do Not Track or Global Privacy Control, and automated ones, aren't counted. Whether a visit was signed in is
+  checked from the account cookie, not taken from the browser.
+- **People, estimated** = active accounts + devices never signed in ÷ devices per account (signed-in devices ÷ active
+  accounts, at least 1). Private windows and cleared storage count as new devices; Do Not Track browsers don't count.
+- **Active accounts**: the last UTC day each account used the site (`accounts.seen_day`, a day and not a time),
+  updated on the first signed-in request of the day (`src/sitecounts.js`). The days before that were filled in once from the sign-ins
+  still on record and the days accounts were made (`directory-migrations/0007_backfill_active_accounts.sql`), so active
+  accounts reach back about 30 days further than devices, which can only be counted from the deploy on. The page marks
+  periods where device counting began partway through with *, and its tiles say which period each number covers
+  (accounts and servers all time; people and devices this month).
+- **The census** has no names (of servers, players or members) and no emails: members come as keyed hashes of their
+  emails (`emailTag` in `src/session.js`, keyed with `SESSION_SECRET`), matched against the accounts' own when the
+  page is drawn and then forgotten.
+- **Downloads** of `/downloads/*.jar` count once per address and jar a day (browsers apart from curl, wget and the
+  like); the address is only ever a hashed rate-limit key, never stored. Crawlers and resumed downloads aren't counted.
+
+Counting starts when this is deployed: accounts, servers and Discord links have their whole history already, the rest
+fills in from then on.
 
 ## Local development
 

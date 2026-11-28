@@ -14,21 +14,23 @@
   // which can be any name the site doesn't use itself), the old addresses (/s/<server>/, /s1/), the stats page's
   // file (only served inside a server), and the site's own pages, so their link-preview image gets a full
   // address (src/index.js). What it doesn't handle it passes to the files in ./public itself, so a file missing
-  // from the list below still works; listing it only saves running the Worker for it.
+  // from the list below still works; listing it only saves running the Worker for it. Two are left off on purpose:
+  // /downloads/* (the Worker counts mod downloads) and /site-analytics.js (only the site's operators get it).
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": ["/*",
-      "!/downloads/*", "!/addons/*", "!/og.png", "!/style.css",
-      "!/app.js", "!/dummy.js", "!/home.js", "!/home3d.js", "!/liveview.js", "!/mcicons.js", "!/player3d.js", "!/site.js", "!/tenant.js", "!/ui.js"]
+      "!/addons/*", "!/og.png", "!/style.css",
+      "!/app.js", "!/dummy.js", "!/home.js", "!/home3d.js", "!/liveview.js", "!/mcicons.js", "!/player3d.js", "!/site.js", "!/tenant.js", "!/ui.js", "!/visit.js"]
   },
 
   // The mod versions shown on /new, read from mod/ (scripts/mod-info.mjs writes src/modinfo.gen.js).
   "build": { "command": "node scripts/mod-info.mjs" },
 
-  // No cron: each server checks itself on its own alarm (src/tenant.js). Said out loud, because leaving
-  // "triggers" out keeps whatever cron an earlier deploy set up.
-  "triggers": { "crons": [] },
+  // Each server checks itself on its own alarm (src/tenant.js), not on a cron. The one cron is the site analytics'
+  // hourly census of the servers (src/census.js). Said out loud, because leaving "triggers" out keeps whatever
+  // cron an earlier deploy set up.
+  "triggers": { "crons": ["17 * * * *"] },
 
   "d1_databases": [
     {

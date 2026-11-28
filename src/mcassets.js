@@ -10,7 +10,7 @@
 import { json } from './util.js';
 
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
-const TEXTURE_RE = /^textures\/(item|block|misc|particle|gui\/sprites\/advancements|gui\/advancements\/backgrounds|entity|entity\/(chest|bed|skeleton|zombie|creeper|piglin|enderdragon|decorated_pot|banner|shield)|entity\/player\/(wide|slim)|entity\/equipment\/humanoid(_leggings)?|trims\/entity\/humanoid(_leggings)?|trims\/color_palettes|environment|environment\/celestial|environment\/celestial\/moon)\/[a-z0-9_]{1,64}\.png$/;
+const TEXTURE_RE = /^textures\/(item|block|misc|particle|gui\/sprites\/advancements|gui\/advancements\/backgrounds|entity|entity\/(chest|bed|skeleton|zombie|creeper|piglin|enderdragon|decorated_pot|banner|shield)|entity\/player\/(wide|slim)|entity\/equipment\/humanoid(_leggings)?|entity\/equipment\/wings|trims\/entity\/humanoid(_leggings)?|trims\/color_palettes|environment|environment\/celestial|environment\/celestial\/moon)\/[a-z0-9_]{1,64}\.png$/;
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
 const WEEK = 7 * 86400;
 
@@ -118,22 +118,31 @@ const HOME_ITEMS = new Set([
   ...['leather', 'chainmail', 'iron', 'golden', 'diamond', 'netherite'].flatMap((m) => ['helmet', 'chestplate', 'leggings', 'boots'].map((p) => `${m}_${p}`)),
   ...['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite'].flatMap((m) => ['sword', 'pickaxe', 'axe'].map((t) => `${m}_${t}`)),
   ...['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite'].map((m) => `${m}_spear`),
-  'mace', 'apple', 'golden_apple', 'enchanted_golden_apple', 'totem_of_undying', 'ender_pearl', 'bread',
+  'mace', 'trident', 'elytra', 'firework_rocket', 'apple', 'golden_apple', 'enchanted_golden_apple', 'totem_of_undying', 'ender_pearl', 'bread',
   'bucket', 'water_bucket', 'lava_bucket', 'shears',
-  // pockets and barrels in the landing page's Liveview example (public/homelive.js)
-  'arrow', 'cooked_beef', 'diamond', 'iron_ingot', 'coal', 'emerald', 'gold_ingot', 'stick', 'wheat', 'wheat_seeds',
-  'redstone', 'golden_carrot', 'cod', 'book', 'compass', 'map', 'bow', 'fishing_rod', 'flint_and_steel', 'apple',
-  'blaze_rod', 'ender_eye', 'firework_rocket', 'experience_bottle', 'gunpowder', 'netherite_scrap', 'shulker_shell',
-  'stone_pickaxe', 'iron_axe', 'diamond_pickaxe', 'iron_sword', 'stone_sword', 'stone_axe',
+  // what's in the pockets and barrels of the Liveview example (public/homelive.js)
+  'arrow', 'bow', 'cooked_beef', 'cooked_porkchop', 'diamond', 'emerald', 'iron_ingot', 'gold_ingot', 'coal', 'stick', 'wheat',
+  'wheat_seeds', 'fishing_rod', 'cod', 'flint_and_steel', 'blaze_rod', 'golden_carrot', 'redstone', 'ender_eye', 'map', 'compass', 'book',
+  'netherite_scrap', 'shulker_shell', 'experience_bottle', 'netherite_ingot', 'gunpowder',
 ]);
+// The blocks of the Liveview example's little world: the overworld by the spawn, a corner of the Nether, an End island.
+const HOME_BLOCKS = [
+  'grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'dirt', 'stone', 'cobblestone', 'mossy_cobblestone', 'gravel', 'sand',
+  'water_still', 'oak_log', 'oak_log_top', 'oak_leaves', 'birch_log', 'birch_log_top', 'birch_leaves', 'oak_planks', 'spruce_planks',
+  'stone_bricks', 'glass', 'bookshelf', 'crafting_table_top', 'crafting_table_side', 'crafting_table_front', 'furnace_front_on', 'furnace_side',
+  'furnace_top', 'barrel_top', 'barrel_side', 'barrel_bottom', 'farmland_moist', 'wheat_stage7', 'dirt_path_top', 'dirt_path_side', 'poppy',
+  'dandelion', 'cornflower', 'short_grass', 'torch', 'coal_ore', 'iron_ore', 'diamond_ore', 'deepslate', 'deepslate_diamond_ore', 'obsidian',
+  'nether_portal', 'hay_block_side', 'hay_block_top', 'pumpkin_side', 'pumpkin_top', 'jack_o_lantern', 'bedrock', 'white_wool',
+  'netherrack', 'lava_still', 'glowstone', 'magma', 'nether_quartz_ore', 'nether_gold_ore', 'soul_sand', 'nether_bricks', 'crimson_stem',
+  'crimson_stem_top', 'nether_wart_block', 'crimson_nylium', 'crimson_nylium_side', 'shroomlight',
+  'end_stone', 'end_stone_bricks', 'purpur_block', 'purpur_pillar_top',
+].join('|');
 const HOME_TRIMS = 'coast|dune|eye|host|raiser|rib|sentry|shaper|silence|snout|spire|tide|vex|ward|wayfinder|wild|bolt|flow';
 const HOME_PALETTES = 'trim_palette|(amethyst|copper|diamond|emerald|gold|iron|lapis|netherite|quartz|redstone|resin)(_darker)?';
-// Block pictures the landing page's Liveview example builds its world from (public/homeworld.js).
-const HOME_BLOCKS = 'grass_block_top|grass_block_side|grass_block_side_overlay|dirt|stone|cobblestone|mossy_cobblestone|gravel|sand|deepslate|bedrock|coal_ore|iron_ore|diamond_ore|deepslate_diamond_ore|oak_log|oak_log_top|birch_log|birch_log_top|oak_leaves|birch_leaves|oak_planks|spruce_planks|stone_bricks|glass|bookshelf|crafting_table_top|crafting_table_side|crafting_table_front|furnace_top|furnace_side|furnace_front_on|barrel_top|barrel_bottom|barrel_side|farmland_moist|dirt_path_top|dirt_path_side|hay_block_top|hay_block_side|pumpkin_top|pumpkin_side|jack_o_lantern|obsidian|white_wool|water_still|wheat_stage7|poppy|dandelion|cornflower|short_grass|torch|nether_portal|netherrack|nether_quartz_ore|nether_gold_ore|soul_sand|nether_bricks|glowstone|magma|lava_still|crimson_stem|crimson_stem_top|nether_wart_block|crimson_nylium|crimson_nylium_side|shroomlight|end_stone|end_stone_bricks|purpur_block|purpur_pillar_top|(flowering_)?azalea_leaves';
 const HOME_TEXTURE_RE = new RegExp(
   `^textures/(entity/player/(wide|slim)/(${HOME_SKINS})|entity/equipment/humanoid(_leggings)?/(${HOME_ARMOR}|leather_overlay)|misc/enchanted_glint_armor`
   + `|trims/entity/humanoid(_leggings)?/(${HOME_TRIMS})|trims/color_palettes/(${HOME_PALETTES})`
-  + `|block/(${HOME_BLOCKS})|entity/shield/shield_base_nopattern|environment/(clouds|celestial/sun|celestial/moon/full_moon))\\.png$`);
+  + `|block/(flowering_)?azalea_leaves|block/(${HOME_BLOCKS})|entity/shield/shield_base_nopattern|entity/equipment/wings/elytra|environment/(clouds|celestial/sun|celestial/moon/full_moon))\\.png$`);
 const HOME_ITEM_TEXTURE_RE = /^textures\/item\/([a-z_]+?)(_overlay|_in_hand)?\.png$/;
 
 // GET /api/mc/… outside any server: only what the landing page uses

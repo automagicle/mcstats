@@ -11,7 +11,7 @@
 //   POST /api/discord/connect                               { t }: yes
 import { accountOf } from '../account.js';
 import { serverById, serverBySlug, SLUG_RE } from '../directory.js';
-import { loadPerms } from '../roles.js';
+import { canManage, loadPerms } from '../roles.js';
 import { playerFor } from '../link.js';
 import { signToken, unb64url, verifyToken } from '../session.js';
 import { API, INSTALL_PERMISSIONS, isSnowflake, P } from './api.js';
@@ -33,12 +33,12 @@ function peek(token) {
   }
 }
 
-// Whether the account signed in on this request is an owner of the server: its { email } or null.
+// Whether the account signed in on this request is an owner or admin of the server (src/roles.js canManage): its { email } or null.
 async function ownerOf(request, env, srv) {
   const account = await accountOf(request, env);
   if (!account) return null;
   const perms = await loadPerms(srv.env, { email: account.email });
-  return perms.owner || perms.super ? account : null;
+  return canManage(perms) ? account : null;
 }
 
 export const redirectUri = (origin) => `${origin}/api/discord/oauth`;

@@ -25,20 +25,23 @@ describe('who can change what', () => {
     expect((await settings(a, null)).status).toBe(401);
   });
 
-  it('an admin sets the name and the look; the address, password and visibility are the owner’s', async () => {
+  it('an admin sets the name and the look, and the password and visibility too; add-ons are the operators’', async () => {
     const a = await makeServer('sa-admin');
     const admin = await invite(a, 'helper@example.org', 'admin');
     const got = await (await settings(a, admin)).json();
     expect(got).toMatchObject({ slug: a.slug, accent: 'green', tab_style: 'line', public: false, has_password: true, addons: [] });
-    expect(got.can).toEqual({ owner: false, super: false });
+    expect(got.can).toEqual({ owner: true, super: false });
     expect(got.known_addons).toBeUndefined();
 
     const ok = await settings(a, admin, { name: 'Renamed', accent: 'blue', tab_style: 'frame' });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ name: 'Renamed', accent: 'blue', tab_style: 'frame' });
-    for (const body of [{ slug: 'sa-admin-moved' }, { password: 'another-password', confirm: 'another-password' }, { public: true }, { addons: ['eggsmp'] }]) {
-      expect((await settings(a, admin, body)).status, JSON.stringify(body)).toBe(403);
+    for (const body of [{ password: 'another-password', confirm: 'another-password' }, { public: true }]) {
+      const r = await settings(a, admin, body);
+      expect(r.status, await r.clone().text()).toBe(200);
     }
+    expect((await settings(a, admin, { public: false })).status).toBe(200);
+    expect((await settings(a, admin, { addons: ['eggsmp'] })).status).toBe(403);
     // the banner at the top of Activity (icon, description, and whether Layout shows it) is an admin's too
     const png = new Uint8Array(40);
     png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
@@ -53,6 +56,33 @@ describe('who can change what', () => {
     // an admin of another server gets nowhere here
     const b = await makeServer('sa-admin-b');
     expect((await settings(a, await idCookie(b, b.owner), { accent: 'green' })).status).toBe(401);
+  });
+
+  it('an admin picks the time zone by place; the dashboard then shows times in it', async () => {
+    const a = await makeServer('sa-tz');
+    const admin = await invite(a, 'tz-helper@example.org', 'admin');
+    const status = async () => (await (await call(`/${a.slug}/api/status?season=1`, { cookie: await viewerCookie(a) })).json()).tz;
+    // made without a zone (the tests' requests carry none): UTC
+    expect((await (await settings(a, admin)).json()).tz).toBe('UTC');
+    expect(await status()).toBe('UTC');
+
+    const ok = await settings(a, admin, { tz: 'america/los_angeles' });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).tz).toBe('America/Los_Angeles');
+    expect(await status()).toBe('America/Los_Angeles');
+    expect((await (await call(`/${a.slug}/api/admin/seasons`, { cookie: admin })).json()).tz).toBe('America/Los_Angeles');
+
+    // only places: not abbreviations, fixed offsets or made-up names; a refused one changes nothing
+    for (const tz of ['PST', '+08:00', 'Etc/GMT+8', 'Mars/Olympus_Mons', '', 'America/Los_Angeles; DROP']) {
+      const res = await settings(a, admin, { tz });
+      expect(res.status, tz).toBe(400);
+      expect((await res.json()).field).toBe('tz');
+    }
+    expect(await status()).toBe('America/Los_Angeles');
+    expect((await (await settings(a, admin, { tz: 'UTC' })).json()).tz).toBe('UTC');
+    expect((await (await settings(a, admin, { tz: 'Asia/Kolkata' })).json()).tz).toMatch(/^Asia\/(Kolkata|Calcutta)$/);
+    // members can't
+    expect((await settings(a, await invite(a, 'tz-member@example.org', 'member'), { tz: 'Europe/London' })).status).toBe(403);
   });
 
   it('only the site’s operators switch add-ons on, and only that server’s page then loads them', async () => {

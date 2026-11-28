@@ -146,7 +146,7 @@ describe('linking', () => {
     expect(text(await answer(await sub(guild, 'setup', [opt('server', other.slug), opt('code', code2)])))).toContain('already linked to another');
   });
 
-  it('only owners make codes, and only admins see the section', async () => {
+  it('owners and admins make codes and choose what’s shared; members don’t see the section', async () => {
     const s = await makeServer('dc-roles');
     await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body: { email: 'adm@example.org', role: 'admin' } });
     await call(`/${s.slug}/api/admin/roles`, { method: 'POST', cookie: s.cookie, body: { email: 'mem@example.org', role: 'member' } });
@@ -154,8 +154,11 @@ describe('linking', () => {
     const mem = await accountCookie('mem@example.org');
     expect((await call(`/${s.slug}/api/admin/discord`, { cookie: mem })).status).toBe(403);
     expect((await call(`/${s.slug}/api/admin/discord`, { cookie: adm })).status).toBe(200);
-    expect((await call(`/${s.slug}/api/admin/discord`, { method: 'POST', cookie: adm, body: { action: 'code' } })).status).toBe(403);
-    expect((await call(`/${s.slug}/api/admin/discord`, { method: 'POST', cookie: adm, body: { action: 'share', share: { chat: true } } })).status).toBe(403);
+    expect((await (await call(`/${s.slug}/api/admin/discord`, { cookie: adm })).json()).owner).toBe(true);
+    expect((await call(`/${s.slug}/api/admin/discord`, { method: 'POST', cookie: adm, body: { action: 'code' } })).status).toBe(200);
+    expect((await call(`/${s.slug}/api/admin/discord`, { method: 'POST', cookie: adm, body: { action: 'share', share: { chat: true } } })).status).toBe(200);
+    expect((await call(`/api/discord/install?server=${s.slug}`, { cookie: adm })).status).toBe(302);
+    expect((await call(`/${s.slug}/api/admin/discord`, { method: 'POST', cookie: mem, body: { action: 'code' } })).status).toBe(403);
   });
 
   it('from the dashboard: Add to Discord, and back linked', async () => {

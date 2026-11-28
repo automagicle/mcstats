@@ -12,6 +12,9 @@
 //                        /api/ops/*  the operator's (src/ops.js)
 //   /api/account/*       mcstats accounts: signing in and out, passwords (src/account.js)
 //   /api/discord/*       the Discord bot: Discord's interactions, adding it to a Discord server, player faces (src/discord/)
+//   /site-analytics, /api/site-analytics/*  numbers about the site itself, for its operators only; anyone else is
+//                        told they aren't authorized (src/siteanalytics.js). /api/site/visit counts devices
+//                        (public/visit.js) and /downloads/*.jar counts mod downloads for it
 //   /s1/                 the old season 1 archive address: now the first server's
 //   /api/mc/*            outside a server: just the game textures the landing page's example players wear
 //   everything else      the static pages in public/ (/, /join, /new, /account, …: SITE_PATHS in src/directory.js)
@@ -37,6 +40,8 @@ import { commandsOf } from './commands.js';
 import { handleDiscord } from './discord/index.js';
 import { discordAdmin } from './discord/admin.js';
 import { uploadOrigin } from './site.js';
+import { handleSiteAnalytics, isSitePage, recordVisit, serveDownload, sitePage } from './siteanalytics.js';
+import { hourlyCensus } from './census.js';
 
 export { ServerLink } from './link.js';
 export { Presence } from './presence.js';
@@ -256,6 +261,12 @@ async function server(request, env, url, ctx, slug, rest) {
 }
 
 export default {
+  // Once an hour: the site analytics' census of the servers whose numbers are oldest, and today's totals
+  // (src/census.js). Each server's own status checks don't use this: they run on its own alarm (src/tenant.js).
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(hourlyCensus(env).catch((err) => console.error('census:', err.message)));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
@@ -268,7 +279,12 @@ export default {
     if (home && !ing && !p.startsWith('/downloads/')) return moved(request, `${home}${p}${url.search}`);
 
     if (ing) return ingest(request, env, url, ctx, ing[1]);
+    if (p === '/api/site/visit') return recordVisit(request, env, url);
     if (p.startsWith('/api/site/')) return handleSite(request, env, url);
+    if (p.startsWith('/api/site-analytics/')) return handleSiteAnalytics(request, env, url);
+    if (isSitePage(p)) return sitePage(request, env, url);
+    // the mod's jars (and the readme beside them), counted for the site analytics
+    if (p.startsWith('/downloads/')) return serveDownload(request, env, url, ctx);
     if (p.startsWith('/api/account/')) return handleAccount(request, env, url);
     if (p.startsWith('/api/ops/')) return handleOps(request, env, url);
     if (p.startsWith('/api/discord/')) return handleDiscord(request, env, url, ctx);
